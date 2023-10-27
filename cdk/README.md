@@ -41,7 +41,6 @@ aws cloudformation describe-stacks --stack-name passkey-test --query "Stacks[0].
 ```sh
 aws cloudformation describe-stacks --stack-name passkey-test --query "Stacks[0].Outputs[?OutputKey=='UserPoolClientId'].OutputValue" --output text
 ```
-```
 
 ## Useful commands
 
