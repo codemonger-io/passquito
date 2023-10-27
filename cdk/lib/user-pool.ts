@@ -21,7 +21,8 @@ export class UserPool extends Construct {
     super(scope, id);
 
     this.userPoolTriggerLambda = new RustFunction(this, 'CognitoTriggerLambda', {
-      manifestPath: path.join('lambda', 'user-pool-triggers', 'Cargo.toml'),
+      manifestPath: path.join('lambda', 'authentication', 'Cargo.toml'),
+      binaryName: 'user-pool-triggers',
       architecture: lambda.Architecture.ARM_64,
       memorySize: 128,
       timeout: Duration.seconds(5),

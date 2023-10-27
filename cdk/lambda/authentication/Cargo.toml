@@ -1,7 +1,8 @@
 [package]
-name = "user-pool-triggers"
+name = "authentication"
 version = "0.1.0"
 edition = "2021"
+description = "Web Authentication with Cognito"
 
 # Starting in Rust 1.62 you can use `cargo add` to add dependencies 
 # to your project.

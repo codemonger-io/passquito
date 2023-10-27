@@ -3,7 +3,7 @@ use lambda_runtime::{run, service_fn, Error, LambdaEvent};
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
-use user_pool_triggers::event::{
+use authentication::event::{
     CognitoChallengeEvent,
     CognitoChallengeEventCase,
     CognitoEventUserPoolsCreateAuthChallengeExt,
