@@ -13,6 +13,7 @@
     "format": "prettier --write src/"
   },
   "dependencies": {
+    "@aws-sdk/client-cognito-identity-provider": "^3.437.0",
     "js-base64": "^3.7.5",
     "pinia": "^2.1.6",
     "vue": "^3.3.4",

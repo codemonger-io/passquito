@@ -1,0 +1,1 @@
+export const userPoolClientId = 'Cognito user pool client ID for your app';
