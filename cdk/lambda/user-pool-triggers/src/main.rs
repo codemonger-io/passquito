@@ -1,14 +1,35 @@
 use aws_lambda_events::event::cognito::CognitoEventUserPoolsDefineAuthChallenge;
 use lambda_runtime::{run, service_fn, Error, LambdaEvent};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tracing::info;
 
 use user_pool_triggers::event::{
     CognitoChallengeEvent,
     CognitoChallengeEventCase,
     CognitoEventUserPoolsCreateAuthChallengeExt,
+    CognitoEventUserPoolsDefineAuthChallengeOps,
     CognitoEventUserPoolsVerifyAuthChallengeExt,
 };
+
+const CHALLENGE_PARAMETER_NAME: &str = "passkeyTestChallenge";
+
+/// Challenge response.
+/// 
+/// TODO: replace with the one from [`webauthn-rs-proto`].
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct RequestChallengeResponse {
+    /// Dummy field.
+    pub dummy: String,
+}
+
+/// Public key credential.
+///
+/// TODO: replace with the one from [`webauthn-rs-proto`]
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct PublicKeyCredential {
+    /// Dummy field.
+    pub dummy: String,
+}
 
 /// This is the main body for the function.
 /// Write your code inside it.
@@ -18,14 +39,14 @@ use user_pool_triggers::event::{
 async fn function_handler(
     event: LambdaEvent<CognitoChallengeEvent>,
 ) -> Result<CognitoChallengeEvent, Error> {
-    let (payload, _) = event.into_parts();
-    let result = match payload.determine() {
-        Ok(CognitoChallengeEventCase::Define(payload)) =>
-            define_auth_challenge(payload).await?.into(),
-        Ok(CognitoChallengeEventCase::Create(payload)) =>
-            create_auth_challenge(payload).await?.into(),
-        Ok(CognitoChallengeEventCase::Verify(payload)) =>
-            verify_auth_challenge(payload).await?.into(),
+    let (event, _) = event.into_parts();
+    let result = match event.determine() {
+        Ok(CognitoChallengeEventCase::Define(event)) =>
+            define_auth_challenge(event).await?.into(),
+        Ok(CognitoChallengeEventCase::Create(event)) =>
+            create_auth_challenge(event).await?.into(),
+        Ok(CognitoChallengeEventCase::Verify(event)) =>
+            verify_auth_challenge(event).await?.into(),
         Err(_) => {
             return Err("invalid Cognito challenge event".into());
         }
@@ -35,26 +56,58 @@ async fn function_handler(
 
 // Handles "Define auth challenge" events.
 async fn define_auth_challenge(
-    payload: CognitoEventUserPoolsDefineAuthChallenge,
+    mut event: CognitoEventUserPoolsDefineAuthChallenge,
 ) -> Result<CognitoEventUserPoolsDefineAuthChallenge, Error> {
     info!("define_auth_challenge");
-    Ok(payload)
+    if event.sessions().is_empty() {
+        info!("starting custom authentication");
+        event.start_custom_challenge();
+    } else if event.sessions().last().unwrap().as_ref()
+        .filter(|s| s.challenge_result)
+        .is_some()
+    {
+        info!("finishing custom authentication");
+        event.allow();
+    } else {
+        info!("rejecting custom authentication");
+        event.deny();
+    }
+    Ok(event)
 }
 
 // Handles "Create auth challenge" events.
 async fn create_auth_challenge(
-    payload: CognitoEventUserPoolsCreateAuthChallengeExt,
+    mut event: CognitoEventUserPoolsCreateAuthChallengeExt,
 ) -> Result<CognitoEventUserPoolsCreateAuthChallengeExt, Error> {
     info!("create_auth_challenge");
-    Ok(payload)
+    if event.sessions().is_empty() {
+        event.set_challenge_metadata("PASSKEY_TEST_CHALLENGE");
+        let rcr = RequestChallengeResponse {
+            dummy: "dummy".into(),
+        };
+        event.set_public_challenge_parameter(CHALLENGE_PARAMETER_NAME, &rcr)?;
+        event.set_private_challenge_parameter(CHALLENGE_PARAMETER_NAME, &rcr)?;
+        Ok(event)
+    } else {
+        Err("no further challenges".into())
+    }
 }
 
 // Handles "Verify auth challenge" events.
 async fn verify_auth_challenge(
-    payload: CognitoEventUserPoolsVerifyAuthChallengeExt,
+    mut event: CognitoEventUserPoolsVerifyAuthChallengeExt,
 ) -> Result<CognitoEventUserPoolsVerifyAuthChallengeExt, Error> {
     info!("verify_auth_challenge");
-    Ok(payload)
+    let credential: PublicKeyCredential = event.get_challenge_answer()?;
+    let challenge: RequestChallengeResponse = event
+        .get_private_challenge_parameter(CHALLENGE_PARAMETER_NAME)?
+        .ok_or("missing private challenge parameter")?;
+    if credential.dummy == challenge.dummy {
+        event.accept();
+    } else {
+        event.reject();
+    }
+    Ok(event)
 }
 
 #[tokio::main]

@@ -13,9 +13,8 @@ use aws_lambda_events::event::cognito::{
 };
 use serde::{
     Deserialize, Serialize,
-    de::{DeserializeOwned, Deserializer},
+    de::Deserializer,
 };
-use serde_json::Value;
 use std::collections::HashMap;
 
 use crate::error::Error;
@@ -97,6 +96,45 @@ impl_from! { CognitoEventUserPoolsDefineAuthChallenge }
 impl_from! { CognitoEventUserPoolsCreateAuthChallengeExt }
 impl_from! { CognitoEventUserPoolsVerifyAuthChallengeExt }
 
+/// Operations on [`CognitoEventUserPoolsDefineAuthChallengeResponse`].
+pub trait CognitoEventUserPoolsDefineAuthChallengeOps {
+    /// Returns the sessions.
+    fn sessions(&self) -> &Vec<Option<CognitoEventUserPoolsChallengeResult>>;
+
+    /// Starts custom challenge.
+    fn start_custom_challenge(&mut self);
+
+    /// Allows the authentication.
+    fn allow(&mut self);
+
+    /// Denies the authentication.
+    fn deny(&mut self);
+}
+
+impl CognitoEventUserPoolsDefineAuthChallengeOps
+    for CognitoEventUserPoolsDefineAuthChallenge
+{
+    fn sessions(&self) -> &Vec<Option<CognitoEventUserPoolsChallengeResult>> {
+        &self.request.session
+    }
+
+    fn start_custom_challenge(&mut self) {
+        self.response.issue_tokens = false;
+        self.response.fail_authentication = false;
+        self.response.challenge_name = Some("CUSTOM_CHALLENGE".into());
+    }
+
+    fn allow(&mut self) {
+        self.response.issue_tokens = true;
+        self.response.fail_authentication = false;
+    }
+
+    fn deny(&mut self) {
+        self.response.issue_tokens = false;
+        self.response.fail_authentication = true;
+    }
+}
+
 /// [`CognitoEventUserPoolsCreateAuthChallenge`] extended with
 /// `user_not_found` field.
 pub struct CognitoEventUserPoolsCreateAuthChallengeExt {
@@ -112,6 +150,46 @@ pub struct CognitoEventUserPoolsCreateAuthChallengeExt {
     pub response: CognitoEventUserPoolsCreateAuthChallengeResponse,
 }
 
+impl CognitoEventUserPoolsCreateAuthChallengeExt {
+    /// Returns the sessions.
+    pub fn sessions(&self) -> &Vec<Option<CognitoEventUserPoolsChallengeResult>> {
+        &self.request.0.session
+    }
+
+    /// Sets the challenge metadata.
+    pub fn set_challenge_metadata(&mut self, metadata: impl Into<String>) {
+        self.response.challenge_metadata = Some(metadata.into());
+    }
+
+    /// Sets a public challenge parameter.
+    pub fn set_public_challenge_parameter(
+        &mut self,
+        key: impl Into<String>,
+        value: &(impl Serialize + ?Sized),
+    ) -> Result<(), Error> {
+        self.response.public_challenge_parameters.insert(
+            key.into(),
+            serde_json::to_string(value)
+                .or(Err(Error::Inconvertible("non-serializable challenge parameter")))?,
+        );
+        Ok(())
+    }
+
+    /// Sets a private challenge parameter.
+    pub fn set_private_challenge_parameter(
+        &mut self,
+        key: impl Into<String>,
+        value: &(impl Serialize + ?Sized),
+    ) -> Result<(), Error> {
+        self.response.private_challenge_parameters.insert(
+            key.into(),
+            serde_json::to_string(value)
+                .or(Err(Error::Inconvertible("non-serializable challenge parameter")))?,
+        );
+        Ok(())
+    }
+}
+
 /// [`CognitoEventUserPoolsVerifyAuthChallenge`] extended with
 /// `user_not_found` field.
 pub struct CognitoEventUserPoolsVerifyAuthChallengeExt {
@@ -121,10 +199,51 @@ pub struct CognitoEventUserPoolsVerifyAuthChallengeExt {
     /// Request part with `user_not_found`.
     ///
     /// The second item indicates user's absence.
-    pub request: (CognitoEventUserPoolsVerifyAuthChallengeRequest, bool),
+    pub request: (CognitoEventUserPoolsVerifyAuthChallengeRequest<String>, bool),
 
     /// Response part.
     pub response: CognitoEventUserPoolsVerifyAuthChallengeResponse,
+}
+
+impl CognitoEventUserPoolsVerifyAuthChallengeExt {
+    /// Obtains the challenge answer.
+    pub fn get_challenge_answer<'de, T>(&'de self) -> Result<T, Error>
+    where
+        T: Deserialize<'de>,
+    {
+        let challenge_answer = self.request.0.challenge_answer
+            .as_ref()
+            .ok_or(Error::Inconvertible("missing challenge_answer"))?;
+        serde_json::from_str(challenge_answer)
+            .or(Err(Error::Inconvertible("incompatible challenge_answer")))
+    }
+
+    /// Obtains a private public parameter.
+    pub fn get_private_challenge_parameter<'de, T, K>(
+        &'de self,
+        key: &K,
+    ) -> Result<Option<T>, Error>
+    where
+        String: std::borrow::Borrow<K>,
+        K: Eq + std::hash::Hash + ?Sized,
+        T: Deserialize<'de>,
+    {
+        self.request.0.private_challenge_parameters
+            .get(key)
+            .map(|v| serde_json::from_str(v)
+                .or(Err(Error::Inconvertible("incompatible challenge parameter"))))
+            .transpose()
+    }
+
+    /// Accepts the challenge answer.
+    pub fn accept(&mut self) {
+        self.response.answer_correct = true;
+    }
+
+    /// Rejects the challenge answer.
+    pub fn reject(&mut self) {
+        self.response.answer_correct = false;
+    }
 }
 
 /// Union of the request parts of challenge events.
@@ -135,10 +254,7 @@ pub struct CognitoEventUserPoolsVerifyAuthChallengeExt {
 /// - "Verify auth challenge"
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct CognitoChallengeEventRequest<Ans = Value>
-where
-    Ans: DeserializeOwned + Serialize,
-{
+pub struct CognitoChallengeEventRequest {
     /// User attributes.
     #[serde(deserialize_with = "deserialize_lambda_map")]
     #[serde(default)]
@@ -169,8 +285,7 @@ where
     ///
     /// Only "Verify auth challenge" uses this field.
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(bound = "")]
-    pub challenge_answer: Option<Ans>,
+    pub challenge_answer: Option<String>,
 
     /// Client metadata.
     #[serde(deserialize_with = "deserialize_lambda_map")]
@@ -262,13 +377,13 @@ impl From<(CognitoEventUserPoolsCreateAuthChallengeRequest, bool)>
     }
 }
 
-impl TryInto<(CognitoEventUserPoolsVerifyAuthChallengeRequest, bool)>
+impl TryInto<(CognitoEventUserPoolsVerifyAuthChallengeRequest<String>, bool)>
     for CognitoChallengeEventRequest
 {
     type Error = Error;
 
     fn try_into(self) -> Result<
-        (CognitoEventUserPoolsVerifyAuthChallengeRequest, bool),
+        (CognitoEventUserPoolsVerifyAuthChallengeRequest<String>, bool),
         Self::Error,
     > {
         Ok((
@@ -284,12 +399,12 @@ impl TryInto<(CognitoEventUserPoolsVerifyAuthChallengeRequest, bool)>
     }
 }
 
-impl From<(CognitoEventUserPoolsVerifyAuthChallengeRequest, bool)>
+impl From<(CognitoEventUserPoolsVerifyAuthChallengeRequest<String>, bool)>
     for CognitoChallengeEventRequest
 {
     fn from(
         (from, user_not_found): (
-            CognitoEventUserPoolsVerifyAuthChallengeRequest,
+            CognitoEventUserPoolsVerifyAuthChallengeRequest<String>,
             bool,
         ),
     ) -> Self {
