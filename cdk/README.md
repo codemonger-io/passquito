@@ -28,6 +28,21 @@ pnpm exec cdk synth
 pnpm exec cdk deploy
 ```
 
+## CloudFormation outputs
+
+### User pool ID
+
+```sh
+aws cloudformation describe-stacks --stack-name passkey-test --query "Stacks[0].Outputs[?OutputKey=='UserPoolId'].OutputValue" --output text
+```
+
+### User pool client ID
+
+```sh
+aws cloudformation describe-stacks --stack-name passkey-test --query "Stacks[0].Outputs[?OutputKey=='UserPoolClientId'].OutputValue" --output text
+```
+```
+
 ## Useful commands
 
 * `npm run build`   compile typescript to js
