@@ -42,16 +42,27 @@ pub struct CognitoChallengeEvent {
 impl CognitoChallengeEvent {
     /// Determines the actual type of the event.
     ///
-    /// Returns `self` wrapped with `Err` if the type is ambiguous or invalid.
+    /// Determines from the trigger source if it is provided.
+    /// Otherwise, guesses from fields.
     pub fn determine(self) -> Result<CognitoChallengeEventCase, Error> {
-        if self.request.challenge_name.is_some() {
-            // CognitoEventUserPoolsCreateAuthChallenge::challenge_name is
-            // Option though
-            Ok(CognitoChallengeEventCase::Create(self.try_into()?))
-        } else if self.request.private_challenge_parameters.is_some() {
-            Ok(CognitoChallengeEventCase::Verify(self.try_into()?))
-        } else {
-            Ok(CognitoChallengeEventCase::Define(self.try_into()?))
+        match self.cognito_event_user_pools_header.trigger_source.as_deref() {
+            Some("DefineAuthChallenge_Authentication") =>
+                Ok(CognitoChallengeEventCase::Define(self.try_into()?)),
+            Some("CreateAuthChallenge_Authentication") =>
+                Ok(CognitoChallengeEventCase::Create(self.try_into()?)),
+            Some("VerifyAuthChallengeResponse_Authentication") =>
+                Ok(CognitoChallengeEventCase::Verify(self.try_into()?)),
+            _ => {
+                if self.request.challenge_name.is_some() {
+                    // CognitoEventUserPoolsCreateAuthChallenge::challenge_name is
+                     // Option though
+                     Ok(CognitoChallengeEventCase::Create(self.try_into()?))
+                 } else if self.request.private_challenge_parameters.is_some() {
+                     Ok(CognitoChallengeEventCase::Verify(self.try_into()?))
+                 } else {
+                     Ok(CognitoChallengeEventCase::Define(self.try_into()?))
+                 }
+            }
         }
     }
 }
@@ -61,12 +72,12 @@ macro_rules! impl_try_into {
         impl TryInto<$event> for CognitoChallengeEvent {
             type Error = Error;
 
-            fn try_into(self) -> Result<$event, Error> {
+            fn try_into(self) -> Result<$event, Self::Error> {
                 Ok($event {
                     cognito_event_user_pools_header:
                         self.cognito_event_user_pools_header,
                     request: self.request.try_into()?,
-                    response: self.response.try_into()?,
+                    response: self.response.into(),
                 })
             }
         }
@@ -137,6 +148,7 @@ impl CognitoEventUserPoolsDefineAuthChallengeOps
 
 /// [`CognitoEventUserPoolsCreateAuthChallenge`] extended with
 /// `user_not_found` field.
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CognitoEventUserPoolsCreateAuthChallengeExt {
     /// Common part.
     pub cognito_event_user_pools_header: CognitoEventUserPoolsHeader,
@@ -192,6 +204,7 @@ impl CognitoEventUserPoolsCreateAuthChallengeExt {
 
 /// [`CognitoEventUserPoolsVerifyAuthChallenge`] extended with
 /// `user_not_found` field.
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CognitoEventUserPoolsVerifyAuthChallengeExt {
     /// Common part.
     pub cognito_event_user_pools_header: CognitoEventUserPoolsHeader,
@@ -478,21 +491,15 @@ pub struct CognitoChallengeEventResponse {
     pub answer_correct: Option<bool>,
 }
 
-impl TryInto<CognitoEventUserPoolsDefineAuthChallengeResponse>
+impl Into<CognitoEventUserPoolsDefineAuthChallengeResponse>
     for CognitoChallengeEventResponse
 {
-    type Error = Error;
-
-    fn try_into(self) ->
-        Result<CognitoEventUserPoolsDefineAuthChallengeResponse, Error>
-    {
-        Ok(CognitoEventUserPoolsDefineAuthChallengeResponse {
+    fn into(self) -> CognitoEventUserPoolsDefineAuthChallengeResponse {
+        CognitoEventUserPoolsDefineAuthChallengeResponse {
             challenge_name: self.challenge_name,
-            issue_tokens: self.issue_tokens
-                .ok_or(Error::Inconvertible("missing issue_tokens"))?,
-            fail_authentication: self.fail_authentication
-                .ok_or(Error::Inconvertible("missing fail_authentication"))?,
-        })
+            issue_tokens: self.issue_tokens.unwrap_or_default(),
+            fail_authentication: self.fail_authentication.unwrap_or_default(),
+        }
     }
 }
 
@@ -512,21 +519,17 @@ impl From<CognitoEventUserPoolsDefineAuthChallengeResponse>
     }
 }
 
-impl TryInto<CognitoEventUserPoolsCreateAuthChallengeResponse>
+impl Into<CognitoEventUserPoolsCreateAuthChallengeResponse>
     for CognitoChallengeEventResponse
 {
-    type Error = Error;
-
-    fn try_into(self) ->
-        Result<CognitoEventUserPoolsCreateAuthChallengeResponse, Error>
-    {
-        Ok(CognitoEventUserPoolsCreateAuthChallengeResponse {
+    fn into(self) -> CognitoEventUserPoolsCreateAuthChallengeResponse {
+        CognitoEventUserPoolsCreateAuthChallengeResponse {
             public_challenge_parameters: self.public_challenge_parameters
-                .ok_or(Error::Inconvertible("missing public_challenge_parameters"))?,
+                .unwrap_or_else(HashMap::new),
             private_challenge_parameters: self.private_challenge_parameters
-                .ok_or(Error::Inconvertible("missing private_challenge_parameters"))?,
+                .unwrap_or_else(HashMap::new),
             challenge_metadata: self.challenge_metadata,
-        })
+        }
     }
 }
 
@@ -547,18 +550,13 @@ impl From<CognitoEventUserPoolsCreateAuthChallengeResponse>
     }
 }
 
-impl TryInto<CognitoEventUserPoolsVerifyAuthChallengeResponse>
+impl Into<CognitoEventUserPoolsVerifyAuthChallengeResponse>
     for CognitoChallengeEventResponse
 {
-    type Error = Error;
-
-    fn try_into(self) ->
-        Result<CognitoEventUserPoolsVerifyAuthChallengeResponse, Error>
-    {
-        Ok(CognitoEventUserPoolsVerifyAuthChallengeResponse {
-            answer_correct: self.answer_correct
-                .ok_or(Error::Inconvertible("missing answer_correct"))?,
-        })
+    fn into(self) -> CognitoEventUserPoolsVerifyAuthChallengeResponse {
+        CognitoEventUserPoolsVerifyAuthChallengeResponse {
+            answer_correct: self.answer_correct.unwrap_or_default(),
+        }
     }
 }
 
@@ -579,6 +577,7 @@ impl From<CognitoEventUserPoolsVerifyAuthChallengeResponse>
 }
 
 /// Enumerates specific types of [`CognitoChallengeEvent`].
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CognitoChallengeEventCase {
     /// [`CognitoUserPoolsDefineAuthChallenge`].
     Define(CognitoEventUserPoolsDefineAuthChallenge),
@@ -605,4 +604,392 @@ where
     // https://github.com/serde-rs/serde/issues/1098
     let opt = Option::deserialize(deserializer)?;
     Ok(opt.unwrap_or_default())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use aws_lambda_events::event::cognito::CognitoEventUserPoolsCallerContext;
+
+    #[test]
+    fn cognito_challenge_event_can_determine_define_auth_challenge() {
+        let event = CognitoChallengeEvent {
+            cognito_event_user_pools_header: CognitoEventUserPoolsHeader {
+                version: Some("1".into()),
+                trigger_source: Some("DefineAuthChallenge_Authentication".into()),
+                region: Some("ap-northeast-1".into()),
+                user_pool_id: Some("ap-northeast-1_XYZ".into()),
+                caller_context: CognitoEventUserPoolsCallerContext {
+                    awssdk_version: Some("aws-sdk-js-3.437.0".into()),
+                    client_id: Some("xyz".into()),
+                },
+                user_name: Some("kemoto".into()),
+            },
+            request: CognitoChallengeEventRequest {
+                user_attributes: HashMap::from([
+                    ("sub".into(), "xyz".into()),
+                    ("cognito:user_status".into(), "CONFIRMED".into()),
+                ]),
+                challenge_name: None,
+                session: Some(vec![]),
+                private_challenge_parameters: None,
+                challenge_answer: None,
+                client_metadata: HashMap::new(),
+                user_not_found: false,
+            },
+            response: CognitoChallengeEventResponse {
+                challenge_name: None,
+                issue_tokens: None,
+                fail_authentication: None,
+                public_challenge_parameters: None,
+                private_challenge_parameters: None,
+                challenge_metadata: None,
+                answer_correct: None,
+            },
+        };
+        let expected = CognitoEventUserPoolsDefineAuthChallenge {
+            cognito_event_user_pools_header: event.cognito_event_user_pools_header.clone(),
+            request: CognitoEventUserPoolsDefineAuthChallengeRequest {
+                user_attributes: event.request.user_attributes.clone(),
+                session: vec![],
+                client_metadata: HashMap::new(),
+                user_not_found: false,
+            },
+            response: CognitoEventUserPoolsDefineAuthChallengeResponse {
+                challenge_name: None,
+                issue_tokens: false,
+                fail_authentication: false,
+            },
+        };
+        assert_eq!(event.determine().unwrap(), CognitoChallengeEventCase::Define(expected));
+    }
+
+    #[test]
+    fn cognito_challenge_event_can_determine_create_auth_challenge() {
+        let event = CognitoChallengeEvent {
+            cognito_event_user_pools_header: CognitoEventUserPoolsHeader {
+                version: Some("1".into()),
+                trigger_source: Some("CreateAuthChallenge_Authentication".into()),
+                region: Some("ap-northeast-1".into()),
+                user_pool_id: Some("ap-northeast-1_XYZ".into()),
+                caller_context: CognitoEventUserPoolsCallerContext {
+                    awssdk_version: Some("aws-sdk-js-3.437.0".into()),
+                    client_id: Some("xyz".into()),
+                },
+                user_name: Some("kemoto".into()),
+            },
+            request: CognitoChallengeEventRequest {
+                user_attributes: HashMap::from([
+                    ("cognito:user_status".into(), "CONFIRMED".into()),
+                    ("sub".into(), "xyz".into()),
+                ]),
+                challenge_name: Some("CUSTOM_CHALLENGE".into()),
+                session: Some(vec![]),
+                private_challenge_parameters: None,
+                challenge_answer: None,
+                client_metadata: HashMap::new(),
+                user_not_found: false,
+            },
+            response: CognitoChallengeEventResponse {
+                challenge_name: None,
+                issue_tokens: None,
+                fail_authentication: None,
+                public_challenge_parameters: None,
+                private_challenge_parameters: None,
+                challenge_metadata: None,
+                answer_correct: None,
+            },
+        };
+        let expected = CognitoEventUserPoolsCreateAuthChallengeExt {
+            cognito_event_user_pools_header: event.cognito_event_user_pools_header.clone(),
+            request: (
+                CognitoEventUserPoolsCreateAuthChallengeRequest {
+                    user_attributes: event.request.user_attributes.clone(),
+                    challenge_name: Some("CUSTOM_CHALLENGE".into()),
+                    session: vec![],
+                    client_metadata: HashMap::new(),
+                },
+                false,
+            ),
+            response: CognitoEventUserPoolsCreateAuthChallengeResponse {
+                public_challenge_parameters: HashMap::new(),
+                private_challenge_parameters: HashMap::new(),
+                challenge_metadata: None,
+            },
+        };
+        assert_eq!(event.determine().unwrap(), CognitoChallengeEventCase::Create(expected));
+    }
+
+    #[test]
+    fn cognito_challenge_event_can_determine_verify_auth_challenge() {
+        let event = CognitoChallengeEvent {
+            cognito_event_user_pools_header: CognitoEventUserPoolsHeader {
+                version: Some("1".into()),
+                trigger_source: Some("VerifyAuthChallengeResponse_Authentication".into()),
+                region: Some("ap-northeast-1".into()),
+                user_pool_id: Some("ap-northeast-1_XYZ".into()),
+                caller_context: CognitoEventUserPoolsCallerContext {
+                    awssdk_version: Some("aws-sdk-js-3.437.0".into()),
+                    client_id: Some("xyz".into()),
+                }, user_name: Some("kemoto".into()),
+            },
+            request: CognitoChallengeEventRequest {
+                user_attributes: HashMap::from([
+                    ("sub".into(), "xyz".into()),
+                    ("cognito:user_status".into(), "CONFIRMED".into()),
+                ]),
+                challenge_name: None,
+                session: None,
+                private_challenge_parameters: Some(HashMap::from([
+                    ("passkeyTestChallenge".into(), "{\"dummy\":\"dummy\"}".into()),
+                ])),
+                challenge_answer: Some("{\"dummy\":\"dummy\"}".into()),
+                client_metadata: HashMap::new(),
+                user_not_found: false,
+            },
+            response: CognitoChallengeEventResponse {
+                challenge_name: None,
+                issue_tokens: None,
+                fail_authentication: None,
+                public_challenge_parameters: None,
+                private_challenge_parameters: None,
+                challenge_metadata: None,
+                answer_correct: None,
+            },
+        };
+        let expected = CognitoEventUserPoolsVerifyAuthChallengeExt {
+            cognito_event_user_pools_header: event.cognito_event_user_pools_header.clone(),
+            request: (
+                CognitoEventUserPoolsVerifyAuthChallengeRequest {
+                    user_attributes: event.request.user_attributes.clone(),
+                    private_challenge_parameters: HashMap::from([
+                        ("passkeyTestChallenge".into(), "{\"dummy\":\"dummy\"}".into()),
+                    ]),
+                    challenge_answer: Some("{\"dummy\":\"dummy\"}".into()),
+                    client_metadata: HashMap::new(),
+                },
+                false,
+            ),
+            response: CognitoEventUserPoolsVerifyAuthChallengeResponse {
+                answer_correct: false,
+            },
+        };
+        assert_eq!(event.determine().unwrap(), CognitoChallengeEventCase::Verify(expected));
+    }
+
+    #[test]
+    fn cognito_challenge_event_can_guess_define_auth_challenge_without_trigger_source() {
+        let event = CognitoChallengeEvent {
+            cognito_event_user_pools_header: CognitoEventUserPoolsHeader::default(),
+            request: CognitoChallengeEventRequest {
+                user_attributes: HashMap::new(),
+                challenge_name: None,
+                session: Some(vec![]),
+                private_challenge_parameters: None,
+                challenge_answer: None,
+                client_metadata: HashMap::new(),
+                user_not_found: false,
+            },
+            response: CognitoChallengeEventResponse {
+                challenge_name: None,
+                issue_tokens: None,
+                fail_authentication: None,
+                public_challenge_parameters: None,
+                private_challenge_parameters: None,
+                challenge_metadata: None,
+                answer_correct: None,
+            },
+        };
+        let expected = CognitoEventUserPoolsDefineAuthChallenge {
+            cognito_event_user_pools_header: CognitoEventUserPoolsHeader::default(),
+            request: CognitoEventUserPoolsDefineAuthChallengeRequest {
+                user_attributes: HashMap::new(),
+                session: vec![],
+                client_metadata: HashMap::new(),
+                user_not_found: false,
+            },
+            response: CognitoEventUserPoolsDefineAuthChallengeResponse {
+                challenge_name: None,
+                issue_tokens: false,
+                fail_authentication: false,
+            },
+        };
+        assert_eq!(event.determine().unwrap(), CognitoChallengeEventCase::Define(expected));
+    }
+
+    #[test]
+    fn cognito_challenge_event_can_guess_create_auth_challenge_without_trigger_source() {
+        let event = CognitoChallengeEvent {
+            cognito_event_user_pools_header: CognitoEventUserPoolsHeader::default(),
+            request: CognitoChallengeEventRequest {
+                user_attributes: HashMap::new(),
+                challenge_name: Some("CUSTOM_CHALLENGE".into()),
+                session: Some(vec![]),
+                private_challenge_parameters: None,
+                challenge_answer: None,
+                client_metadata: HashMap::new(),
+                user_not_found: false,
+            },
+            response: CognitoChallengeEventResponse {
+                challenge_name: None,
+                issue_tokens: None,
+                fail_authentication: None,
+                public_challenge_parameters: None,
+                private_challenge_parameters: None,
+                challenge_metadata: None,
+                answer_correct: None,
+            },
+        };
+        let expected = CognitoEventUserPoolsCreateAuthChallengeExt {
+            cognito_event_user_pools_header: CognitoEventUserPoolsHeader::default(),
+            request: (
+                CognitoEventUserPoolsCreateAuthChallengeRequest {
+                    user_attributes: HashMap::new(),
+                    challenge_name: Some("CUSTOM_CHALLENGE".into()),
+                    session: vec![],
+                    client_metadata: HashMap::new(),
+                },
+                false,
+            ),
+            response: CognitoEventUserPoolsCreateAuthChallengeResponse {
+                public_challenge_parameters: HashMap::new(),
+                private_challenge_parameters: HashMap::new(),
+                challenge_metadata: None,
+            },
+        };
+        assert_eq!(event.determine().unwrap(), CognitoChallengeEventCase::Create(expected));
+    }
+
+    #[test]
+    fn cognito_challenge_event_can_guess_verify_auth_challenge_without_trigger_source() {
+        let event = CognitoChallengeEvent {
+            cognito_event_user_pools_header: CognitoEventUserPoolsHeader::default(),
+            request: CognitoChallengeEventRequest {
+                user_attributes: HashMap::new(),
+                challenge_name: None,
+                session: None,
+                private_challenge_parameters: Some(HashMap::from([
+                    ("passkeyTestChallenge".into(), "{\"dummy\":\"dummy\"}".into()),
+                ])),
+                challenge_answer: Some("{\"dummy\":\"dummy\"}".into()),
+                client_metadata: HashMap::new(),
+                user_not_found: false,
+            },
+            response: CognitoChallengeEventResponse {
+                challenge_name: None,
+                issue_tokens: None,
+                fail_authentication: None,
+                public_challenge_parameters: None,
+                private_challenge_parameters: None,
+                challenge_metadata: None,
+                answer_correct: None,
+            },
+        };
+        let expected = CognitoEventUserPoolsVerifyAuthChallengeExt {
+            cognito_event_user_pools_header: CognitoEventUserPoolsHeader::default(),
+            request: (
+                CognitoEventUserPoolsVerifyAuthChallengeRequest {
+                    user_attributes: HashMap::new(),
+                    private_challenge_parameters: HashMap::from([
+                        ("passkeyTestChallenge".into(), "{\"dummy\":\"dummy\"}".into()),
+                    ]),
+                    challenge_answer: Some("{\"dummy\":\"dummy\"}".into()),
+                    client_metadata: HashMap::new(),
+                },
+                false,
+            ),
+            response: CognitoEventUserPoolsVerifyAuthChallengeResponse {
+                answer_correct: false,
+            },
+        };
+        assert_eq!(event.determine().unwrap(), CognitoChallengeEventCase::Verify(expected));
+    }
+
+    #[test]
+    fn cognito_challenge_event_should_supplement_user_not_found_for_create_auth_challenge() {
+        let event = CognitoChallengeEvent {
+            cognito_event_user_pools_header: CognitoEventUserPoolsHeader::default(),
+            request: CognitoChallengeEventRequest {
+                user_attributes: HashMap::new(),
+                challenge_name: Some("CUSTOM_CHALLENGE".into()),
+                session: Some(vec![]),
+                private_challenge_parameters: None,
+                challenge_answer: None,
+                client_metadata: HashMap::new(),
+                user_not_found: true,
+            },
+            response: CognitoChallengeEventResponse {
+                challenge_name: None,
+                issue_tokens: None,
+                fail_authentication: None,
+                public_challenge_parameters: None,
+                private_challenge_parameters: None,
+                challenge_metadata: None,
+                answer_correct: None,
+            },
+        };
+        let expected = CognitoEventUserPoolsCreateAuthChallengeExt {
+            cognito_event_user_pools_header: CognitoEventUserPoolsHeader::default(),
+            request: (
+                CognitoEventUserPoolsCreateAuthChallengeRequest {
+                    user_attributes: HashMap::new(),
+                    challenge_name: Some("CUSTOM_CHALLENGE".into()),
+                    session: vec![],
+                    client_metadata: HashMap::new(),
+                },
+                true,
+            ),
+            response: CognitoEventUserPoolsCreateAuthChallengeResponse {
+                public_challenge_parameters: HashMap::new(),
+                private_challenge_parameters: HashMap::new(),
+                challenge_metadata: None,
+            },
+        };
+        assert_eq!(event.determine().unwrap(), CognitoChallengeEventCase::Create(expected));
+    }
+
+    #[test]
+    fn cognito_challenge_event_should_supplement_user_not_found_for_verify_auth_challenge() {
+        let event = CognitoChallengeEvent {
+            cognito_event_user_pools_header: CognitoEventUserPoolsHeader::default(),
+            request: CognitoChallengeEventRequest {
+                user_attributes: HashMap::new(),
+                challenge_name: None,
+                session: None,
+                private_challenge_parameters: Some(HashMap::from([
+                    ("passkeyTestChallenge".into(), "{\"dummy\":\"dummy\"}".into()),
+                ])),
+                challenge_answer: Some("{\"dummy\":\"dummy\"}".into()),
+                client_metadata: HashMap::new(),
+                user_not_found: true,
+            },
+            response: CognitoChallengeEventResponse {
+                challenge_name: None,
+                issue_tokens: None,
+                fail_authentication: None,
+                public_challenge_parameters: None,
+                private_challenge_parameters: None,
+                challenge_metadata: None,
+                answer_correct: None,
+            },
+        };
+        let expected = CognitoEventUserPoolsVerifyAuthChallengeExt {
+            cognito_event_user_pools_header: CognitoEventUserPoolsHeader::default(),
+            request: (
+                CognitoEventUserPoolsVerifyAuthChallengeRequest {
+                    user_attributes: HashMap::new(),
+                    private_challenge_parameters: HashMap::from([
+                        ("passkeyTestChallenge".into(), "{\"dummy\":\"dummy\"}".into()),
+                    ]),
+                    challenge_answer: Some("{\"dummy\":\"dummy\"}".into()),
+                    client_metadata: HashMap::new(),
+                },
+                true,
+            ),
+            response: CognitoEventUserPoolsVerifyAuthChallengeResponse {
+                answer_correct: false,
+            },
+        };
+        assert_eq!(event.determine().unwrap(), CognitoChallengeEventCase::Verify(expected));
+    }
 }

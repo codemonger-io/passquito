@@ -47,8 +47,8 @@ async fn function_handler(
             create_auth_challenge(event).await?.into(),
         Ok(CognitoChallengeEventCase::Verify(event)) =>
             verify_auth_challenge(event).await?.into(),
-        Err(_) => {
-            return Err("invalid Cognito challenge event".into());
+        Err(e) => {
+            return Err(format!("invalid Cognito challenge event: {}", e).into());
         }
     };
     Ok(result)
