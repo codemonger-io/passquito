@@ -42,6 +42,12 @@ aws cloudformation describe-stacks --stack-name passkey-test --query "Stacks[0].
 aws cloudformation describe-stacks --stack-name passkey-test --query "Stacks[0].Outputs[?OutputKey=='UserPoolClientId'].OutputValue" --output text
 ```
 
+### Credentials API URL for internal use
+
+```sh
+aws cloudformation describe-stacks --stack-name passkey-test --query "Stacks[0].Outputs[?OutputKey=='CredentialsApiInternalUrl'].OutputValue" --output text
+```
+
 ## Useful commands
 
 * `npm run build`   compile typescript to js
