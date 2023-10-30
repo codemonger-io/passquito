@@ -1,6 +1,7 @@
 import { CfnOutput, Stack, StackProps } from 'aws-cdk-lib';
 import { Construct } from 'constructs';
 
+import { SessionStore } from './session-store';
 import { CredentialsApi } from './credentials-api';
 import { UserPool } from './user-pool';
 
@@ -9,8 +10,10 @@ export class CdkStack extends Stack {
     super(scope, id, props);
 
     const userPool = new UserPool(this, 'UserPool');
+    const sessionStore = new SessionStore(this, 'SessionStore');
     const credentialsApi = new CredentialsApi(this, 'CredentialsApi', {
       basePath: '/auth/credentials/',
+      sessionStore,
       userPool,
     });
 

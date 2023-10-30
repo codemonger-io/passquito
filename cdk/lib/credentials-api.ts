@@ -5,12 +5,16 @@ import { Duration, aws_lambda as lambda } from 'aws-cdk-lib';
 import { RustFunction } from 'cargo-lambda-cdk';
 import { Construct } from 'constructs';
 
+import type { SessionStore } from './session-store';
 import type { UserPool } from './user-pool';
 
 /** Props for `CredentialsApi`. */
 export interface CredentialsApiProps {
     /** Base path where tht API is to be served. */
     readonly basePath: string;
+
+    /** Session store. */
+    readonly sessionStore: SessionStore;
 
     /** User pool. */
     readonly userPool: UserPool;
@@ -27,7 +31,7 @@ export class CredentialsApi extends Construct {
     constructor(scope: Construct, id: string, readonly props: CredentialsApiProps) {
         super(scope, id);
 
-        const { basePath, userPool } = props;
+        const { basePath, sessionStore, userPool } = props;
         const registrationBasePath = `${basePath.replace(/\/$/, '')}/registration/`;
 
         this.registrationLambda = new RustFunction(this, 'RegistrationLambda', {
@@ -36,10 +40,12 @@ export class CredentialsApi extends Construct {
             architecture: lambda.Architecture.ARM_64,
             environment: {
                 BASE_PATH: registrationBasePath,
+                SESSION_TABLE_NAME: sessionStore.sessionTable.tableName,
             },
             memorySize: 128,
             timeout: Duration.seconds(5),
         });
+        sessionStore.sessionTable.grantReadWriteData(this.registrationLambda);
 
         this.credentialsApi = new HttpApi(this, 'CredentialsApi', {
             description: 'API to manage credentials',
