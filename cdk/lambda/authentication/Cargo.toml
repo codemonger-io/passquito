@@ -16,7 +16,10 @@ description = "Web Authentication with Cognito"
 # and it will keep the alphabetic ordering for you.
 
 [dependencies]
+aws-config = { version = "0.56", default-features = false, features = ["client-hyper", "credentials-sso", "rt-tokio", "rustls"] }
+aws-sdk-dynamodb = { version = "0.34", default-features = false, features = ["rt-tokio", "rustls"] }
 aws_lambda_events = { version = "0.10", default-features = false, features = ["cognito"] }
+base64 = "0.21"
 lambda_http = "0.8"
 lambda_runtime = "0.8"
 serde = { version = "1.0", features = ["derive"] }
@@ -25,4 +28,5 @@ thiserror = "1.0"
 tokio = { version = "1", features = ["macros"] }
 tracing = { version = "0.1", features = ["log"] }
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt"] }
-
+webauthn-rs = { git = "https://github.com/codemonger-io/webauthn-rs.git", tag = "v0.4.8-vendored", features = ["danger-allow-state-serialisation", "preview-features", "resident-key-support"] }
+webauthn-rs-proto = { git = "https://github.com/codemonger-io/webauthn-rs.git", tag = "v0.4.8-vendored" }
