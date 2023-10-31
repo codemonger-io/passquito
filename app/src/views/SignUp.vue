@@ -2,7 +2,7 @@
 import { Base64 } from 'js-base64';
 import { onMounted, ref } from 'vue';
 
-const authBaseUrl = 'http://localhost:3000/auth';
+import { credentialsApiUrl } from '../auth-config';
 
 // checks if passkeys are supported 
 // references:
@@ -46,10 +46,10 @@ const displayName = ref('');
 // obtains the public key credential creation options
 //
 // throws if an error occurs.
-const getCredentialCreationOptions = async (
+const startRegistration = async (
   userInfo: { username: string, displayName: string },
 ) => {
-  const endpoint = `${authBaseUrl}/register-start`;
+  const endpoint = `${credentialsApiUrl.replace(/\/$/, '')}/registration/start`;
   const res = await fetch(endpoint, {
     method: 'POST',
     headers: {
@@ -57,14 +57,18 @@ const getCredentialCreationOptions = async (
     },
     body: JSON.stringify(userInfo),
   });
-  return decodeCredentialCreationOptions(await res.json());
+  const session = await res.json();
+  return {
+    sessionId: session.sessionId as string,
+    options: decodeCredentialCreationOptions(session.credentialCreationOptions),
+  };
 };
 
 // registers a public key credential.
 //
 // throw if an error occurs.
-const registerPublicKeyCredential = async (credential: PublicKeyCredential) => {
-  const endpoint = `${authBaseUrl}/register-finish`;
+const registerPublicKeyCredential = async (sessionId: string, credential: PublicKeyCredential) => {
+  const endpoint = `${credentialsApiUrl.replace(/\/$/, '')}/registration/finish`;
   const encodedCredential = encodePublicKeyCredential(credential);
   console.log('encoded credential:', encodedCredential);
   const res = await fetch(endpoint, {
@@ -72,7 +76,10 @@ const registerPublicKeyCredential = async (credential: PublicKeyCredential) => {
     headers: {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify(encodedCredential),
+    body: JSON.stringify({
+      sessionId,
+      publicKeyCredential: encodedCredential,
+    }),
   });
   if (!res.ok) {
     throw new Error(
@@ -162,7 +169,7 @@ const encodeAuthenticatorAttestationResponse = (
 // - https://www.w3.org/TR/webauthn-3/
 const onSubmit = async () => {
   try {
-    const options = await getCredentialCreationOptions({
+    const { sessionId, options } = await startRegistration({
       username: username.value,
       displayName: displayName.value,
     });
@@ -172,7 +179,7 @@ const onSubmit = async () => {
       throw new Error('failed to create a new credential');
     }
     console.log('registering new credential:', credential);
-    await registerPublicKeyCredential(credential as PublicKeyCredential);
+    await registerPublicKeyCredential(sessionId, credential as PublicKeyCredential);
     console.log('finished registration!');
   } catch(err) {
     console.error(err);
