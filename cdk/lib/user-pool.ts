@@ -31,6 +31,10 @@ import { Construct } from 'constructs';
  * - `credentialId`: "<credential ID>"
  * - `credential`: serialized JSON representation of [`Passkey`]
  * - `cognitoSub`: Cognito sub ID
+ * - `createdAt`: "<yyyy-mm-ddTHH:MM:SS.SSSSSSZ>"
+ *     - timestamp when the credential was registered
+ * - `updatedAt`: "<yyyy-mm-ddTHH:MM:SS.SSSSSSZ>"
+ *     - timestamp when the credential was last updated
  */
 export class UserPool extends Construct {
   /** User pool. */

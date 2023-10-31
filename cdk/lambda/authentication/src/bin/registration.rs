@@ -27,7 +27,7 @@ use aws_sdk_cognitoidentityprovider::types::{
     MessageActionType,
 };
 use aws_sdk_dynamodb::{
-    primitives::DateTime,
+    primitives::{DateTime, DateTimeFormat},
     types::{AttributeValue, ReturnValue},
 };
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD as base64url};
@@ -288,6 +288,8 @@ async fn finish_registration(session: FinishRegistrationSession) -> Result<Respo
             // TODO: delete the user upon failure
             let credential_table_name = env::var("CREDENTIAL_TABLE_NAME")?;
             let credential_id = format!("{}", key.cred_id());
+            let created_at = DateTime::from(SystemTime::now())
+                .fmt(DateTimeFormat::DateTime)?;
             info!("storing credential: {}", credential_id);
             dynamodb.put_item()
                 .table_name(credential_table_name)
@@ -296,6 +298,8 @@ async fn finish_registration(session: FinishRegistrationSession) -> Result<Respo
                 .item("credentialId", AttributeValue::S(credential_id))
                 .item("credential", AttributeValue::S(serde_json::to_string(&key)?))
                 .item("cognitoSub", AttributeValue::S(sub))
+                .item("createdAt", AttributeValue::S(created_at.clone()))
+                .item("updatedAt", AttributeValue::S(created_at))
                 .send()
                 .await?;
         }
