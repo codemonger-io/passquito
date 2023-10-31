@@ -1,7 +1,7 @@
 //! Registration.
 //!
-//! You have to configure the following environment variable:
-//! - `BASE_PATH`: base path to provide the service; e.g., `/auth/cedentials/`
+//! You have to configure the following environment variables:
+//! - `BASE_PATH`: base path to provide the service; e.g., `/auth/cedentials/registration/`
 //! - `SESSION_TABLE_NAME`: name of the DynamoDB table to store sessions
 //! - `USER_POOL_ID`: ID of the Cognito user pool
 //! - `CREDENTIAL_TABLE_NAME`: name of the DynamoDB table to store credentials
@@ -246,18 +246,19 @@ async fn finish_registration(session: FinishRegistrationSession) -> Result<Respo
             getrandom::getrandom(&mut password)?;
             let password = base64url.encode(&password);
             // creates the Cognito user if not exists
-            let user_pool_id = env::var("USER_POOL_ID")?;
+            let user_pool_id = env::var("USER_POOL_ID")
+                .or(Err("USER_POOL_ID env must be set"))?;
             let cognito = aws_sdk_cognitoidentityprovider::Client::new(&config);
             let cognito_user = cognito.admin_create_user()
                 .user_pool_id(user_pool_id.clone())
-                .username(username.clone())
+                .username(user_unique_id.clone())
+                .user_attributes(UserAttributeType::builder()
+                    .name("preferred_username")
+                    .value(username.clone())
+                    .build())
                 .user_attributes(UserAttributeType::builder()
                     .name("name")
                     .value(display_name.clone())
-                    .build())
-                .user_attributes(UserAttributeType::builder()
-                    .name("custom:userHandle")
-                    .value(user_unique_id.clone())
                     .build())
                 .message_action(MessageActionType::Suppress)
                 .temporary_password(password.clone())
@@ -278,7 +279,7 @@ async fn finish_registration(session: FinishRegistrationSession) -> Result<Respo
             // force-confirms the password
             cognito.admin_set_user_password()
                 .user_pool_id(user_pool_id)
-                .username(username)
+                .username(user_unique_id.clone())
                 .password(password)
                 .permanent(true)
                 .send()

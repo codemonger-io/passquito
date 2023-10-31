@@ -85,12 +85,7 @@ export class UserPool extends Construct {
       selfSignUpEnabled: false,
       signInAliases: {
         username: true,
-      },
-      customAttributes: {
-        // user handle is associated with the passkey credentials
-        userHandle: new cognito.StringAttribute({
-          mutable: false,
-        }),
+        preferredUsername: true,
       },
       lambdaTriggers: {
         defineAuthChallenge: this.userPoolTriggerLambda,
