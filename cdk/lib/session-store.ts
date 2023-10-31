@@ -21,6 +21,13 @@ export class SessionStore extends Construct {
      *     - `username`: unique username
      *     - `displayName`: display name
      * - `state`: serialized internal state
+     *
+     * ### User authentication session with a user-side discoverable credential
+     *
+     * - `pk`: "discoverable#<challenge>"
+     *     - `<challenge>` is the "base64url"-encoded challenge
+     * - `ttl`: 60 seconds after the session was created
+     * - `state`: serialized internal state
      */
     readonly sessionTable: dynamodb.TableV2;
 

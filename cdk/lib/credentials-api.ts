@@ -25,6 +25,9 @@ export class CredentialsApi extends Construct {
     /** Lambda function for registration. */
     readonly registrationLambda: lambda.IFunction;
 
+    /** Lambda function for discoverable credentials. */
+    readonly discoverableLambda: lambda.IFunction;
+
     /** Credentials API. */
     readonly credentialsApi: HttpApi;
 
@@ -32,10 +35,12 @@ export class CredentialsApi extends Construct {
         super(scope, id);
 
         const { basePath, sessionStore, userPool } = props;
+        const manifestPath = path.join('lambda', 'authentication', 'Cargo.toml');
         const registrationBasePath = `${basePath.replace(/\/$/, '')}/registration/`;
+        const discoverableBasePath = `${basePath.replace(/\/$/, '')}/discoverable/`;
 
         this.registrationLambda = new RustFunction(this, 'RegistrationLambda', {
-            manifestPath: path.join('lambda', 'authentication', 'Cargo.toml'),
+            manifestPath,
             binaryName: 'registration',
             architecture: lambda.Architecture.ARM_64,
             environment: {
@@ -55,6 +60,19 @@ export class CredentialsApi extends Construct {
             'cognito-idp:AdminSetUserPassword',
         );
 
+        this.discoverableLambda = new RustFunction(this, 'DiscoverableLambda', {
+            manifestPath,
+            binaryName: 'discoverable',
+            architecture: lambda.Architecture.ARM_64,
+            environment: {
+                BASE_PATH: discoverableBasePath,
+                SESSION_TABLE_NAME: sessionStore.sessionTable.tableName,
+            },
+            memorySize: 128,
+            timeout: Duration.seconds(5),
+        });
+        sessionStore.sessionTable.grantReadWriteData(this.discoverableLambda);
+
         this.credentialsApi = new HttpApi(this, 'CredentialsApi', {
             description: 'API to manage credentials',
             createDefaultStage: true,
@@ -69,6 +87,11 @@ export class CredentialsApi extends Construct {
             path: `${registrationBasePath}{proxy+}`,
             methods: [HttpMethod.POST],
             integration: new HttpLambdaIntegration('Registration', this.registrationLambda),
+        });
+        this.credentialsApi.addRoutes({
+            path: `${discoverableBasePath}{proxy+}`,
+            methods: [HttpMethod.POST],
+            integration: new HttpLambdaIntegration('Discoverable', this.discoverableLambda),
         });
     }
 
