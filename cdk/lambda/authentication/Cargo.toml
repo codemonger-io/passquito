@@ -16,10 +16,12 @@ description = "Web Authentication with Cognito"
 # and it will keep the alphabetic ordering for you.
 
 [dependencies]
-aws-config = { version = "0.56", default-features = false, features = ["client-hyper", "credentials-sso", "rt-tokio", "rustls"] }
-aws-sdk-dynamodb = { version = "0.34", default-features = false, features = ["rt-tokio", "rustls"] }
+aws-config = "0.56"
+aws-sdk-cognitoidentityprovider = "0.34"
+aws-sdk-dynamodb = "0.34"
 aws_lambda_events = { version = "0.10", default-features = false, features = ["cognito"] }
 base64 = "0.21"
+getrandom = "0.2"
 lambda_http = "0.8"
 lambda_runtime = "0.8"
 serde = { version = "1.0", features = ["derive"] }

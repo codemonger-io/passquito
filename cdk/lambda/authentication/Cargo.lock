@@ -92,9 +92,11 @@ name = "authentication"
 version = "0.1.0"
 dependencies = [
  "aws-config",
+ "aws-sdk-cognitoidentityprovider",
  "aws-sdk-dynamodb",
  "aws_lambda_events",
  "base64 0.21.5",
+ "getrandom",
  "lambda_http",
  "lambda_runtime",
  "serde",
@@ -195,6 +197,30 @@ dependencies = [
  "percent-encoding",
  "tracing",
  "uuid",
+]
+
+[[package]]
+name = "aws-sdk-cognitoidentityprovider"
+version = "0.34.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "779025fa51332a24963a9eff7b92d59dc7435f14e864b98d09064e9887cf03f5"
+dependencies = [
+ "aws-credential-types",
+ "aws-http",
+ "aws-runtime",
+ "aws-smithy-async",
+ "aws-smithy-client",
+ "aws-smithy-http",
+ "aws-smithy-json",
+ "aws-smithy-runtime",
+ "aws-smithy-runtime-api",
+ "aws-smithy-types",
+ "aws-types",
+ "bytes",
+ "http",
+ "regex",
+ "tokio-stream",
+ "tracing",
 ]
 
 [[package]]
