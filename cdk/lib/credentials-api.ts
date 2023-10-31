@@ -41,11 +41,19 @@ export class CredentialsApi extends Construct {
             environment: {
                 BASE_PATH: registrationBasePath,
                 SESSION_TABLE_NAME: sessionStore.sessionTable.tableName,
+                USER_POOL_ID: userPool.userPool.userPoolId,
+                CREDENTIAL_TABLE_NAME: userPool.credentialTable.tableName,
             },
             memorySize: 128,
             timeout: Duration.seconds(5),
         });
         sessionStore.sessionTable.grantReadWriteData(this.registrationLambda);
+        userPool.credentialTable.grantReadWriteData(this.registrationLambda);
+        userPool.userPool.grant(
+            this.registrationLambda,
+            'cognito-idp:AdminCreateUser',
+            'cognito-idp:AdminSetUserPassword',
+        );
 
         this.credentialsApi = new HttpApi(this, 'CredentialsApi', {
             description: 'API to manage credentials',

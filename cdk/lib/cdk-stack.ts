@@ -1,8 +1,8 @@
 import { CfnOutput, Stack, StackProps } from 'aws-cdk-lib';
 import { Construct } from 'constructs';
 
-import { SessionStore } from './session-store';
 import { CredentialsApi } from './credentials-api';
+import { SessionStore } from './session-store';
 import { UserPool } from './user-pool';
 
 export class CdkStack extends Stack {
