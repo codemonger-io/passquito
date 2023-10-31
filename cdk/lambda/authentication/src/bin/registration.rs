@@ -3,6 +3,8 @@
 //! You have to configure the following environment variable:
 //! - `BASE_PATH`: base path to provide the service; e.g., `/auth/cedentials/`
 //! - `SESSION_TABLE_NAME`: name of the DynamoDB table to store sessions
+//! - `USER_POOL_ID`: ID of the Cognito user pool
+//! - `CREDENTIAL_TABLE_NAME`: name of the DynamoDB table to store credentials
 //!
 //! ## Endpoints
 //!
@@ -20,6 +22,10 @@
 //! The request body must be [`FinishRegistrationSession`] as `application/json`.
 //! The response body is an empty text.
 
+use aws_sdk_cognitoidentityprovider::types::{
+    AttributeType as UserAttributeType,
+    MessageActionType,
+};
 use aws_sdk_dynamodb::{
     primitives::DateTime,
     types::{AttributeValue, ReturnValue},
@@ -183,8 +189,8 @@ async fn finish_registration(session: FinishRegistrationSession) -> Result<Respo
     // pops the session
     let table_name = env::var("SESSION_TABLE_NAME")?;
     let config = aws_config::load_from_env().await;
-    let client = aws_sdk_dynamodb::Client::new(&config);
-    let item = client.delete_item()
+    let dynamodb = aws_sdk_dynamodb::Client::new(&config);
+    let item = dynamodb.delete_item()
         .table_name(table_name)
         .key("pk", AttributeValue::S(format!("registration#{}", session.session_id)))
         .return_values(ReturnValue::AllOld)
@@ -223,8 +229,74 @@ async fn finish_registration(session: FinishRegistrationSession) -> Result<Respo
                 .ok_or("missing userId")?
                 .as_s()
                 .or(Err("invalid userId"))?;
-            // TODO: create Cognito user if necessary
-            // TODO: remembers `key` in the database
+            let user_info = item.get("userInfo")
+                .ok_or("missing userInfo")?
+                .as_m()
+                .or(Err("invalid userInfo"))?;
+            let username = user_info.get("username")
+                .ok_or("missing username")?
+                .as_s()
+                .or(Err("invalid username"))?;
+            let display_name = user_info.get("displayName")
+                .ok_or("missing displayName")?
+                .as_s()
+                .or(Err("invalid displayName"))?;
+            // generates a random password that is never used
+            let mut password = [0u8; 24];
+            getrandom::getrandom(&mut password)?;
+            let password = base64url.encode(&password);
+            // creates the Cognito user if not exists
+            let user_pool_id = env::var("USER_POOL_ID")?;
+            let cognito = aws_sdk_cognitoidentityprovider::Client::new(&config);
+            let cognito_user = cognito.admin_create_user()
+                .user_pool_id(user_pool_id.clone())
+                .username(username.clone())
+                .user_attributes(UserAttributeType::builder()
+                    .name("name")
+                    .value(display_name.clone())
+                    .build())
+                .user_attributes(UserAttributeType::builder()
+                    .name("custom:userHandle")
+                    .value(user_unique_id.clone())
+                    .build())
+                .message_action(MessageActionType::Suppress)
+                .temporary_password(password.clone())
+                .send()
+                .await?
+                .user
+                .ok_or("failed to create a new user")?;
+            let sub = cognito_user.attributes
+                .ok_or("missing Cognito user attributes")?
+                .into_iter()
+                .find(|a| a.name.as_ref()
+                    .zip(a.value.as_ref())
+                    .filter(|(n, _)| *n == "sub")
+                    .is_some())
+                .and_then(|a| a.value)
+                .ok_or("missing Cognito user sub attribute")?;
+            info!("created Cognito user: {}", sub);
+            // force-confirms the password
+            cognito.admin_set_user_password()
+                .user_pool_id(user_pool_id)
+                .username(username)
+                .password(password)
+                .permanent(true)
+                .send()
+                .await?;
+            // stores `key` in the credential table
+            // TODO: delete the user upon failure
+            let credential_table_name = env::var("CREDENTIAL_TABLE_NAME")?;
+            let credential_id = format!("{}", key.cred_id());
+            info!("storing credential: {}", credential_id);
+            dynamodb.put_item()
+                .table_name(credential_table_name)
+                .item("pk", AttributeValue::S(format!("user#{}", user_unique_id)))
+                .item("sk", AttributeValue::S(format!("credential#{}", credential_id)))
+                .item("credentialId", AttributeValue::S(credential_id))
+                .item("credential", AttributeValue::S(serde_json::to_string(&key)?))
+                .item("cognitoSub", AttributeValue::S(sub))
+                .send()
+                .await?;
         }
         Err(e) => {
             error!("failed to finish registration: {}", e);
