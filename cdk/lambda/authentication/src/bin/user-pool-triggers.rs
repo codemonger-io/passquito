@@ -1,8 +1,9 @@
 //! Cognito Lambda trigger for the custom challenges with passkeys.
 //!
 //! You have to configure the following environment variables:
-//! - `CREDENTIAL_TABLE_NAME`: name of the DynamoDB table that manages credentials
 //! - `SESSION_TABLE_NAME`: name of the DynamoDB table that manages sessions
+//! - `CREDENTIAL_TABLE_NAME`: name of the DynamoDB table that manages
+//!   credentials
 
 use aws_lambda_events::event::cognito::CognitoEventUserPoolsDefineAuthChallenge;
 use aws_sdk_dynamodb::{
@@ -12,9 +13,11 @@ use aws_sdk_dynamodb::{
 use lambda_runtime::{run, service_fn, Error, LambdaEvent};
 use serde::{Deserialize, Serialize};
 use std::env;
+use std::sync::Arc;
 use std::time::SystemTime;
 use tracing::{error, info};
 use webauthn_rs::{
+    Webauthn,
     WebauthnBuilder,
     prelude::{
         DiscoverableAuthentication,
@@ -38,6 +41,33 @@ use authentication::event::{
 
 const CHALLENGE_PARAMETER_NAME: &str = "passkeyTestChallenge";
 
+// State shared among Lambda invocations.
+struct SharedState {
+    webauthn: Webauthn,
+    dynamodb: aws_sdk_dynamodb::Client,
+    session_table_name: String,
+    credential_table_name: String,
+}
+
+impl SharedState {
+    async fn new() -> Result<Self, Error> {
+        let rp_id = "localhost";
+        let rp_origin = Url::parse("http://localhost:5173")?;
+        let webauthn = WebauthnBuilder::new(rp_id, &rp_origin)?
+            .rp_name("Passkey Test")
+            .build()?;
+        let config = aws_config::load_from_env().await;
+        Ok(Self {
+            webauthn,
+            dynamodb: aws_sdk_dynamodb::Client::new(&config),
+            session_table_name: env::var("SESSION_TABLE_NAME")
+                .or(Err("SESSION_TABLE_NAME env must be set"))?,
+            credential_table_name: env::var("CREDENTIAL_TABLE_NAME")
+                .or(Err("CREDENTIAL_TABLE_NAME env must be set"))?,
+        })
+    }
+}
+
 /// Challenge response.
 /// 
 /// TODO: replace with the one from [`webauthn-rs-proto`].
@@ -53,16 +83,17 @@ pub struct RequestChallengeResponse {
 /// - https://github.com/awslabs/aws-lambda-rust-runtime/tree/main/examples
 /// - https://github.com/aws-samples/serverless-rust-demo/
 async fn function_handler(
+    shared_state: Arc<SharedState>,
     event: LambdaEvent<CognitoChallengeEvent>,
 ) -> Result<CognitoChallengeEvent, Error> {
     let (event, _) = event.into_parts();
     let result = match event.determine() {
         Ok(CognitoChallengeEventCase::Define(event)) =>
-            define_auth_challenge(event).await?.into(),
+            define_auth_challenge(shared_state, event).await?.into(),
         Ok(CognitoChallengeEventCase::Create(event)) =>
-            create_auth_challenge(event).await?.into(),
+            create_auth_challenge(shared_state, event).await?.into(),
         Ok(CognitoChallengeEventCase::Verify(event)) =>
-            verify_auth_challenge(event).await?.into(),
+            verify_auth_challenge(shared_state, event).await?.into(),
         Err(e) => {
             return Err(format!("invalid Cognito challenge event: {}", e).into());
         }
@@ -72,6 +103,7 @@ async fn function_handler(
 
 // Handles "Define auth challenge" events.
 async fn define_auth_challenge(
+    _shared_state: Arc<SharedState>,
     mut event: CognitoEventUserPoolsDefineAuthChallenge,
 ) -> Result<CognitoEventUserPoolsDefineAuthChallenge, Error> {
     info!("define_auth_challenge");
@@ -93,6 +125,7 @@ async fn define_auth_challenge(
 
 // Handles "Create auth challenge" events.
 async fn create_auth_challenge(
+    _shared_state: Arc<SharedState>,
     mut event: CognitoEventUserPoolsCreateAuthChallengeExt,
 ) -> Result<CognitoEventUserPoolsCreateAuthChallengeExt, Error> {
     info!("create_auth_challenge");
@@ -111,15 +144,11 @@ async fn create_auth_challenge(
 
 // Handles "Verify auth challenge" events.
 async fn verify_auth_challenge(
+    shared_state: Arc<SharedState>,
     mut event: CognitoEventUserPoolsVerifyAuthChallengeExt,
 ) -> Result<CognitoEventUserPoolsVerifyAuthChallengeExt, Error> {
     info!("verify_auth_challenge");
-    // TODO: reuse Webauthn
-    let rp_id = "localhost";
-    let rp_origin = Url::parse("http://localhost:5173")?;
-    let webauthn = WebauthnBuilder::new(&rp_id, &rp_origin)?
-        .rp_name("Passkey Test")
-        .build()?;
+
     let username = event.cognito_event_user_pools_header.user_name.as_ref()
         .ok_or("missing username")?;
     let credential: PublicKeyCredential = match event.get_challenge_answer() {
@@ -133,7 +162,9 @@ async fn verify_auth_challenge(
     let _challenge: RequestChallengeResponse = event
         .get_private_challenge_parameter(CHALLENGE_PARAMETER_NAME)?
         .ok_or("missing private challenge parameter")?;
+
     // extracts the user handle from `credential`
+    // it must match the username in the event
     let user_handle = credential.response.user_handle.as_ref()
         .ok_or("missing user handle")?
         .to_string();
@@ -141,25 +172,27 @@ async fn verify_auth_challenge(
         error!("user mismatch: {} vs {}", username, user_handle);
         return Err("user mismatch".into());
     }
+
     // extracts the challenge from `credential`
+    // https://github.com/kanidm/webauthn-rs/blob/0ff6b525d428b5155243a37e1672c1e3205d41e8/webauthn-rs-core/src/core.rs#L702-L705
+    // https://developer.mozilla.org/en-US/docs/Web/API/AuthenticatorResponse/clientDataJSON#type
     let client_data: CollectedClientData = serde_json::from_slice(
         credential.response.client_data_json.as_ref(),
     )?;
-    // https://github.com/kanidm/webauthn-rs/blob/0ff6b525d428b5155243a37e1672c1e3205d41e8/webauthn-rs-core/src/core.rs#L702-L705
-    // https://developer.mozilla.org/en-US/docs/Web/API/AuthenticatorResponse/clientDataJSON#type
     if client_data.type_ != "webauthn.get" {
         error!("invalid client data type: {}", client_data.type_);
         return Err("invalild client data type".into());
     }
     let client_challenge = client_data.challenge;
-    // TODO: reuse DynamoDB client
-    let session_table_name = env::var("SESSION_TABLE_NAME")
-        .or(Err("SESSION_TABLE_NAME env must be specified").into())?;
-    let config = aws_config::load_from_env().await;
-    let dynamodb = aws_sdk_dynamodb::Client::new(&config);
-    let session = dynamodb.delete_item()
-        .table_name(session_table_name)
-        .key("pk", AttributeValue::S(format!("discoverable#{}", client_challenge)))
+
+    // obtains the session corresponding to the challenge
+    let session = shared_state.dynamodb
+        .delete_item()
+        .table_name(shared_state.session_table_name.clone())
+        .key(
+            "pk",
+            AttributeValue::S(format!("discoverable#{}", client_challenge)),
+        )
         .return_values(ReturnValue::AllOld)
         .send()
         .await?
@@ -178,11 +211,13 @@ async fn verify_auth_challenge(
         .ok_or("missing authentication state")?
         .as_s()
         .or(Err("invalid authentication state"))?;
-    let auth_state: DiscoverableAuthentication = serde_json::from_str(&auth_state)?;
-    let credential_table_name = env::var("CREDENTIAL_TABLE_NAME")
-        .or(Err("CREDENTIAL_TABLE_NAME env must be set"))?;
-    let credentials = dynamodb.query()
-        .table_name(credential_table_name.clone())
+    let auth_state: DiscoverableAuthentication =
+        serde_json::from_str(&auth_state)?;
+
+    // obtains the credentials (passkeys) associated with the user
+    let credentials = shared_state.dynamodb
+        .query()
+        .table_name(shared_state.credential_table_name.clone())
         .key_condition_expression("pk = :pk")
         .expression_attribute_values(
             ":pk",
@@ -201,10 +236,12 @@ async fn verify_auth_challenge(
     let mut passkeys: Vec<Passkey> = credentials.into_iter()
         .map(|c| serde_json::from_str::<Passkey>(c))
         .collect::<Result<Vec<_>, _>>()?;
+
+    // verifies the challenge
     let discoverable_keys: Vec<DiscoverableKey> = passkeys.iter()
         .map(|c| c.into())
         .collect();
-    match webauthn.finish_discoverable_authentication(
+    match shared_state.webauthn.finish_discoverable_authentication(
         &credential,
         auth_state,
         &discoverable_keys,
@@ -216,15 +253,18 @@ async fn verify_auth_challenge(
                 info!("checking credential updates: {}", credential_id);
                 if passkey.update_credential(&auth_result).is_some_and(|b| b) {
                     info!("updating credential: {}", credential_id);
-                    dynamodb.update_item()
-                        .table_name(credential_table_name.clone())
+                    shared_state.dynamodb
+                        .update_item()
+                        .table_name(shared_state.credential_table_name.clone())
                         .key(
                             "pk",
                             AttributeValue::S(format!("user#{}", username)),
                         )
                         .key(
                             "sk",
-                            AttributeValue::S(format!("credential#{}", credential_id)),
+                            AttributeValue::S(
+                                format!("credential#{}", credential_id),
+                            ),
                         )
                         .update_expression("SET credential = :credential")
                         .expression_attribute_values(
@@ -257,5 +297,8 @@ async fn main() -> Result<(), Error> {
         .without_time()
         .init();
 
-    run(service_fn(function_handler)).await
+    let shared_state = Arc::new(SharedState::new().await?);
+    run(service_fn(|req| async {
+        function_handler(shared_state.clone(), req).await
+    })).await
 }

@@ -31,47 +31,77 @@ use lambda_http::{
     service_fn,
 };
 use std::env;
+use std::sync::Arc;
 use std::time::SystemTime;
 use tracing::{error, info};
 use webauthn_rs::{
+    Webauthn,
     WebauthnBuilder,
     prelude::Url,
 };
 
-async fn function_handler(event: Request) -> Result<Response<Body>, Error> {
-    let base_path = env::var("BASE_PATH")
-        .or(Err("BASE_PATH env must be specified"))?;
-    let base_path = base_path.trim_end_matches('/');
-    let job_path = event.raw_http_path().strip_prefix(base_path)
-        .ok_or(format!("path must start with {}", base_path))?;
+// State shared among Lambda invocations.
+struct SharedState {
+    webauthn: Webauthn,
+    dynamodb: aws_sdk_dynamodb::Client,
+    base_path: String,
+    session_table_name: String,
+}
+
+impl SharedState {
+    async fn new() -> Result<Self, Error> {
+        let rp_id = "localhost";
+        let rp_origin = Url::parse("http://localhost:5173")?;
+        let webauthn = WebauthnBuilder::new(rp_id, &rp_origin)?
+            .rp_name("Passkey Test")
+            .build()?;
+        let config = aws_config::load_from_env().await;
+        let base_path = env::var("BASE_PATH")
+            .or(Err("BASE_PATH env must be set"))?;
+        Ok(Self {
+            webauthn,
+            dynamodb: aws_sdk_dynamodb::Client::new(&config),
+            base_path: base_path.trim_end_matches('/').into(),
+            session_table_name: env::var("SESSION_TABLE_NAME")
+                .or(Err("SESSION_TABLE_NAME env must be set"))?,
+        })
+    }
+}
+
+async fn function_handler(
+    shared_state: Arc<SharedState>,
+    event: Request,
+) -> Result<Response<Body>, Error> {
+    let job_path = event.raw_http_path().strip_prefix(&shared_state.base_path)
+        .ok_or(format!("path must start with {}", shared_state.base_path))?;
     match job_path {
-        "/start" => start_authentication().await,
+        "/start" => start_authentication(shared_state).await,
         _ => Err(format!("unsupported job path: {}", job_path).into()),
     }
 }
 
-async fn start_authentication() -> Result<Response<Body>, Error> {
+async fn start_authentication(
+    shared_state: Arc<SharedState>,
+) -> Result<Response<Body>, Error> {
     info!("start_authentication");
-    // TODO: reuse Webauthn
-    let rp_id = "localhost";
-    let rp_origin = Url::parse("http://localhost:5173")?;
-    let webauthn = WebauthnBuilder::new(rp_id, &rp_origin)?
-        .rp_name("Passkey Test")
-        .build()?;
-    let res = match webauthn.start_discoverable_authentication() {
+    let res = match shared_state.webauthn.start_discoverable_authentication() {
         Ok((rcr, auth_state)) => {
-            // TODO: reuse DynamoDB client
-            let session_table_name = env::var("SESSION_TABLE_NAME")
-                .or(Err("SESSION_TABLE_NAME env must be specified"))?;
-            let config = aws_config::load_from_env().await;
-            let dynamodb = aws_sdk_dynamodb::Client::new(&config);
             let ttl = DateTime::from(SystemTime::now()).secs() + 60;
             info!("putting authentication session: {}", rcr.public_key.challenge);
-            dynamodb.put_item()
-                .table_name(session_table_name)
-                .item("pk", AttributeValue::S(format!("discoverable#{}", rcr.public_key.challenge)))
+            shared_state.dynamodb
+                .put_item()
+                .table_name(shared_state.session_table_name.clone())
+                .item(
+                    "pk",
+                    AttributeValue::S(
+                        format!("discoverable#{}", rcr.public_key.challenge),
+                    ),
+                )
                 .item("ttl", AttributeValue::N(ttl.to_string()))
-                .item("state", AttributeValue::S(serde_json::to_string(&auth_state)?))
+                .item(
+                    "state",
+                    AttributeValue::S(serde_json::to_string(&auth_state)?),
+                )
                 .send()
                 .await?;
             serde_json::to_string(&rcr)?
@@ -96,5 +126,9 @@ async fn main() -> Result<(), Error> {
         // disabling time is handy because CloudWatch will add the ingestion time.
         .without_time()
         .init();
-    run(service_fn(function_handler)).await
+
+    let shared_state = Arc::new(SharedState::new().await?);
+    run(service_fn(|req| async {
+        function_handler(shared_state.clone(), req).await
+    })).await
 }
