@@ -182,7 +182,7 @@ async fn verify_auth_challenge(
     let credential_table_name = env::var("CREDENTIAL_TABLE_NAME")
         .or(Err("CREDENTIAL_TABLE_NAME env must be set"))?;
     let credentials = dynamodb.query()
-        .table_name(credential_table_name)
+        .table_name(credential_table_name.clone())
         .key_condition_expression("pk = :pk")
         .expression_attribute_values(
             ":pk",
@@ -198,15 +198,45 @@ async fn verify_auth_challenge(
             .as_s()
             .or(Err("invalid credential")))
         .collect::<Result<Vec<_>, _>>()?;
-    let credentials: Vec<Passkey> = credentials.into_iter()
+    let mut passkeys: Vec<Passkey> = credentials.into_iter()
         .map(|c| serde_json::from_str::<Passkey>(c))
         .collect::<Result<Vec<_>, _>>()?;
-    let credentials: Vec<DiscoverableKey> = credentials.iter()
+    let discoverable_keys: Vec<DiscoverableKey> = passkeys.iter()
         .map(|c| c.into())
         .collect();
-    match webauthn.finish_discoverable_authentication(&credential, auth_state, &credentials) {
+    match webauthn.finish_discoverable_authentication(
+        &credential,
+        auth_state,
+        &discoverable_keys,
+    ) {
         Ok(auth_result) => {
-            // TODO: update credentials
+            // updates the stored credential if necessary
+            for passkey in passkeys.iter_mut() {
+                let credential_id = passkey.cred_id().to_string();
+                info!("checking credential updates: {}", credential_id);
+                if passkey.update_credential(&auth_result).is_some_and(|b| b) {
+                    info!("updating credential: {}", credential_id);
+                    dynamodb.update_item()
+                        .table_name(credential_table_name.clone())
+                        .key(
+                            "pk",
+                            AttributeValue::S(format!("user#{}", username)),
+                        )
+                        .key(
+                            "sk",
+                            AttributeValue::S(format!("credential#{}", credential_id)),
+                        )
+                        .update_expression("SET credential = :credential")
+                        .expression_attribute_values(
+                            ":credential",
+                            AttributeValue::S(serde_json::to_string(passkey)?),
+                        )
+                        .condition_expression("attributes_exists(pk)")
+                        .return_values(ReturnValue::None)
+                        .send()
+                        .await?;
+                }
+            }
             event.accept();
         }
         Err(e) => {
