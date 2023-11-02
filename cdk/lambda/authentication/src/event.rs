@@ -231,6 +231,11 @@ impl CognitoEventUserPoolsVerifyAuthChallengeExt {
             .or(Err(Error::Inconvertible("incompatible challenge_answer")))
     }
 
+    /// Returns the raw challenge answer.
+    pub fn get_raw_challenge_answer(&self) -> Option<&String> {
+        self.request.0.challenge_answer.as_ref()
+    }
+
     /// Obtains a private public parameter.
     pub fn get_private_challenge_parameter<'de, T, K>(
         &'de self,
