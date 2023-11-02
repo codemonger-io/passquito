@@ -112,6 +112,16 @@ export class UserPool extends Construct {
         createAuthChallenge: this.userPoolTriggerLambda,
         verifyAuthChallengeResponse: this.userPoolTriggerLambda,
       },
+      // password policy should not be restrictive over character class usage
+      // because passwords are randomly generated
+      passwordPolicy: {
+        minLength: 32, // equivalent to Base64 encoded 24 byte sequence
+        requireDigits: false,
+        requireLowercase: false,
+        requireSymbols: false,
+        requireUppercase: false,
+        tempPasswordValidity: Duration.days(1),
+      },
       accountRecovery: cognito.AccountRecovery.NONE,
       removalPolicy: RemovalPolicy.RETAIN,
     });
