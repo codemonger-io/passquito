@@ -9,8 +9,10 @@ export class CdkStack extends Stack {
   constructor(scope: Construct, id: string, props?: StackProps) {
     super(scope, id, props);
 
-    const userPool = new UserPool(this, 'UserPool');
     const sessionStore = new SessionStore(this, 'SessionStore');
+    const userPool = new UserPool(this, 'UserPool', {
+      sessionStore,
+    });
     const credentialsApi = new CredentialsApi(this, 'CredentialsApi', {
       basePath: '/auth/credentials/',
       sessionStore,

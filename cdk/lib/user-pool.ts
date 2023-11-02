@@ -9,6 +9,14 @@ import {
 import { RustFunction } from 'cargo-lambda-cdk';
 import { Construct } from 'constructs';
 
+import type { SessionStore } from './session-store';
+
+/** Properties for `UserPool` */
+export interface UserPoolProps {
+  /** Session store. */
+  readonly sessionStore: SessionStore;
+}
+
 /**
  * CDK construct that provisions the user pool.
  *
@@ -46,8 +54,10 @@ export class UserPool extends Construct {
   /** Cognito trigger Lambda for the user pool. */
   readonly userPoolTriggerLambda: lambda.IFunction;
 
-  constructor(scope: Construct, id: string) {
+  constructor(scope: Construct, id: string, props: UserPoolProps) {
     super(scope, id);
+
+    const { sessionStore } = props;
 
     this.credentialTable = new dynamodb.TableV2(this, 'CredentialTable', {
       partitionKey: {
@@ -81,9 +91,15 @@ export class UserPool extends Construct {
       manifestPath: path.join('lambda', 'authentication', 'Cargo.toml'),
       binaryName: 'user-pool-triggers',
       architecture: lambda.Architecture.ARM_64,
+      environment: {
+        CREDENTIAL_TABLE_NAME: this.credentialTable.tableName,
+        SESSION_TABLE_NAME: sessionStore.sessionTable.tableName,
+      },
       memorySize: 128,
       timeout: Duration.seconds(5),
     });
+    this.credentialTable.grantReadWriteData(this.userPoolTriggerLambda);
+    sessionStore.sessionTable.grantReadWriteData(this.userPoolTriggerLambda);
 
     this.userPool = new cognito.UserPool(this, 'UserPool', {
       selfSignUpEnabled: false,
