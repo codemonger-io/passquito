@@ -1,10 +1,18 @@
 <script setup lang="ts">
+import {
+  CognitoIdentityProviderClient,
+  InitiateAuthCommand,
+  RespondToAuthChallengeCommand,
+} from '@aws-sdk/client-cognito-identity-provider';
 import { Base64 } from 'js-base64';
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
 
+import { credentialsApiUrl, userPoolClientId } from '../auth-config';
 import { useWebauthn } from '../composables/webauthn';
 
-const { baseUrl } = useWebauthn();
+const cognitoClient = new CognitoIdentityProviderClient({
+  region: 'ap-northeast-1',
+});
 
 // checks if passkeys are supported.
 // references:
@@ -58,10 +66,10 @@ watch(
       });
       abortAuthentication.value = undefined;
       console.log('assertion:', credential);
-      const userInfo = await authenticatePublicKeyCredential(
+      const tokens = await authenticatePublicKeyCredential(
         credential as PublicKeyCredential,
       );
-      console.log('authenticated:', userInfo);
+      console.log('authenticated:', tokens);
     } catch (err) {
       console.error(err);
     }
@@ -79,18 +87,15 @@ const username = ref('');
 //
 // throws if an error occurs.
 const getCredentialRequestOptions = async (username?: string) => {
-  const endpoint = `${baseUrl}login-start`;
   let res;
   if (username != null) {
+    // TODO: ask Cognito for sign-in of a specific user
+    throw new Error("not implemented yet");
+  } else {
+    const endpoint = `${credentialsApiUrl.replace(/\/$/, '')}/discoverable/start`;
     res = await fetch(endpoint, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ username }),
     });
-  } else {
-    res = await fetch(endpoint);
   }
   return decodeCredentialRequestOptions(await res.json());
 };
@@ -135,22 +140,36 @@ const decodePublicKeyCredentialDescriptor = (descriptor: any) => {
 
 // authenticates a given public key credential.
 const authenticatePublicKeyCredential = async (credential: PublicKeyCredential) => {
-  const endpoint = `${baseUrl}login-finish`;
   const encodedCredential = encodePublicKeyCredential(credential);
   console.log('encoded credential:', encodedCredential);
-  const res = await fetch(endpoint, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(encodedCredential),
-  });
-  if (!res.ok) {
-    throw new Error(
-      `authentication failed with ${res.status}: ${await res.text()}`
-    );
+  const userHandle = encodedCredential.response.userHandle;
+  if (userHandle == null) {
+    throw new Error("authenticator must return userHandle");
   }
-  return await res.json();
+  const challenge = await cognitoClient.send(new InitiateAuthCommand({
+    ClientId: userPoolClientId,
+    AuthFlow: 'CUSTOM_AUTH',
+    AuthParameters: {
+      USERNAME: userHandle,
+    }
+  }));
+  if (challenge.ChallengeName !== 'CUSTOM_CHALLENGE') {
+    throw new Error(`unexpected challenge name: ${challenge.ChallengeName}`);
+  }
+  // ignores challenge parameters for discoverable credentials
+  const res = await cognitoClient.send(new RespondToAuthChallengeCommand({
+    ClientId: userPoolClientId,
+    ChallengeName: 'CUSTOM_CHALLENGE',
+    Session: challenge.Session,
+    ChallengeResponses: {
+      USERNAME: userHandle,
+      ANSWER: JSON.stringify(encodedCredential),
+    },
+  }));
+  if (res.AuthenticationResult == null) {
+    throw new Error('failed to authenticate');
+  }
+  return res.AuthenticationResult;
 };
 
 // encodes `PublicKeyCredential` for an API request body.
