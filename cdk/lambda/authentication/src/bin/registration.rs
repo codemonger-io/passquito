@@ -164,13 +164,64 @@ async fn start_registration(
 ) -> Result<Response<Body>, Error> {
     info!("start_registration: {:?}", user_info);
 
-    // TODO: resolve the existing user
+    // resolves the existing user
+    let existing_user = shared_state.cognito
+        .list_users()
+        .user_pool_id(shared_state.user_pool_id.clone())
+        .attributes_to_get("preferred_username")
+        .filter(format!("preferred_username = \"{}\"", user_info.username))
+        .limit(1)
+        .send()
+        .await?
+        .users
+        .unwrap_or_default()
+        .pop();
 
-    // associates this ID with the new Cognito user later
-    let user_unique_id = Uuid::new_v4();
+    // obtains the user ID or generates a new one for a new user
+    let user_unique_id = existing_user.as_ref()
+        .map(|u| u.username.as_ref()
+            .ok_or("missing username in user pool"))
+        .transpose()?
+        .map(|username| base64url.decode(username)
+            .or(Err("malformed username in user pool"))
+            .and_then(|id| Uuid::from_slice(&id)
+                .or(Err("malformed username in user pool"))))
+        .transpose()?
+        .unwrap_or_else(Uuid::new_v4);
 
-    // TODO: list existing credentials to exclude
-    let exclude_credentials: Option<Vec<CredentialID>> = None;
+    // lists existing credentials for the user to be excluded
+    let exclude_credentials: Option<Vec<CredentialID>> =
+        match existing_user.as_ref()
+    {
+        Some(user) => {
+            let username = user.username.as_ref()
+                .ok_or("missing username in user pool")?;
+            info!("listing credentials for {}", username);
+            let credentials = shared_state.dynamodb
+                .query()
+                .table_name(shared_state.credential_table_name.clone())
+                .key_condition_expression("pk = :pk")
+                .expression_attribute_values(":pk", AttributeValue::S(
+                    format!("user#{}", username),
+                ))
+                .send()
+                .await?
+                .items
+                .unwrap_or_default();
+            Some(
+                credentials.into_iter()
+                    .map(|c| c.get("credentialId")
+                        .ok_or("missing credentialId in the database")?
+                        .as_s()
+                        .or(Err("malformed credentialId in the database"))?
+                        .as_str()
+                        .try_into()
+                        .or(Err("malformed credentialId in the database")))
+                    .collect::<Result<_, _>>()?,
+            )
+        }
+        None => None,
+    };
 
     let res = match shared_state.webauthn.start_passkey_registration(
         user_unique_id,
@@ -180,7 +231,6 @@ async fn start_registration(
     ) {
         Ok((ccr, reg_state)) => {
             // caches `reg_state`
-            // TODO: reuse DynamoDB client
             let user_unique_id = base64url.encode(user_unique_id.into_bytes());
             let session_id = base64url.encode(Uuid::new_v4().as_ref());
             let ttl = DateTime::from(SystemTime::now()).secs() + 60;

@@ -58,6 +58,7 @@ export class CredentialsApi extends Construct {
             this.registrationLambda,
             'cognito-idp:AdminCreateUser',
             'cognito-idp:AdminSetUserPassword',
+            'cognito-idp:ListUsers',
         );
 
         this.discoverableLambda = new RustFunction(this, 'DiscoverableLambda', {
