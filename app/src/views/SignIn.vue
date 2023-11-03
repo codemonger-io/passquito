@@ -92,7 +92,8 @@ const getCredentialRequestOptions = async (username?: string) => {
     // TODO: ask Cognito for sign-in of a specific user
     throw new Error("not implemented yet");
   } else {
-    const endpoint = `${credentialsApiUrl.replace(/\/$/, '')}/discoverable/start`;
+    const endpoint =
+      `${credentialsApiUrl.replace(/\/$/, '')}/discoverable/start`;
     res = await fetch(endpoint, {
       method: 'POST',
     });
@@ -227,22 +228,45 @@ const encodeAuthenticatorAssertionResponse = (
 // const abortAuthentication = ref<AbortController | undefined>();
 const onSubmit = async () => {
   console.log('manual authentication');
-  // TODO: support manual authentication
-  /*
-  try {
-    const options = await getCredentialRequestOptions(username.value);
-    console.log('credential request options:', options);
-    abortAuthentication.value = new AbortController();
-    const assertion = await navigator.credentials.get({
-      ...options,
-      mediation: 'conditional',
-      signal: abortAuthentication.value.signal,
-    });
-    abortAuthentication.value = undefined;
-    console.log('assertion:', assertion);
-  } catch (err) {
-    console.error(err);
-  } */
+  abortAuthentication.value?.abort();
+  abortAuthentication.value = undefined;
+  const challenge = await cognitoClient.send(new InitiateAuthCommand({
+    ClientId: userPoolClientId,
+    AuthFlow: 'CUSTOM_AUTH',
+    AuthParameters: {
+      USERNAME: username.value,
+    }
+  }));
+  console.log('challenge:', challenge);
+  if (challenge.ChallengeName !== 'CUSTOM_CHALLENGE') {
+    throw new Error(`unexpected challenge name: ${challenge.ChallengeName}`);
+  }
+  const userHandle = challenge.ChallengeParameters.USERNAME;
+  if (userHandle == null) {
+    throw new Error('no USERNAME in challenge parameters');
+  }
+  const authOptionsJson = challenge.ChallengeParameters.passkeyTestChallenge;
+  if (authOptionsJson == null) {
+    throw new Error('no passkeyTestChallenge in challenge parameters');
+  }
+  const authOptions =
+    decodeCredentialRequestOptions(JSON.parse(authOptionsJson));
+  const credential = await navigator.credentials.get(authOptions);
+  const encodedCredential = encodePublicKeyCredential(credential);
+  console.log('encoded credential:', encodedCredential);
+  const res = await cognitoClient.send(new RespondToAuthChallengeCommand({
+    ClientId: userPoolClientId,
+    ChallengeName: 'CUSTOM_CHALLENGE',
+    Session: challenge.Session,
+    ChallengeResponses: {
+      USERNAME: userHandle,
+      ANSWER: JSON.stringify(encodedCredential),
+    },
+  }));
+  if (res.AuthenticationResult == null) {
+    throw new Error('failed to authenticate');
+  }
+  console.log('tokens', res.AuthenticationResult);
 };
 </script>
 
