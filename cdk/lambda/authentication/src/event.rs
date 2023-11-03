@@ -109,6 +109,9 @@ impl_from! { CognitoEventUserPoolsVerifyAuthChallengeExt }
 
 /// Operations on [`CognitoEventUserPoolsDefineAuthChallengeResponse`].
 pub trait CognitoEventUserPoolsDefineAuthChallengeOps {
+    /// Returns whether the user exists.
+    fn user_exists(&self) -> bool;
+
     /// Returns the sessions.
     fn sessions(&self) -> &Vec<Option<CognitoEventUserPoolsChallengeResult>>;
 
@@ -125,6 +128,10 @@ pub trait CognitoEventUserPoolsDefineAuthChallengeOps {
 impl CognitoEventUserPoolsDefineAuthChallengeOps
     for CognitoEventUserPoolsDefineAuthChallenge
 {
+    fn user_exists(&self) -> bool {
+        !self.request.user_not_found
+    }
+
     fn sessions(&self) -> &Vec<Option<CognitoEventUserPoolsChallengeResult>> {
         &self.request.session
     }
@@ -163,6 +170,11 @@ pub struct CognitoEventUserPoolsCreateAuthChallengeExt {
 }
 
 impl CognitoEventUserPoolsCreateAuthChallengeExt {
+    /// Returns whether the user exists.
+    pub fn user_exists(&self) -> bool {
+        !self.request.1
+    }
+
     /// Returns the sessions.
     pub fn sessions(&self) -> &Vec<Option<CognitoEventUserPoolsChallengeResult>> {
         &self.request.0.session
@@ -219,6 +231,11 @@ pub struct CognitoEventUserPoolsVerifyAuthChallengeExt {
 }
 
 impl CognitoEventUserPoolsVerifyAuthChallengeExt {
+    /// Returns whether the user exists.
+    pub fn user_exists(&self) -> bool {
+        !self.request.1
+    }
+
     /// Obtains the challenge answer.
     pub fn get_challenge_answer<'de, T>(&'de self) -> Result<T, Error>
     where

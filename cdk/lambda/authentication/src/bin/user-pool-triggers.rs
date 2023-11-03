@@ -23,6 +23,7 @@ use webauthn_rs::{
         DiscoverableAuthentication,
         DiscoverableKey,
         Passkey,
+        PasskeyAuthentication,
         Url,
     },
 };
@@ -125,17 +126,63 @@ async fn define_auth_challenge(
 
 // Handles "Create auth challenge" events.
 async fn create_auth_challenge(
-    _shared_state: Arc<SharedState>,
+    shared_state: Arc<SharedState>,
     mut event: CognitoEventUserPoolsCreateAuthChallengeExt,
 ) -> Result<CognitoEventUserPoolsCreateAuthChallengeExt, Error> {
     info!("create_auth_challenge");
     if event.sessions().is_empty() {
-        event.set_challenge_metadata("PASSKEY_TEST_CHALLENGE");
-        let rcr = RequestChallengeResponse {
-            dummy: "dummy".into(),
-        };
-        event.set_public_challenge_parameter(CHALLENGE_PARAMETER_NAME, &rcr)?;
-        event.set_private_challenge_parameter(CHALLENGE_PARAMETER_NAME, &rcr)?;
+        if event.user_exists() {
+            let username = event.cognito_event_user_pools_header.user_name
+                .as_ref()
+                .ok_or("missing username in Cognito trigger")?;
+
+            // lists credentials of the user
+            let credentials = shared_state.dynamodb
+                .query()
+                .table_name(shared_state.credential_table_name.clone())
+                .key_condition_expression("pk = :pk")
+                .expression_attribute_values(
+                    ":pk",
+                    AttributeValue::S(format!("user#{}", username)),
+                )
+                .send()
+                .await?
+                .items
+                .unwrap_or_default();
+            let credentials: Vec<&String> = credentials.iter()
+                .map(|c| c.get("credential")
+                    .ok_or("missing credential in the database")?
+                    .as_s()
+                    .or(Err("malformed credential in the database")))
+                .collect::<Result<Vec<_>, _>>()?;
+            let passkeys: Vec<Passkey> = credentials.into_iter()
+                .map(|c| serde_json::from_str(c)
+                    .or(Err("malformed credential in the database")))
+                .collect::<Result<Vec<_>, _>>()?;
+
+            // starts authentication
+            match shared_state.webauthn
+                .start_passkey_authentication(&passkeys)
+            {
+                Ok((rcr, auth_state)) => {
+                    event.set_challenge_metadata("PASSKEY_TEST_CHALLENGE");
+                    event.set_public_challenge_parameter(
+                        CHALLENGE_PARAMETER_NAME,
+                        &rcr,
+                    )?;
+                    event.set_private_challenge_parameter(
+                        CHALLENGE_PARAMETER_NAME,
+                        &auth_state,
+                    )?;
+                }
+                Err(e) => {
+                    error!("failed to start authentication: {}", e);
+                }
+            }
+        } else {
+            // TODO: make a dummy challenge for non-existing user
+            info!("non existing user");
+        }
         Ok(event)
     } else {
         Err("no further challenges".into())
@@ -158,10 +205,6 @@ async fn verify_auth_challenge(
             return Err(e.into());
         }
     };
-    // TODO: support non-discoverable credentials
-    let _challenge: RequestChallengeResponse = event
-        .get_private_challenge_parameter(CHALLENGE_PARAMETER_NAME)?
-        .ok_or("missing private challenge parameter")?;
 
     // extracts the user handle from `credential`
     // it must match the username in the event
@@ -186,6 +229,10 @@ async fn verify_auth_challenge(
     let client_challenge = client_data.challenge;
 
     // obtains the session corresponding to the challenge
+    // TODO: we want to save DynamoDB access by first checking if the challenge
+    //       was made by InitiateAuth, but we are not allowed to access the
+    //       challenge data in PasskeyAuthentication. maybe we can extract it
+    //       by serializing PasskeyAuthentication as serde_json::Value
     let session = shared_state.dynamodb
         .delete_item()
         .table_name(shared_state.session_table_name.clone())
@@ -196,66 +243,137 @@ async fn verify_auth_challenge(
         .return_values(ReturnValue::AllOld)
         .send()
         .await?
-        .attributes
-        .ok_or("expired or wrong session")?;
-    // session may have expired
-    let ttl: i64 = session.get("ttl")
-        .ok_or("missing ttl")?
-        .as_n()
-        .or(Err("invalid ttl"))?
-        .parse()?;
-    if ttl < DateTime::from(SystemTime::now()).secs() {
-        return Err("session expired".into());
-    }
-    let auth_state = session.get("state")
-        .ok_or("missing authentication state")?
-        .as_s()
-        .or(Err("invalid authentication state"))?;
-    let auth_state: DiscoverableAuthentication =
-        serde_json::from_str(&auth_state)?;
-
-    // obtains the credentials (passkeys) associated with the user
-    let credentials = shared_state.dynamodb
-        .query()
-        .table_name(shared_state.credential_table_name.clone())
-        .key_condition_expression("pk = :pk")
-        .expression_attribute_values(
-            ":pk",
-            AttributeValue::S(format!("user#{}", username)),
-        )
-        .send()
-        .await?
-        .items
-        .ok_or("no credentials")?;
-    let credentials: Vec<&String> = credentials.iter()
-        .map(|c| c.get("credential")
-            .ok_or("missing credential")?
+        .attributes;
+    if let Some(session) = session {
+        info!("client-side discoverable credential");
+        // session may have expired
+        let ttl: i64 = session.get("ttl")
+            .ok_or("missing ttl")?
+            .as_n()
+            .or(Err("invalid ttl"))?
+            .parse()?;
+        if ttl < DateTime::from(SystemTime::now()).secs() {
+            return Err("session expired".into());
+        }
+        let auth_state = session.get("state")
+            .ok_or("missing authentication state")?
             .as_s()
-            .or(Err("invalid credential")))
-        .collect::<Result<Vec<_>, _>>()?;
-    let mut passkeys: Vec<Passkey> = credentials.into_iter()
-        .map(|c| serde_json::from_str::<Passkey>(c))
-        .collect::<Result<Vec<_>, _>>()?;
+            .or(Err("invalid authentication state"))?;
+        let auth_state: DiscoverableAuthentication =
+            serde_json::from_str(&auth_state)?;
 
-    // verifies the challenge
-    let discoverable_keys: Vec<DiscoverableKey> = passkeys.iter()
-        .map(|c| c.into())
-        .collect();
-    match shared_state.webauthn.finish_discoverable_authentication(
-        &credential,
-        auth_state,
-        &discoverable_keys,
-    ) {
-        Ok(auth_result) => {
-            // updates the stored credential if necessary
-            for passkey in passkeys.iter_mut() {
-                let credential_id = passkey.cred_id().to_string();
-                info!("checking credential updates: {}", credential_id);
+        // obtains the credentials (passkeys) associated with the user
+        let credentials = shared_state.dynamodb
+            .query()
+            .table_name(shared_state.credential_table_name.clone())
+            .key_condition_expression("pk = :pk")
+            .expression_attribute_values(
+                ":pk",
+                AttributeValue::S(format!("user#{}", username)),
+            )
+            .send()
+            .await?
+            .items
+            .ok_or("no credentials")?;
+        let credentials: Vec<&String> = credentials.iter()
+            .map(|c| c.get("credential")
+                .ok_or("missing credential")?
+                .as_s()
+                .or(Err("invalid credential")))
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut passkeys: Vec<Passkey> = credentials.into_iter()
+            .map(|c| serde_json::from_str::<Passkey>(c))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        // verifies the challenge
+        let discoverable_keys: Vec<DiscoverableKey> = passkeys.iter()
+            .map(|c| c.into())
+            .collect();
+        match shared_state.webauthn.finish_discoverable_authentication(
+            &credential,
+            auth_state,
+            &discoverable_keys,
+        ) {
+            Ok(auth_result) => {
+                // updates the stored credential if necessary
+                for passkey in passkeys.iter_mut() {
+                    let credential_id = passkey.cred_id().to_string();
+                    info!("checking credential updates: {}", credential_id);
+                    if passkey.update_credential(&auth_result)
+                        .is_some_and(|b| b)
+                    {
+                        info!("updating credential: {}", credential_id);
+                        shared_state.dynamodb
+                            .update_item()
+                            .table_name(
+                                shared_state.credential_table_name.clone(),
+                            )
+                            .key(
+                                "pk",
+                                AttributeValue::S(format!("user#{}", username)),
+                            )
+                            .key(
+                                "sk",
+                                AttributeValue::S(
+                                    format!("credential#{}", credential_id),
+                                ),
+                            )
+                            .update_expression("SET credential = :credential")
+                            .expression_attribute_values(
+                                ":credential",
+                                AttributeValue::S(
+                                    serde_json::to_string(passkey)?,
+                                ),
+                            )
+                            .condition_expression("attributes_exists(pk)")
+                            .return_values(ReturnValue::None)
+                            .send()
+                            .await?;
+                    }
+                }
+                event.accept();
+            }
+            Err(e) => {
+                error!("authentication failed: {}", e);
+                event.reject();
+            }
+        };
+    } else {
+        info!("Cognito initiated challenge");
+        // challenge offered by InitiateAuth
+        let auth_state: PasskeyAuthentication = event
+            .get_private_challenge_parameter(CHALLENGE_PARAMETER_NAME)?
+            .ok_or("missing private challenge parameter")?;
+        match shared_state.webauthn.finish_passkey_authentication(
+            &credential,
+            &auth_state,
+        ) {
+            Ok(auth_result) => {
+                // updates the stored credential if necessary
+                let credential_item = shared_state.dynamodb
+                    .get_item()
+                    .table_name(shared_state.credential_table_name.clone())
+                    .key("pk", AttributeValue::S(format!("user#{}", username)))
+                    .key("sk", AttributeValue::S(
+                        format!("credential#{}", auth_result.cred_id()),
+                    ))
+                    .send()
+                    .await?
+                    .item
+                    .ok_or("missing credential in the database")?;
+                let passkey = credential_item.get("credential")
+                    .ok_or("malformed credential in the database")?
+                    .as_s()
+                    .or(Err("malformed credential in the database"))?;
+                let mut passkey: Passkey = serde_json::from_str(passkey)
+                    .or(Err("malformed credential in the database"))?;
                 if passkey.update_credential(&auth_result).is_some_and(|b| b) {
-                    info!("updating credential: {}", credential_id);
+                    info!("updating credential: {}", auth_result.cred_id());
                     shared_state.dynamodb
                         .update_item()
-                        .table_name(shared_state.credential_table_name.clone())
+                        .table_name(
+                            shared_state.credential_table_name.clone(),
+                        )
                         .key(
                             "pk",
                             AttributeValue::S(format!("user#{}", username)),
@@ -263,27 +381,29 @@ async fn verify_auth_challenge(
                         .key(
                             "sk",
                             AttributeValue::S(
-                                format!("credential#{}", credential_id),
+                                format!("credential#{}", auth_result.cred_id()),
                             ),
                         )
                         .update_expression("SET credential = :credential")
                         .expression_attribute_values(
                             ":credential",
-                            AttributeValue::S(serde_json::to_string(passkey)?),
+                            AttributeValue::S(
+                                serde_json::to_string(&passkey)?,
+                            ),
                         )
                         .condition_expression("attributes_exists(pk)")
                         .return_values(ReturnValue::None)
                         .send()
                         .await?;
                 }
+                event.accept();
             }
-            event.accept();
-        }
-        Err(e) => {
-            error!("authentication failed: {}", e);
-            event.reject();
-        }
-    };
+            Err(e) => {
+                error!("authentication failed: {}", e);
+                event.reject();
+            }
+        };
+    }
     Ok(event)
 }
 
