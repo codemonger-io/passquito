@@ -105,7 +105,15 @@ const decodePublicKeyCredentialCreationOptions = (publicKey: any) => {
     ...publicKey,
     user: decodePublicKeyCredentialUserEntity(publicKey.user),
     challenge: Base64.toUint8Array(publicKey.challenge),
-    ...(publicKey.excludeCredentials?.map(decodePublicKeyCredentialDescriptor) || {}),
+    ...(
+      publicKey.excludeCredentials
+        ? {
+            excludeCredentials: publicKey.excludeCredentials.map(
+              decodePublicKeyCredentialDescriptor,
+            )
+          }
+        : {}
+    ),
   } as PublicKeyCredentialCreationOptions;
 };
 
