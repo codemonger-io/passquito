@@ -11,7 +11,7 @@ use aws_sdk_dynamodb::{
     types::{AttributeValue, ReturnValue},
 };
 use lambda_runtime::{run, service_fn, Error, LambdaEvent};
-use serde::{Deserialize, Serialize};
+use ring::digest;
 use std::env;
 use std::sync::Arc;
 use std::time::SystemTime;
@@ -20,16 +20,19 @@ use webauthn_rs::{
     Webauthn,
     WebauthnBuilder,
     prelude::{
+        Base64UrlSafeData,
         DiscoverableAuthentication,
         DiscoverableKey,
         Passkey,
         PasskeyAuthentication,
+        RequestChallengeResponse,
         Url,
     },
 };
 use webauthn_rs_proto::{
     CollectedClientData,
-    auth::PublicKeyCredential,
+    auth::{PublicKeyCredential, PublicKeyCredentialRequestOptions},
+    options::{AllowCredentials, UserVerificationPolicy},
 };
 
 use authentication::event::{
@@ -67,15 +70,6 @@ impl SharedState {
                 .or(Err("CREDENTIAL_TABLE_NAME env must be set"))?,
         })
     }
-}
-
-/// Challenge response.
-/// 
-/// TODO: replace with the one from [`webauthn-rs-proto`].
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct RequestChallengeResponse {
-    /// Dummy field.
-    pub dummy: String,
 }
 
 /// This is the main body for the function.
@@ -129,13 +123,12 @@ async fn create_auth_challenge(
     shared_state: Arc<SharedState>,
     mut event: CognitoEventUserPoolsCreateAuthChallengeExt,
 ) -> Result<CognitoEventUserPoolsCreateAuthChallengeExt, Error> {
-    info!("create_auth_challenge");
+    info!("create_auth_challenge: {:?}", event);
     if event.sessions().is_empty() {
+        let username = event.cognito_event_user_pools_header.user_name
+            .as_ref()
+            .ok_or("missing username in Cognito trigger")?;
         if event.user_exists() {
-            let username = event.cognito_event_user_pools_header.user_name
-                .as_ref()
-                .ok_or("missing username in Cognito trigger")?;
-
             // lists credentials of the user
             let credentials = shared_state.dynamodb
                 .query()
@@ -180,8 +173,48 @@ async fn create_auth_challenge(
                 }
             }
         } else {
-            // TODO: make a dummy challenge for non-existing user
-            info!("non existing user");
+            info!("non existing user: {:?}", event);
+            // generates deterministic sequences from username
+            // - 128 bits (16 bytes): fake UUID as the user handle
+            // - 160 bits (20 bytes): fake credential ID
+            let mut hash = ring::digest::Context::new(&digest::SHA384);
+            hash.update(b"TODO: replace this with a secret salt!!!");
+            hash.update(username.as_bytes());
+            let hash = hash.finish();
+            let mut user_handle: Vec<u8> = Vec::with_capacity(16);
+            user_handle.extend_from_slice(&hash.as_ref()[0..16]);
+            let mut credential_id: Vec<u8> = Vec::with_capacity(20);
+            credential_id.extend_from_slice(&hash.as_ref()[16..36]);
+            let mut challenge = vec![0u8; 32];
+            getrandom::getrandom(&mut challenge)?;
+            let rcr = RequestChallengeResponse {
+                public_key: PublicKeyCredentialRequestOptions {
+                    rp_id: "localhost".into(),
+                    challenge: challenge.into(),
+                    allow_credentials: vec![AllowCredentials {
+                        type_: "public-key".into(),
+                        id: credential_id.into(),
+                        transports: None,
+                    }],
+                    user_verification: UserVerificationPolicy::Preferred,
+                    timeout: Some(60000),
+                    extensions: None,
+                },
+                mediation: None,
+            };
+            event.set_challenge_metadata("PASSKEY_TEST_CHALLENGE");
+            event.set_public_challenge_parameter(
+                "USERNAME",
+                &Base64UrlSafeData::from(user_handle),
+            )?;
+            event.set_public_challenge_parameter(
+                CHALLENGE_PARAMETER_NAME,
+                &rcr,
+            )?;
+            event.set_private_challenge_parameter(
+                CHALLENGE_PARAMETER_NAME,
+                "",
+            )?;
         }
         Ok(event)
     } else {
