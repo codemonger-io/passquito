@@ -99,6 +99,7 @@ dependencies = [
  "getrandom",
  "lambda_http",
  "lambda_runtime",
+ "ring 0.17.5",
  "serde",
  "serde_json",
  "thiserror",
