@@ -241,11 +241,11 @@ const onSubmit = async () => {
   if (challenge.ChallengeName !== 'CUSTOM_CHALLENGE') {
     throw new Error(`unexpected challenge name: ${challenge.ChallengeName}`);
   }
-  const userHandle = challenge.ChallengeParameters.USERNAME;
+  const userHandle = challenge.ChallengeParameters?.USERNAME;
   if (userHandle == null) {
     throw new Error('no USERNAME in challenge parameters');
   }
-  const authOptionsJson = challenge.ChallengeParameters.passkeyTestChallenge;
+  const authOptionsJson = challenge.ChallengeParameters?.passkeyTestChallenge;
   if (authOptionsJson == null) {
     throw new Error('no passkeyTestChallenge in challenge parameters');
   }
@@ -253,7 +253,11 @@ const onSubmit = async () => {
     decodeCredentialRequestOptions(JSON.parse(authOptionsJson));
   console.log('authentication options', authOptions);
   const credential = await navigator.credentials.get(authOptions);
-  const encodedCredential = encodePublicKeyCredential(credential);
+  if (credential == null) {
+    throw new Error('failed to get public key credential');
+  }
+  const encodedCredential =
+    encodePublicKeyCredential(credential as PublicKeyCredential);
   console.log('encoded credential:', encodedCredential);
   const res = await cognitoClient.send(new RespondToAuthChallengeCommand({
     ClientId: userPoolClientId,
