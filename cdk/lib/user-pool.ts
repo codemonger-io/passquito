@@ -87,25 +87,29 @@ export class UserPool extends Construct {
       removalPolicy: RemovalPolicy.RETAIN,
     });
 
-    this.userPoolTriggerLambda = new RustFunction(this, 'CognitoTriggerLambda', {
-      manifestPath: path.join('lambda', 'authentication', 'Cargo.toml'),
-      binaryName: 'user-pool-triggers',
-      architecture: lambda.Architecture.ARM_64,
-      environment: {
-        CREDENTIAL_TABLE_NAME: this.credentialTable.tableName,
-        SESSION_TABLE_NAME: sessionStore.sessionTable.tableName,
+    this.userPoolTriggerLambda = new RustFunction(
+      this,
+      'CognitoTriggerLambda',
+      {
+        manifestPath: path.join('lambda', 'authentication', 'Cargo.toml'),
+        binaryName: 'user-pool-triggers',
+        architecture: lambda.Architecture.ARM_64,
+        environment: {
+          CREDENTIAL_TABLE_NAME: this.credentialTable.tableName,
+          SESSION_TABLE_NAME: sessionStore.sessionTable.tableName,
+        },
+        memorySize: 128,
+        timeout: Duration.seconds(5),
       },
-      memorySize: 128,
-      timeout: Duration.seconds(5),
-    });
+    );
     this.credentialTable.grantReadWriteData(this.userPoolTriggerLambda);
     sessionStore.sessionTable.grantReadWriteData(this.userPoolTriggerLambda);
 
     this.userPool = new cognito.UserPool(this, 'UserPool', {
       selfSignUpEnabled: false,
       signInAliases: {
+        // username equals the passkey user handle ("base64url"-encoded UUID)
         username: true,
-        preferredUsername: true,
       },
       lambdaTriggers: {
         defineAuthChallenge: this.userPoolTriggerLambda,

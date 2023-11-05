@@ -168,8 +168,8 @@ async fn start_registration(
     let existing_user = shared_state.cognito
         .list_users()
         .user_pool_id(shared_state.user_pool_id.clone())
-        .attributes_to_get("preferred_username")
-        .filter(format!("preferred_username = \"{}\"", user_info.username))
+        .attributes_to_get("username")
+        .filter(format!("username = \"{}\"", user_info.username))
         .limit(1)
         .send()
         .await?
@@ -194,8 +194,7 @@ async fn start_registration(
         match existing_user.as_ref()
     {
         Some(user) => {
-            let username = user.username.as_ref()
-                .ok_or("missing username in user pool")?;
+            let username = user.username.as_ref().unwrap();
             info!("listing credentials for {}", username);
             let credentials = shared_state.dynamodb
                 .query()
@@ -238,14 +237,26 @@ async fn start_registration(
             shared_state.dynamodb
                 .put_item()
                 .table_name(shared_state.session_table_name.clone())
-                .item("pk", AttributeValue::S(format!("registration#{}", session_id)))
+                .item(
+                    "pk",
+                    AttributeValue::S(format!("registration#{}", session_id)),
+                )
                 .item("ttl", AttributeValue::N(format!("{}", ttl)))
                 .item("userId", AttributeValue::S(user_unique_id))
                 .item("userInfo", AttributeValue::M(HashMap::from([
-                    ("username".into(), AttributeValue::S(user_info.username.into())),
-                    ("displayName".into(), AttributeValue::S(user_info.display_name.into())),
+                    (
+                        "username".into(),
+                        AttributeValue::S(user_info.username.into()),
+                    ),
+                    (
+                        "displayName".into(),
+                        AttributeValue::S(user_info.display_name.into()),
+                    ),
                 ])))
-                .item("state", AttributeValue::S(serde_json::to_string(&reg_state)?))
+                .item(
+                    "state",
+                    AttributeValue::S(serde_json::to_string(&reg_state)?),
+                )
                 .send()
                 .await?;
             serde_json::to_string(&StartRegistrationSession {
@@ -312,21 +323,21 @@ async fn finish_registration(
             info!("verified key: {:?}", key);
             // extracts the user information
             let user_unique_id = item.get("userId")
-                .ok_or("missing userId")?
+                .ok_or("missing userId in session")?
                 .as_s()
-                .or(Err("invalid userId"))?;
+                .or(Err("malformed userId in session"))?;
             let user_info = item.get("userInfo")
-                .ok_or("missing userInfo")?
+                .ok_or("missing userInfo in session")?
                 .as_m()
-                .or(Err("invalid userInfo"))?;
+                .or(Err("malformed userInfo in session"))?;
             let username = user_info.get("username")
-                .ok_or("missing username")?
+                .ok_or("missing username in session")?
                 .as_s()
-                .or(Err("invalid username"))?;
+                .or(Err("malformed username in session"))?;
             let display_name = user_info.get("displayName")
-                .ok_or("missing displayName")?
+                .ok_or("missing displayName in session")?
                 .as_s()
-                .or(Err("invalid displayName"))?;
+                .or(Err("malformed displayName in session"))?;
             // generates a random password that is never used
             let mut password = [0u8; 24];
             getrandom::getrandom(&mut password)?;
@@ -353,11 +364,10 @@ async fn finish_registration(
             let sub = cognito_user.attributes
                 .ok_or("missing Cognito user attributes")?
                 .into_iter()
-                .find(|a| a.name.as_ref()
+                .find_map(|a| a.name.as_ref()
                     .zip(a.value.as_ref())
-                    .filter(|(n, _)| *n == "sub")
-                    .is_some())
-                .and_then(|a| a.value)
+                    .filter(|(name, _)| *name == "sub")
+                    .map(|(_, value)| value.clone()))
                 .ok_or("missing Cognito user sub attribute")?;
             info!("created Cognito user: {}", sub);
             // force-confirms the password
@@ -370,7 +380,7 @@ async fn finish_registration(
                 .send()
                 .await?;
             // stores `key` in the credential table
-            // TODO: delete the user upon failure
+            // TODO: delete the Cognito user upon failure
             let credential_id = format!("{}", key.cred_id());
             let created_at = DateTime::from(SystemTime::now())
                 .fmt(DateTimeFormat::DateTime)?;

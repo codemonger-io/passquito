@@ -20,7 +20,6 @@ use webauthn_rs::{
     Webauthn,
     WebauthnBuilder,
     prelude::{
-        Base64UrlSafeData,
         DiscoverableAuthentication,
         DiscoverableKey,
         Passkey,
@@ -173,18 +172,15 @@ async fn create_auth_challenge(
                 }
             }
         } else {
-            info!("non existing user: {:?}", event);
-            // generates deterministic sequences from username
-            // - 128 bits (16 bytes): fake UUID as the user handle
-            // - 160 bits (20 bytes): fake credential ID
-            let mut hash = ring::digest::Context::new(&digest::SHA384);
+            info!("non existing user");
+            // generates 160 bits (20 bytes) fake credential ID from username
+            // TODO: secret salt
+            let mut hash = ring::digest::Context::new(&digest::SHA256);
             hash.update(b"TODO: replace this with a secret salt!!!");
             hash.update(username.as_bytes());
             let hash = hash.finish();
-            let mut user_handle: Vec<u8> = Vec::with_capacity(16);
-            user_handle.extend_from_slice(&hash.as_ref()[0..16]);
             let mut credential_id: Vec<u8> = Vec::with_capacity(20);
-            credential_id.extend_from_slice(&hash.as_ref()[16..36]);
+            credential_id.extend_from_slice(&hash.as_ref()[0..20]);
             let mut challenge = vec![0u8; 32];
             getrandom::getrandom(&mut challenge)?;
             let rcr = RequestChallengeResponse {
@@ -203,10 +199,6 @@ async fn create_auth_challenge(
                 mediation: None,
             };
             event.set_challenge_metadata("PASSKEY_TEST_CHALLENGE");
-            event.set_public_challenge_parameter(
-                "USERNAME",
-                &Base64UrlSafeData::from(user_handle),
-            )?;
             event.set_public_challenge_parameter(
                 CHALLENGE_PARAMETER_NAME,
                 &rcr,
@@ -227,26 +219,29 @@ async fn verify_auth_challenge(
     shared_state: Arc<SharedState>,
     mut event: CognitoEventUserPoolsVerifyAuthChallengeExt,
 ) -> Result<CognitoEventUserPoolsVerifyAuthChallengeExt, Error> {
-    info!("verify_auth_challenge");
+    info!("verify_auth_challenge: {:?}", event);
 
-    let username = event.cognito_event_user_pools_header.user_name.as_ref()
-        .ok_or("missing username")?;
+    let user_handle = event.cognito_event_user_pools_header.user_name.as_ref()
+        .ok_or("missing username in request")?;
     let credential: PublicKeyCredential = match event.get_challenge_answer() {
         Ok(credential) => credential,
         Err(e) => {
-            error!("bad challenge answer: {:?}", event.get_raw_challenge_answer());
+            error!(
+                "malformed challenge answer: {:?}",
+                event.get_raw_challenge_answer(),
+            );
             return Err(e.into());
         }
     };
 
     // extracts the user handle from `credential`
-    // it must match the username in the event
-    let user_handle = credential.response.user_handle.as_ref()
-        .ok_or("missing user handle")?
+    // it must match the user_unique_id in the event
+    let cred_user_handle = credential.response.user_handle.as_ref()
+        .ok_or("missing user handle in credential")?
         .to_string();
-    if username != &user_handle {
-        error!("user mismatch: {} vs {}", username, user_handle);
-        return Err("user mismatch".into());
+    if user_handle != &cred_user_handle {
+        error!("user handle mismatch: {} vs {}", user_handle, cred_user_handle);
+        return Err("credential mismatch".into());
     }
 
     // extracts the challenge from `credential`
@@ -283,7 +278,7 @@ async fn verify_auth_challenge(
         let ttl: i64 = session.get("ttl")
             .ok_or("missing ttl")?
             .as_n()
-            .or(Err("invalid ttl"))?
+            .or(Err("malformed ttl"))?
             .parse()?;
         if ttl < DateTime::from(SystemTime::now()).secs() {
             return Err("session expired".into());
@@ -291,7 +286,7 @@ async fn verify_auth_challenge(
         let auth_state = session.get("state")
             .ok_or("missing authentication state")?
             .as_s()
-            .or(Err("invalid authentication state"))?;
+            .or(Err("malformed authentication state"))?;
         let auth_state: DiscoverableAuthentication =
             serde_json::from_str(&auth_state)?;
 
@@ -302,7 +297,7 @@ async fn verify_auth_challenge(
             .key_condition_expression("pk = :pk")
             .expression_attribute_values(
                 ":pk",
-                AttributeValue::S(format!("user#{}", username)),
+                AttributeValue::S(format!("user#{}", user_handle)),
             )
             .send()
             .await?
@@ -312,10 +307,11 @@ async fn verify_auth_challenge(
             .map(|c| c.get("credential")
                 .ok_or("missing credential")?
                 .as_s()
-                .or(Err("invalid credential")))
+                .or(Err("malformed credential")))
             .collect::<Result<Vec<_>, _>>()?;
         let mut passkeys: Vec<Passkey> = credentials.into_iter()
-            .map(|c| serde_json::from_str::<Passkey>(c))
+            .map(|c| serde_json::from_str::<Passkey>(c)
+                .or(Err("malformed credential")))
             .collect::<Result<Vec<_>, _>>()?;
 
         // verifies the challenge
@@ -341,10 +337,9 @@ async fn verify_auth_challenge(
                             .table_name(
                                 shared_state.credential_table_name.clone(),
                             )
-                            .key(
-                                "pk",
-                                AttributeValue::S(format!("user#{}", username)),
-                            )
+                            .key("pk", AttributeValue::S(
+                                format!("user#{}", user_handle),
+                            ))
                             .key(
                                 "sk",
                                 AttributeValue::S(
@@ -386,7 +381,10 @@ async fn verify_auth_challenge(
                 let credential_item = shared_state.dynamodb
                     .get_item()
                     .table_name(shared_state.credential_table_name.clone())
-                    .key("pk", AttributeValue::S(format!("user#{}", username)))
+                    .key(
+                        "pk",
+                        AttributeValue::S(format!("user#{}", user_handle)),
+                    )
                     .key("sk", AttributeValue::S(
                         format!("credential#{}", auth_result.cred_id()),
                     ))
@@ -409,7 +407,7 @@ async fn verify_auth_challenge(
                         )
                         .key(
                             "pk",
-                            AttributeValue::S(format!("user#{}", username)),
+                            AttributeValue::S(format!("user#{}", user_handle)),
                         )
                         .key(
                             "sk",
