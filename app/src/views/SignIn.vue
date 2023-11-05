@@ -251,6 +251,7 @@ const onSubmit = async () => {
   }
   const authOptions =
     decodeCredentialRequestOptions(JSON.parse(authOptionsJson));
+  console.log('authentication options', authOptions);
   const credential = await navigator.credentials.get(authOptions);
   const encodedCredential = encodePublicKeyCredential(credential);
   console.log('encoded credential:', encodedCredential);
