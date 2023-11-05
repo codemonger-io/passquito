@@ -7,7 +7,7 @@
 
 use aws_lambda_events::event::cognito::CognitoEventUserPoolsDefineAuthChallenge;
 use aws_sdk_dynamodb::{
-    primitives::DateTime,
+    primitives::{DateTime, DateTimeFormat},
     types::{AttributeValue, ReturnValue},
 };
 use lambda_runtime::{run, service_fn, Error, LambdaEvent};
@@ -328,6 +328,8 @@ async fn verify_auth_challenge(
                 for passkey in passkeys.iter_mut() {
                     let credential_id = passkey.cred_id().to_string();
                     info!("checking credential updates: {}", credential_id);
+                    let updated_at = DateTime::from(SystemTime::now())
+                        .fmt(DateTimeFormat::DateTime)?;
                     if passkey.update_credential(&auth_result)
                         .is_some_and(|b| b)
                     {
@@ -346,12 +348,16 @@ async fn verify_auth_challenge(
                                     format!("credential#{}", credential_id),
                                 ),
                             )
-                            .update_expression("SET credential = :credential")
+                            .update_expression("SET credential = :credential, updatedAt = :updatedAt")
                             .expression_attribute_values(
                                 ":credential",
                                 AttributeValue::S(
                                     serde_json::to_string(passkey)?,
                                 ),
+                            )
+                            .expression_attribute_values(
+                                ":updatedAt",
+                                AttributeValue::S(updated_at),
                             )
                             .condition_expression("attributes_exists(pk)")
                             .return_values(ReturnValue::None)
@@ -400,6 +406,8 @@ async fn verify_auth_challenge(
                     .or(Err("malformed credential in the database"))?;
                 if passkey.update_credential(&auth_result).is_some_and(|b| b) {
                     info!("updating credential: {}", auth_result.cred_id());
+                    let updated_at = DateTime::from(SystemTime::now())
+                        .fmt(DateTimeFormat::DateTime)?;
                     shared_state.dynamodb
                         .update_item()
                         .table_name(
@@ -415,12 +423,16 @@ async fn verify_auth_challenge(
                                 format!("credential#{}", auth_result.cred_id()),
                             ),
                         )
-                        .update_expression("SET credential = :credential")
+                        .update_expression("SET credential = :credential, updatedAt = :updateAt")
                         .expression_attribute_values(
                             ":credential",
                             AttributeValue::S(
                                 serde_json::to_string(&passkey)?,
                             ),
+                        )
+                        .expression_attribute_values(
+                            ":updatedAt",
+                            AttributeValue::S(updated_at),
                         )
                         .condition_expression("attributes_exists(pk)")
                         .return_values(ReturnValue::None)
