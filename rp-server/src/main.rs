@@ -44,11 +44,11 @@ async fn main() {
         );
 
     let auth_routes = Router::new()
-        .route("/register-start", post(start_register))
-        .route("/register-finish", post(finish_register))
-        .route("/login-start", get(start_authentication_for_anyone))
-        .route("/login-start", post(start_authentication))
-        .route("/login-finish", post(finish_authentication_for_anyone));
+        .route("/registration/start", post(start_register))
+        .route("/registration/finish", post(finish_register))
+        .route("/discoverable/start", post(start_authentication_for_anyone))
+        .route("/discoverable/finish", post(finish_authentication_for_anyone))
+        .route("/login-start", post(start_authentication));
 
     let app = Router::new()
         .route("/", get(root))

@@ -6,7 +6,7 @@ use axum::{
     http::StatusCode,
     response::IntoResponse,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tower_sessions::Session;
 use tracing::{error, info};
 use webauthn_rs::prelude::{
@@ -16,7 +16,11 @@ use webauthn_rs::prelude::{
     PasskeyRegistration,
     Uuid,
 };
-use webauthn_rs_proto::{PublicKeyCredential, RegisterPublicKeyCredential};
+use webauthn_rs_proto::{
+    CreationChallengeResponse,
+    PublicKeyCredential,
+    RegisterPublicKeyCredential,
+};
 
 use crate::error::WebauthnError;
 use crate::state::AppState;
@@ -43,6 +47,28 @@ pub struct NewUserInfo {
 pub struct UserInfo {
     /// Username.
     username: String,
+}
+
+/// Beginning of a session to register a new user.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StartRegistrationSession {
+    /// Session ID.
+    pub session_id: String,
+
+    /// Credential creation options.
+    pub credential_creation_options: CreationChallengeResponse,
+}
+
+/// End of a session to register a new user.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FinishRegistrationSession {
+    /// Session ID.
+    pub session_id: String,
+
+    /// Public key credential.
+    pub public_key_credential: RegisterPublicKeyCredential,
 }
 
 /// Start the registration session.
@@ -85,7 +111,10 @@ pub async fn start_register(
                 ))
                 .expect("failed to insert session");
             info!("Registration Successful!");
-            Json(ccr)
+            Json(StartRegistrationSession {
+                session_id: "dummy".into(),
+                credential_creation_options: ccr,
+            })
         }
         Err(e) => {
             error!("start_register -> {:?}", e);
@@ -99,7 +128,7 @@ pub async fn start_register(
 pub async fn finish_register(
     Extension(app_state): Extension<AppState>,
     session: Session,
-    Json(reg): Json<RegisterPublicKeyCredential>,
+    Json(reg): Json<FinishRegistrationSession>,
 ) -> Result<impl IntoResponse, WebauthnError> {
     info!("finish register");
     let (username, user_unique_id, reg_state) = session
@@ -108,7 +137,7 @@ pub async fn finish_register(
         .and_then(|value| value.ok_or(WebauthnError::CorruptSession))?;
     let res = match app_state
         .webauthn
-        .finish_passkey_registration(&reg, &reg_state)
+        .finish_passkey_registration(&reg.public_key_credential, &reg_state)
     {
         Ok(sk) => {
             let mut users_guard = app_state.users.lock().await;
