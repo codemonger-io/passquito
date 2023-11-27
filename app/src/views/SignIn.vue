@@ -7,7 +7,7 @@ import {
 import { Base64 } from 'js-base64';
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
 
-import { credentialsApiUrl, userPoolClientId } from '../auth-config';
+import { credentialsApiUrl, isCognito, userPoolClientId } from '../auth-config';
 import { useWebauthn } from '../composables/webauthn';
 
 const cognitoClient = new CognitoIdentityProviderClient({
@@ -143,34 +143,47 @@ const decodePublicKeyCredentialDescriptor = (descriptor: any) => {
 const authenticatePublicKeyCredential = async (credential: PublicKeyCredential) => {
   const encodedCredential = encodePublicKeyCredential(credential);
   console.log('encoded credential:', encodedCredential);
-  const userHandle = encodedCredential.response.userHandle;
-  if (userHandle == null) {
-    throw new Error("authenticator must return userHandle");
-  }
-  const challenge = await cognitoClient.send(new InitiateAuthCommand({
-    ClientId: userPoolClientId,
-    AuthFlow: 'CUSTOM_AUTH',
-    AuthParameters: {
-      USERNAME: userHandle,
+  if (isCognito) {
+    const userHandle = encodedCredential.response.userHandle;
+    if (userHandle == null) {
+      throw new Error("authenticator must return userHandle");
     }
-  }));
-  if (challenge.ChallengeName !== 'CUSTOM_CHALLENGE') {
-    throw new Error(`unexpected challenge name: ${challenge.ChallengeName}`);
+    const challenge = await cognitoClient.send(new InitiateAuthCommand({
+      ClientId: userPoolClientId,
+      AuthFlow: 'CUSTOM_AUTH',
+      AuthParameters: {
+        USERNAME: userHandle,
+      }
+    }));
+    if (challenge.ChallengeName !== 'CUSTOM_CHALLENGE') {
+      throw new Error(`unexpected challenge name: ${challenge.ChallengeName}`);
+    }
+    // ignores challenge parameters for discoverable credentials
+    const res = await cognitoClient.send(new RespondToAuthChallengeCommand({
+      ClientId: userPoolClientId,
+      ChallengeName: 'CUSTOM_CHALLENGE',
+      Session: challenge.Session,
+      ChallengeResponses: {
+        USERNAME: userHandle,
+        ANSWER: JSON.stringify(encodedCredential),
+      },
+    }));
+    if (res.AuthenticationResult == null) {
+      throw new Error('failed to authenticate');
+    }
+    return res.AuthenticationResult;
+  } else {
+    const endpoint =
+      `${credentialsApiUrl.replace(/\/$/, '')}/discoverable/finish`;
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(encodedCredential),
+    });
+    return await res.json();
   }
-  // ignores challenge parameters for discoverable credentials
-  const res = await cognitoClient.send(new RespondToAuthChallengeCommand({
-    ClientId: userPoolClientId,
-    ChallengeName: 'CUSTOM_CHALLENGE',
-    Session: challenge.Session,
-    ChallengeResponses: {
-      USERNAME: userHandle,
-      ANSWER: JSON.stringify(encodedCredential),
-    },
-  }));
-  if (res.AuthenticationResult == null) {
-    throw new Error('failed to authenticate');
-  }
-  return res.AuthenticationResult;
 };
 
 // encodes `PublicKeyCredential` for an API request body.
