@@ -31,5 +31,5 @@ thiserror = "1.0"
 tokio = { version = "1", features = ["macros"] }
 tracing = { version = "0.1", features = ["log"] }
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt"] }
-webauthn-rs = { git = "https://github.com/codemonger-io/webauthn-rs.git", tag = "v0.4.8-vendored", features = ["danger-allow-state-serialisation", "preview-features", "resident-key-support"] }
-webauthn-rs-proto = { git = "https://github.com/codemonger-io/webauthn-rs.git", tag = "v0.4.8-vendored" }
+webauthn-rs = { git = "https://github.com/codemonger-io/webauthn-rs.git", tag = "v0.4.8-wo-openssl.0", features = ["danger-allow-state-serialisation", "preview-features", "resident-key-support"] }
+webauthn-rs-proto = { git = "https://github.com/codemonger-io/webauthn-rs.git", tag = "v0.4.8-wo-openssl.0" }
