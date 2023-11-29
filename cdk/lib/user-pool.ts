@@ -9,10 +9,14 @@ import {
 import { RustFunction } from 'cargo-lambda-cdk';
 import { Construct } from 'constructs';
 
+import type { Parameters } from './parameters';
 import type { SessionStore } from './session-store';
 
 /** Properties for `UserPool` */
 export interface UserPoolProps {
+  /** Parameters in Parameter Store on AWS Systems Manager. */
+  readonly parameters: Parameters;
+
   /** Session store. */
   readonly sessionStore: SessionStore;
 }
@@ -57,7 +61,7 @@ export class UserPool extends Construct {
   constructor(scope: Construct, id: string, props: UserPoolProps) {
     super(scope, id);
 
-    const { sessionStore } = props;
+    const { parameters, sessionStore } = props;
 
     this.credentialTable = new dynamodb.TableV2(this, 'CredentialTable', {
       partitionKey: {
@@ -97,12 +101,14 @@ export class UserPool extends Construct {
         environment: {
           CREDENTIAL_TABLE_NAME: this.credentialTable.tableName,
           SESSION_TABLE_NAME: sessionStore.sessionTable.tableName,
+          RP_ORIGIN_PARAMETER_PATH: parameters.rpOriginParameter.parameterName,
         },
         memorySize: 128,
         timeout: Duration.seconds(5),
       },
     );
     this.credentialTable.grantReadWriteData(this.userPoolTriggerLambda);
+    parameters.rpOriginParameter.grantRead(this.userPoolTriggerLambda);
     sessionStore.sessionTable.grantReadWriteData(this.userPoolTriggerLambda);
 
     this.userPool = new cognito.UserPool(this, 'UserPool', {

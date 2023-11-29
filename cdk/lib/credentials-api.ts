@@ -5,6 +5,7 @@ import { Duration, aws_lambda as lambda } from 'aws-cdk-lib';
 import { RustFunction } from 'cargo-lambda-cdk';
 import { Construct } from 'constructs';
 
+import type { Parameters } from './parameters';
 import type { SessionStore } from './session-store';
 import type { UserPool } from './user-pool';
 
@@ -12,6 +13,9 @@ import type { UserPool } from './user-pool';
 export interface CredentialsApiProps {
     /** Base path where tht API is to be served. */
     readonly basePath: string;
+
+    /** Parameters in Parameter Store on AWS Systems Manager. */
+    readonly parameters: Parameters;
 
     /** Session store. */
     readonly sessionStore: SessionStore;
@@ -34,7 +38,7 @@ export class CredentialsApi extends Construct {
     constructor(scope: Construct, id: string, readonly props: CredentialsApiProps) {
         super(scope, id);
 
-        const { basePath, sessionStore, userPool } = props;
+        const { basePath, parameters, sessionStore, userPool } = props;
         const manifestPath = path.join('lambda', 'authentication', 'Cargo.toml');
         const registrationBasePath = `${basePath.replace(/\/$/, '')}/registration/`;
         const discoverableBasePath = `${basePath.replace(/\/$/, '')}/discoverable/`;
@@ -48,10 +52,12 @@ export class CredentialsApi extends Construct {
                 SESSION_TABLE_NAME: sessionStore.sessionTable.tableName,
                 USER_POOL_ID: userPool.userPool.userPoolId,
                 CREDENTIAL_TABLE_NAME: userPool.credentialTable.tableName,
+                RP_ORIGIN_PARAMETER_PATH: parameters.rpOriginParameter.parameterName,
             },
             memorySize: 128,
             timeout: Duration.seconds(5),
         });
+        parameters.rpOriginParameter.grantRead(this.registrationLambda);
         sessionStore.sessionTable.grantReadWriteData(this.registrationLambda);
         userPool.credentialTable.grantReadWriteData(this.registrationLambda);
         userPool.userPool.grant(
@@ -68,10 +74,12 @@ export class CredentialsApi extends Construct {
             environment: {
                 BASE_PATH: discoverableBasePath,
                 SESSION_TABLE_NAME: sessionStore.sessionTable.tableName,
+                RP_ORIGIN_PARAMETER_PATH: parameters.rpOriginParameter.parameterName,
             },
             memorySize: 128,
             timeout: Duration.seconds(5),
         });
+        parameters.rpOriginParameter.grantRead(this.discoverableLambda);
         sessionStore.sessionTable.grantReadWriteData(this.discoverableLambda);
 
         this.credentialsApi = new HttpApi(this, 'CredentialsApi', {

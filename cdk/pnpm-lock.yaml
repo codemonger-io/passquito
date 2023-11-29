@@ -34,6 +34,9 @@ devDependencies:
   cargo-lambda-cdk:
     specifier: ^0.0.17
     version: 0.0.17(aws-cdk-lib@2.102.0)(constructs@10.3.0)
+  cdk-ghost-string-parameter:
+    specifier: github:codemonger-io/cdk-ghost-string-parameter#v0.1.0
+    version: github.com/codemonger-io/cdk-ghost-string-parameter/93b085e8873d19a8eb8bbdc134290cbef45b8c8e(aws-cdk-lib@2.102.0)(constructs@10.3.0)
   jest:
     specifier: ^29.7.0
     version: 29.7.0(@types/node@20.7.1)(ts-node@10.9.1)
@@ -2680,4 +2683,20 @@ packages:
   /yocto-queue@0.1.0:
     resolution: {integrity: sha512-rVksvsnNCdJ/ohGc6xgPwyN8eheCxsiLM8mxuE/t/mOVqJewPuO1miLpTHQiRgTKCLexL4MeAFVagts7HmNZ2Q==}
     engines: {node: '>=10'}
+    dev: true
+
+  github.com/codemonger-io/cdk-ghost-string-parameter/93b085e8873d19a8eb8bbdc134290cbef45b8c8e(aws-cdk-lib@2.102.0)(constructs@10.3.0):
+    resolution: {tarball: https://codeload.github.com/codemonger-io/cdk-ghost-string-parameter/tar.gz/93b085e8873d19a8eb8bbdc134290cbef45b8c8e}
+    id: github.com/codemonger-io/cdk-ghost-string-parameter/93b085e8873d19a8eb8bbdc134290cbef45b8c8e
+    name: cdk-ghost-string-parameter
+    version: 0.1.0
+    engines: {node: '>=12.0.0'}
+    prepare: true
+    requiresBuild: true
+    peerDependencies:
+      aws-cdk-lib: ^2.0
+      constructs: ^10.0
+    dependencies:
+      aws-cdk-lib: 2.102.0(constructs@10.3.0)
+      constructs: 10.3.0
     dev: true
