@@ -3,6 +3,8 @@
 //! You have to configure the following environment variables:
 //! - `BASE_PATH`: base path to provide the service; e.g, `/auth/credentials/discoverable/`
 //! - `SESSION_TABLE_NAME`: name of the DynamoDB table that manages sessions
+//! - `RP_ORIGIN_PARAMETER_PATH`: path to the parameter that stores the origin
+//!   (URL) of the relying party in the Parameter Store on AWS Systems Manager
 //!
 //! ## Endpoint
 //!
@@ -34,11 +36,9 @@ use std::env;
 use std::sync::Arc;
 use std::time::SystemTime;
 use tracing::{error, info};
-use webauthn_rs::{
-    Webauthn,
-    WebauthnBuilder,
-    prelude::Url,
-};
+use webauthn_rs::{Webauthn, WebauthnBuilder};
+
+use authentication::parameters::load_relying_party_origin;
 
 // State shared among Lambda invocations.
 struct SharedState {
@@ -50,12 +50,12 @@ struct SharedState {
 
 impl SharedState {
     async fn new() -> Result<Self, Error> {
-        let rp_id = "localhost";
-        let rp_origin = Url::parse("http://localhost:5173")?;
-        let webauthn = WebauthnBuilder::new(rp_id, &rp_origin)?
+        let config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
+        let (rp_id, rp_origin) =
+            load_relying_party_origin(aws_sdk_ssm::Client::new(&config)).await?;
+        let webauthn = WebauthnBuilder::new(&rp_id, &rp_origin)?
             .rp_name("Passkey Test")
             .build()?;
-        let config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
         let base_path = env::var("BASE_PATH")
             .or(Err("BASE_PATH env must be set"))?;
         Ok(Self {

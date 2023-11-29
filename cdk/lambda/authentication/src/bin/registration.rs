@@ -5,6 +5,8 @@
 //! - `SESSION_TABLE_NAME`: name of the DynamoDB table to store sessions
 //! - `USER_POOL_ID`: ID of the Cognito user pool
 //! - `CREDENTIAL_TABLE_NAME`: name of the DynamoDB table to store credentials
+//! - `RP_ORIGIN_PARAMETER_PATH`: path to the parameter that stores the origin
+//!   (URL) of the relying party in the Parameter Store on AWS Systems Manager
 //!
 //! ## Endpoints
 //!
@@ -59,11 +61,12 @@ use webauthn_rs::{
         CreationChallengeResponse,
         CredentialID,
         PasskeyRegistration,
-        Url,
         Uuid,
     },
 };
 use webauthn_rs_proto::RegisterPublicKeyCredential;
+
+use authentication::parameters::load_relying_party_origin;
 
 // Shared state.
 struct SharedState {
@@ -78,12 +81,12 @@ struct SharedState {
 
 impl SharedState {
     async fn new() -> Result<Self, Error> {
-        let rp_id = "localhost";
-        let rp_origin = Url::parse("http://localhost:5173")?;
+        let config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
+        let (rp_id, rp_origin) =
+            load_relying_party_origin(aws_sdk_ssm::Client::new(&config)).await?;
         let webauthn = WebauthnBuilder::new(&rp_id, &rp_origin)?
             .rp_name("Passkey Test")
             .build()?;
-        let config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
         let base_path = env::var("BASE_PATH")
             .or(Err("BASE_PATH env must be set"))?;
         Ok(Self {

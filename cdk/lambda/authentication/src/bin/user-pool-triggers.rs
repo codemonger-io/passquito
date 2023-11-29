@@ -4,6 +4,8 @@
 //! - `SESSION_TABLE_NAME`: name of the DynamoDB table that manages sessions
 //! - `CREDENTIAL_TABLE_NAME`: name of the DynamoDB table that manages
 //!   credentials
+//! - `RP_ORIGIN_PARAMETER_PATH`: path to the parameter that stores the origin
+//!   (URL) of the relying party in Parameter Store on AWS Systems Manager
 
 use aws_lambda_events::event::cognito::CognitoEventUserPoolsDefineAuthChallenge;
 use aws_sdk_dynamodb::{
@@ -25,7 +27,6 @@ use webauthn_rs::{
         Passkey,
         PasskeyAuthentication,
         RequestChallengeResponse,
-        Url,
     },
 };
 use webauthn_rs_proto::{
@@ -41,6 +42,7 @@ use authentication::event::{
     CognitoEventUserPoolsDefineAuthChallengeOps,
     CognitoEventUserPoolsVerifyAuthChallengeExt,
 };
+use authentication::parameters::load_relying_party_origin;
 
 const CHALLENGE_PARAMETER_NAME: &str = "passkeyTestChallenge";
 
@@ -54,12 +56,12 @@ struct SharedState {
 
 impl SharedState {
     async fn new() -> Result<Self, Error> {
-        let rp_id = "localhost";
-        let rp_origin = Url::parse("http://localhost:5173")?;
-        let webauthn = WebauthnBuilder::new(rp_id, &rp_origin)?
+        let config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
+        let (rp_id, rp_origin) =
+            load_relying_party_origin(aws_sdk_ssm::Client::new(&config)).await?;
+        let webauthn = WebauthnBuilder::new(&rp_id, &rp_origin)?
             .rp_name("Passkey Test")
             .build()?;
-        let config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
         Ok(Self {
             webauthn,
             dynamodb: aws_sdk_dynamodb::Client::new(&config),

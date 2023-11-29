@@ -19,6 +19,7 @@ description = "Web Authentication with Cognito"
 aws-config = "1.0"
 aws-sdk-cognitoidentityprovider = "1.3"
 aws-sdk-dynamodb = "1.3"
+aws-sdk-ssm = "1.3"
 aws_lambda_events = { version = "0.10", default-features = false, features = ["cognito"] }
 base64 = "0.21"
 getrandom = "0.2"
