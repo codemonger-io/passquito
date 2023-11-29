@@ -83,7 +83,7 @@ impl SharedState {
         let webauthn = WebauthnBuilder::new(&rp_id, &rp_origin)?
             .rp_name("Passkey Test")
             .build()?;
-        let config = aws_config::load_from_env().await;
+        let config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
         let base_path = env::var("BASE_PATH")
             .or(Err("BASE_PATH env must be set"))?;
         Ok(Self {
@@ -350,11 +350,13 @@ async fn finish_registration(
                 .user_attributes(UserAttributeType::builder()
                     .name("preferred_username")
                     .value(username.clone())
-                    .build())
+                    .build()
+                    .unwrap())
                 .user_attributes(UserAttributeType::builder()
                     .name("name")
                     .value(display_name.clone())
-                    .build())
+                    .build()
+                    .unwrap())
                 .message_action(MessageActionType::Suppress)
                 .temporary_password(password.clone())
                 .send()
@@ -364,10 +366,10 @@ async fn finish_registration(
             let sub = cognito_user.attributes
                 .ok_or("missing Cognito user attributes")?
                 .into_iter()
-                .find_map(|a| a.name.as_ref()
-                    .zip(a.value.as_ref())
+                .find_map(|a| a.value
+                    .map(|v| (a.name, v))
                     .filter(|(name, _)| *name == "sub")
-                    .map(|(_, value)| value.clone()))
+                    .map(|(_, value)| value))
                 .ok_or("missing Cognito user sub attribute")?;
             info!("created Cognito user: {}", sub);
             // force-confirms the password

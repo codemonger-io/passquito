@@ -59,7 +59,7 @@ impl SharedState {
         let webauthn = WebauthnBuilder::new(rp_id, &rp_origin)?
             .rp_name("Passkey Test")
             .build()?;
-        let config = aws_config::load_from_env().await;
+        let config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
         Ok(Self {
             webauthn,
             dynamodb: aws_sdk_dynamodb::Client::new(&config),
