@@ -29,7 +29,7 @@ export class Distribution extends Construct {
   constructor(scope: Construct, id: string, readonly props: DistributionProps) {
     super(scope, id);
 
-    const appIndex = props.appBasePath.replace(/\/$/, '/index.html');
+    const appIndex = props.appBasePath.replace(/\/$/, '') + '/index.html';
 
     this.appBucket = new s3.Bucket(this, 'AppBucket', {
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
@@ -44,9 +44,9 @@ export class Distribution extends Construct {
         viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.HTTPS_ONLY,
       },
       errorResponses: [
-        // redirects to the app index whenever a resource is not found
+        // redirects to the app index whenever access is denied
         {
-          httpStatus: 404,
+          httpStatus: 403,
           responseHttpStatus: 200,
           responsePagePath: appIndex,
         },
@@ -55,11 +55,11 @@ export class Distribution extends Construct {
     });
   }
 
-  /** URL of the app for internal tests. */
-  get appInternalUrl(): string {
+  /** URL of the app. */
+  get appUrl(): string {
     const appIndex = this.props.appBasePath
-      .replace(/\/$/, '/index.html')
+      .replace(/\/$/, '')
       .replace(/^\//, '');
-    return `https://${this.distribution.domainName}/${appIndex}`;
+    return `https://${this.distribution.domainName}/${appIndex}/`;
   }
 }

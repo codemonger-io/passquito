@@ -48,9 +48,9 @@ export class CdkStack extends Stack {
       description: 'Distribution domain name',
       value: distribution.distribution.domainName,
     });
-    new CfnOutput(this, 'AppInternalUrl', {
-      description: 'URL of the app for internal tests',
-      value: distribution.appInternalUrl,
+    new CfnOutput(this, 'AppUrl', {
+      description: 'URL of the app',
+      value: distribution.appUrl,
     });
     new CfnOutput(this, 'AppContentsBucketName', {
       description: 'Name of the S3 bucket that stores the app contents',
