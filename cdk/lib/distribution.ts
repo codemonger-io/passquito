@@ -1,4 +1,5 @@
 import {
+  Fn,
   RemovalPolicy,
   aws_cloudfront as cloudfront,
   aws_cloudfront_origins as origins,
@@ -29,8 +30,11 @@ export class Distribution extends Construct {
   constructor(scope: Construct, id: string, readonly props: DistributionProps) {
     super(scope, id);
 
-    const appIndex = props.appBasePath.replace(/\/$/, '') + '/index.html';
+    const { appBasePath, credentialsApi } = props;
 
+    const appIndex = appBasePath.replace(/\/$/, '') + '/index.html';
+
+    // S3 buckets for the app contents
     this.appBucket = new s3.Bucket(this, 'AppBucket', {
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       encryption: s3.BucketEncryption.S3_MANAGED,
@@ -42,6 +46,18 @@ export class Distribution extends Construct {
       defaultBehavior: {
         origin: new origins.S3Origin(this.appBucket),
         viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.HTTPS_ONLY,
+      },
+      additionalBehaviors: {
+        [`${credentialsApi.basePath}/*`]: {
+          origin: new origins.HttpOrigin(
+            Fn.parseDomainName(credentialsApi.credentialsApi.apiEndpoint),
+          ),
+          allowedMethods: cloudfront.AllowedMethods.ALLOW_ALL,
+          // deals with only POST requests
+          cachePolicy: cloudfront.CachePolicy.CACHING_DISABLED,
+          viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.HTTPS_ONLY,
+          // CORS is unnecessary because the app resides in the same domain
+        },
       },
       errorResponses: [
         // redirects to the app index whenever access is denied

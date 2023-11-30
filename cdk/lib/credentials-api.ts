@@ -104,6 +104,11 @@ export class CredentialsApi extends Construct {
         });
     }
 
+    /** Base path of the Credentials API not including the trailing slash. */
+    get basePath(): string {
+      return this.props.basePath.replace(/\/$/, '');
+    }
+
     /** Internal URL of the Credentials API. */
     get internalUrl(): string {
         return `${this.credentialsApi.defaultStage!.url}${this.props.basePath.replace(/^\//, '')}`;
