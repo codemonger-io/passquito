@@ -1,6 +1,31 @@
 # app
 
-This template should help get you started developing with Vue 3 in Vite.
+## Configuring authentication
+
+You have to create `src/auth-config.ts` containing the configuration for authentication, which is never pushed to this repository.
+You can find an example at [`src/auth-config.example.ts`](./src/auth-config.example.ts).
+
+## Deploying the app
+
+1. Deploy the CDK stack. See [`cdk/README.md`](../cdk/README.md).
+
+2. Obtain the name of the S3 bucket for the app contents:
+
+    ```sh
+    APP_CONTENTS_BUCKET_NAME=`aws cloudformation describe-stacks --stack-name passkey-test --query "Stacks[0].Outputs[?OutputKey=='AppContentsBucketName'].OutputValue" --output text`
+    ```
+
+3. Build the app:
+
+    ```sh
+    pnpm build
+    ```
+
+4. Upload the app contents to the S3 bucket:
+
+    ```sh
+    aws s3 sync dist/ s3://$APP_CONTENTS_BUCKET_NAME/app/
+    ```
 
 ## Recommended IDE Setup
 

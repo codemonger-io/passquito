@@ -13,19 +13,44 @@ export AWS_PROFILE=kikuo-jp
 ## Bootstrapping
 
 ```sh
-pnpm exec cdk bootstrap
+pnpm cdk bootstrap
+```
+
+## Checking types
+
+```sh
+pnpm type-check
 ```
 
 ## Synthesizing CloudFormation template
 
 ```sh
-pnpm exec cdk synth
+pnpm cdk synth
 ```
 
 ## Deploying
 
 ```sh
-pnpm exec cdk deploy
+pnpm cdk deploy
+```
+
+The app distribution is not allowed CORS access to the credentials API at the first deployment because the domain name of the CloudFront distribution is unknown at that time.
+You have to **deploy the stack twice to activate the CORS configuration**.
+
+## Post-deployment configuration
+
+### Origin URL of relying party
+
+Use the CloudFront distribution URL.
+
+```sh
+pnpm tsx ./scripts/set-rp-origin
+```
+
+Use a specific URL.
+
+```sh
+pnpm tsx ./scripts/set-rp-origin http://localhost:5173
 ```
 
 ## CloudFormation outputs
@@ -48,6 +73,18 @@ aws cloudformation describe-stacks --stack-name passkey-test --query "Stacks[0].
 aws cloudformation describe-stacks --stack-name passkey-test --query "Stacks[0].Outputs[?OutputKey=='CredentialsApiInternalUrl'].OutputValue" --output text
 ```
 
+### S3 bucket name for app contents
+
+```sh
+aws cloudformation describe-stacks --stack-name passkey-test --query "Stacks[0].Outputs[?OutputKey=='AppContentsBucketName'].OutputValue" --output text
+```
+
+### App URL
+
+```sh
+aws cloudformation describe-stacks --stack-name passkey-test --query "Stacks[0].Outputs[?OutputKey=='AppUrl'].OutputValue" --output text
+```
+id="request-custom-headers-behavior"
 ## Useful commands
 
 * `npm run build`   compile typescript to js
