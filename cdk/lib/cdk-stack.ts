@@ -7,8 +7,19 @@ import { Parameters } from './parameters';
 import { SessionStore } from './session-store';
 import { UserPool } from './user-pool';
 
+export interface CdkStackProps extends StackProps {
+  /**
+   * Domain name of the distribution.
+   *
+   * @remarks
+   *
+   * `undefined` until the stack is first deployed.
+   */
+  readonly distributionDomainName?: string;
+}
+
 export class CdkStack extends Stack {
-  constructor(scope: Construct, id: string, props?: StackProps) {
+  constructor(scope: Construct, id: string, props: CdkStackProps) {
     super(scope, id, props);
 
     const parameters = new Parameters(this, 'Parameters');
@@ -22,6 +33,12 @@ export class CdkStack extends Stack {
       parameters,
       sessionStore,
       userPool,
+      allowOrigins: [
+        'http://localhost:5173',
+        ...(props.distributionDomainName
+          ? [`https://${props.distributionDomainName}`]
+          : []),
+      ],
     });
     const distribution = new Distribution(this, 'Distribution', {
       appBasePath: '/app',

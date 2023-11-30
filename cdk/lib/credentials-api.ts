@@ -22,6 +22,9 @@ export interface CredentialsApiProps {
 
     /** User pool. */
     readonly userPool: UserPool;
+
+    /** Origins allowed to access the API. */
+    readonly allowOrigins: string[];
 }
 
 /** CDK construct that provisions the Credentials API. */
@@ -38,7 +41,13 @@ export class CredentialsApi extends Construct {
     constructor(scope: Construct, id: string, readonly props: CredentialsApiProps) {
         super(scope, id);
 
-        const { basePath, parameters, sessionStore, userPool } = props;
+        const {
+          allowOrigins,
+          basePath,
+          parameters,
+          sessionStore,
+          userPool,
+        } = props;
         const manifestPath = path.join('lambda', 'authentication', 'Cargo.toml');
         const registrationBasePath = `${basePath.replace(/\/$/, '')}/registration/`;
         const discoverableBasePath = `${basePath.replace(/\/$/, '')}/discoverable/`;
@@ -88,7 +97,7 @@ export class CredentialsApi extends Construct {
             corsPreflight: {
                 allowHeaders: ['Content-Type'],
                 allowMethods: [CorsHttpMethod.POST],
-                allowOrigins: ['http://localhost:5173'],
+                allowOrigins,
                 maxAge: Duration.days(1),
             },
         });
