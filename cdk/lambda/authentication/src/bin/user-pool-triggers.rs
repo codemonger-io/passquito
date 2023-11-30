@@ -7,7 +7,11 @@
 //! - `RP_ORIGIN_PARAMETER_PATH`: path to the parameter that stores the origin
 //!   (URL) of the relying party in Parameter Store on AWS Systems Manager
 
-use aws_lambda_events::event::cognito::CognitoEventUserPoolsDefineAuthChallenge;
+use aws_lambda_events::event::cognito::{
+    CognitoEventUserPoolsCreateAuthChallenge,
+    CognitoEventUserPoolsDefineAuthChallenge,
+    CognitoEventUserPoolsVerifyAuthChallenge,
+};
 use aws_sdk_dynamodb::{
     primitives::{DateTime, DateTimeFormat},
     types::{AttributeValue, ReturnValue},
@@ -38,9 +42,9 @@ use webauthn_rs_proto::{
 use authentication::event::{
     CognitoChallengeEvent,
     CognitoChallengeEventCase,
-    CognitoEventUserPoolsCreateAuthChallengeExt,
+    CognitoEventUserPoolsCreateAuthChallengeOps,
     CognitoEventUserPoolsDefineAuthChallengeOps,
-    CognitoEventUserPoolsVerifyAuthChallengeExt,
+    CognitoEventUserPoolsVerifyAuthChallengeOps,
 };
 use authentication::parameters::load_relying_party_origin;
 
@@ -122,8 +126,8 @@ async fn define_auth_challenge(
 // Handles "Create auth challenge" events.
 async fn create_auth_challenge(
     shared_state: Arc<SharedState>,
-    mut event: CognitoEventUserPoolsCreateAuthChallengeExt,
-) -> Result<CognitoEventUserPoolsCreateAuthChallengeExt, Error> {
+    mut event: CognitoEventUserPoolsCreateAuthChallenge,
+) -> Result<CognitoEventUserPoolsCreateAuthChallenge, Error> {
     info!("create_auth_challenge: {:?}", event);
     if event.sessions().is_empty() {
         let username = event.cognito_event_user_pools_header.user_name
@@ -219,8 +223,8 @@ async fn create_auth_challenge(
 // Handles "Verify auth challenge" events.
 async fn verify_auth_challenge(
     shared_state: Arc<SharedState>,
-    mut event: CognitoEventUserPoolsVerifyAuthChallengeExt,
-) -> Result<CognitoEventUserPoolsVerifyAuthChallengeExt, Error> {
+    mut event: CognitoEventUserPoolsVerifyAuthChallenge,
+) -> Result<CognitoEventUserPoolsVerifyAuthChallenge, Error> {
     info!("verify_auth_challenge: {:?}", event);
 
     let user_handle = event.cognito_event_user_pools_header.user_name.as_ref()
