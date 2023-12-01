@@ -200,7 +200,7 @@ const onSubmit = async () => {
     <form v-if="isPasskeySupported" @submit.prevent="onSubmit">
       <label>
         Username:
-        <input name="username" v-model="username" pattern="[A-Za-z0-9_-:;]+">
+        <input name="username" v-model="username" pattern="[A-Za-z0-9_:;-]+">
       </label>
       <label>
         Display name:
