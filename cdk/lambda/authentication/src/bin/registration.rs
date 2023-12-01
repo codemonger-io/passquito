@@ -231,7 +231,7 @@ async fn start_registration(
         &user_info.display_name,
         exclude_credentials,
     ) {
-        Ok((ccr, reg_state)) => {
+        Ok((mut ccr, reg_state)) => {
             // caches `reg_state`
             let user_unique_id = base64url.encode(user_unique_id.into_bytes());
             let session_id = base64url.encode(Uuid::new_v4().as_ref());
@@ -262,6 +262,10 @@ async fn start_registration(
                 )
                 .send()
                 .await?;
+            // requires a resident key
+            if let Some(selection) = ccr.public_key.authenticator_selection.as_mut() {
+                selection.require_resident_key = true;
+            }
             serde_json::to_string(&StartRegistrationSession {
                 session_id,
                 credential_creation_options: ccr,
