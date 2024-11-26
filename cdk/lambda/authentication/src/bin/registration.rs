@@ -212,13 +212,17 @@ async fn start_registration(
                 .unwrap_or_default();
             Some(
                 credentials.into_iter()
-                    .map(|c| c.get("credentialId")
-                        .ok_or("missing credentialId in the database")?
-                        .as_s()
-                        .or(Err("malformed credentialId in the database"))?
-                        .as_str()
-                        .try_into()
-                        .or(Err("malformed credentialId in the database")))
+                    .map(|c| {
+                        let id = c.get("credentialId")
+                            .ok_or("missing credentialId in the database")?
+                            .as_s()
+                            .or(Err("malformed credentialId in the database"))?
+                            .as_str();
+                        // as far as I know, we have to use serde::Deserialize
+                        // to build HumanBinaryData from a base64-encoded string
+                        serde_json::from_value(serde_json::Value::String(id.into()))
+                            .or(Err("malformed credentialId in the database"))
+                    })
                     .collect::<Result<_, _>>()?,
             )
         }
@@ -234,7 +238,7 @@ async fn start_registration(
         Ok((mut ccr, reg_state)) => {
             // caches `reg_state`
             let user_unique_id = base64url.encode(user_unique_id.into_bytes());
-            let session_id = base64url.encode(Uuid::new_v4().as_ref());
+            let session_id = base64url.encode(Uuid::new_v4().as_bytes());
             let ttl = DateTime::from(SystemTime::now()).secs() + 60;
             info!("putting registration session: {}", session_id);
             shared_state.dynamodb
@@ -390,7 +394,7 @@ async fn finish_registration(
                 .await?;
             // stores `key` in the credential table
             // TODO: delete the Cognito user upon failure
-            let credential_id = format!("{}", key.cred_id());
+            let credential_id = base64url.encode(key.cred_id());
             let created_at = DateTime::from(SystemTime::now())
                 .fmt(DateTimeFormat::DateTime)?;
             info!("storing credential: {}", credential_id);

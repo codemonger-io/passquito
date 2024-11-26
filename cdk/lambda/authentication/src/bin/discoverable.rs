@@ -22,6 +22,10 @@ use aws_sdk_dynamodb::{
     primitives::DateTime,
     types::AttributeValue,
 };
+use base64::{
+    Engine as _,
+    engine::general_purpose::{URL_SAFE_NO_PAD as base64url},
+};
 use lambda_http::{
     Body,
     Error,
@@ -87,14 +91,14 @@ async fn start_authentication(
     let res = match shared_state.webauthn.start_discoverable_authentication() {
         Ok((rcr, auth_state)) => {
             let ttl = DateTime::from(SystemTime::now()).secs() + 60;
-            info!("putting authentication session: {}", rcr.public_key.challenge);
+            info!("putting authentication session: {}", base64url.encode(&rcr.public_key.challenge));
             shared_state.dynamodb
                 .put_item()
                 .table_name(shared_state.session_table_name.clone())
                 .item(
                     "pk",
                     AttributeValue::S(
-                        format!("discoverable#{}", rcr.public_key.challenge),
+                        format!("discoverable#{}", base64url.encode(&rcr.public_key.challenge)),
                     ),
                 )
                 .item("ttl", AttributeValue::N(ttl.to_string()))

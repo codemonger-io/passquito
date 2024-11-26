@@ -16,6 +16,10 @@ use aws_sdk_dynamodb::{
     primitives::{DateTime, DateTimeFormat},
     types::{AttributeValue, ReturnValue},
 };
+use base64::{
+    Engine as _,
+    engine::general_purpose::{URL_SAFE_NO_PAD as base64url},
+};
 use lambda_runtime::{run, service_fn, Error, LambdaEvent};
 use ring::digest;
 use std::env;
@@ -200,6 +204,7 @@ async fn create_auth_challenge(
                     }],
                     user_verification: UserVerificationPolicy::Preferred,
                     timeout: Some(60000),
+                    hints: None, // TODO: client-device?
                     extensions: None,
                 },
                 mediation: None,
@@ -243,8 +248,8 @@ async fn verify_auth_challenge(
     // extracts the user handle from `credential`
     // it must match the user_unique_id in the event
     let cred_user_handle = credential.response.user_handle.as_ref()
-        .ok_or("missing user handle in credential")?
-        .to_string();
+        .map(|h| base64url.encode(h))
+        .ok_or("missing user handle in credential")?;
     if user_handle != &cred_user_handle {
         error!("user handle mismatch: {} vs {}", user_handle, cred_user_handle);
         return Err("credential mismatch".into());
@@ -272,7 +277,7 @@ async fn verify_auth_challenge(
         .table_name(shared_state.session_table_name.clone())
         .key(
             "pk",
-            AttributeValue::S(format!("discoverable#{}", client_challenge)),
+            AttributeValue::S(format!("discoverable#{}", base64url.encode(client_challenge))),
         )
         .return_values(ReturnValue::AllOld)
         .send()
@@ -332,7 +337,7 @@ async fn verify_auth_challenge(
             Ok(auth_result) => {
                 // updates the stored credential if necessary
                 for passkey in passkeys.iter_mut() {
-                    let credential_id = passkey.cred_id().to_string();
+                    let credential_id = base64url.encode(passkey.cred_id());
                     info!("checking credential updates: {}", credential_id);
                     let updated_at = DateTime::from(SystemTime::now())
                         .fmt(DateTimeFormat::DateTime)?;
@@ -398,7 +403,7 @@ async fn verify_auth_challenge(
                         AttributeValue::S(format!("user#{}", user_handle)),
                     )
                     .key("sk", AttributeValue::S(
-                        format!("credential#{}", auth_result.cred_id()),
+                        format!("credential#{}", base64url.encode(auth_result.cred_id())),
                     ))
                     .send()
                     .await?
@@ -411,7 +416,7 @@ async fn verify_auth_challenge(
                 let mut passkey: Passkey = serde_json::from_str(passkey)
                     .or(Err("malformed credential in the database"))?;
                 if passkey.update_credential(&auth_result).is_some_and(|b| b) {
-                    info!("updating credential: {}", auth_result.cred_id());
+                    info!("updating credential: {:?}", auth_result.cred_id());
                     let updated_at = DateTime::from(SystemTime::now())
                         .fmt(DateTimeFormat::DateTime)?;
                     shared_state.dynamodb
@@ -426,7 +431,7 @@ async fn verify_auth_challenge(
                         .key(
                             "sk",
                             AttributeValue::S(
-                                format!("credential#{}", auth_result.cred_id()),
+                                format!("credential#{}", base64url.encode(auth_result.cred_id())),
                             ),
                         )
                         .update_expression("SET credential = :credential, updatedAt = :updateAt")
