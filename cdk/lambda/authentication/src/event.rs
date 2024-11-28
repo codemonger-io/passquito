@@ -13,6 +13,19 @@ use aws_lambda_events::event::cognito::{
     CognitoEventUserPoolsVerifyAuthChallengeRequest,
     CognitoEventUserPoolsVerifyAuthChallengeResponse,
 };
+// trigger sources
+use aws_lambda_events::event::cognito::{
+    CognitoEventUserPoolsCreateAuthChallengeTriggerSource,
+    CognitoEventUserPoolsCustomMessageTriggerSource,
+    CognitoEventUserPoolsDefineAuthChallengeTriggerSource,
+    CognitoEventUserPoolsMigrateUserTriggerSource,
+    CognitoEventUserPoolsPostAuthenticationTriggerSource,
+    CognitoEventUserPoolsPostConfirmationTriggerSource,
+    CognitoEventUserPoolsPreAuthenticationTriggerSource,
+    CognitoEventUserPoolsPreSignupTriggerSource,
+    CognitoEventUserPoolsPreTokenGenTriggerSource,
+    CognitoEventUserPoolsVerifyAuthChallengeTriggerSource,
+};
 use serde::{
     Deserialize, Serialize,
     de::Deserializer,
@@ -32,7 +45,7 @@ pub struct CognitoChallengeEvent {
     /// Common part.
     #[serde(rename = "CognitoEventUserPoolsHeader")]
     #[serde(flatten)]
-    pub cognito_event_user_pools_header: CognitoEventUserPoolsHeader,
+    pub cognito_event_user_pools_header: CognitoEventUserPoolsHeader<UniversalTriggerSource>,
 
     /// Request part.
     pub request: CognitoChallengeEventRequest,
@@ -47,29 +60,30 @@ impl CognitoChallengeEvent {
     /// Determines from the trigger source if it is provided.
     /// Otherwise, guesses from fields.
     pub fn determine(self) -> Result<CognitoChallengeEventCase, Error> {
-        match self.cognito_event_user_pools_header.trigger_source.as_deref() {
-            Some("DefineAuthChallenge_Authentication") =>
+        use UniversalTriggerSource::*;
+        match self.cognito_event_user_pools_header.trigger_source.as_ref() {
+            Some(DefineAuthChallenge(CognitoEventUserPoolsDefineAuthChallengeTriggerSource::Authentication)) =>
                 Ok(CognitoChallengeEventCase::Define(self.try_into()?)),
-            Some("CreateAuthChallenge_Authentication") =>
+            Some(CreateAuthChallenge(CognitoEventUserPoolsCreateAuthChallengeTriggerSource::Authentication)) =>
                 Ok(CognitoChallengeEventCase::Create(self.try_into()?)),
-            Some("VerifyAuthChallengeResponse_Authentication") =>
+            Some(VerifyAuthChallenge(CognitoEventUserPoolsVerifyAuthChallengeTriggerSource::Authentication)) =>
                 Ok(CognitoChallengeEventCase::Verify(self.try_into()?)),
             _ => {
                 if self.request.challenge_name.is_some() {
                     // CognitoEventUserPoolsCreateAuthChallenge::challenge_name is
-                     // Option though
-                     Ok(CognitoChallengeEventCase::Create(self.try_into()?))
-                 } else if self.request.private_challenge_parameters.is_some() {
-                     Ok(CognitoChallengeEventCase::Verify(self.try_into()?))
-                 } else {
-                     Ok(CognitoChallengeEventCase::Define(self.try_into()?))
-                 }
+                    // Option though
+                    Ok(CognitoChallengeEventCase::Create(self.try_into()?))
+                } else if self.request.private_challenge_parameters.is_some() {
+                    Ok(CognitoChallengeEventCase::Verify(self.try_into()?))
+                } else {
+                    Ok(CognitoChallengeEventCase::Define(self.try_into()?))
+                }
             }
         }
     }
 }
 
-macro_rules! impl_try_into {
+macro_rules! impl_try_into_for_cognito_challenge_event {
     ($event:ident) => {
         impl TryInto<$event> for CognitoChallengeEvent {
             type Error = Error;
@@ -77,7 +91,7 @@ macro_rules! impl_try_into {
             fn try_into(self) -> Result<$event, Self::Error> {
                 Ok($event {
                     cognito_event_user_pools_header:
-                        self.cognito_event_user_pools_header,
+                        try_convert_cognito_event_user_pools_header_trigger_source(self.cognito_event_user_pools_header)?,
                     request: self.request.try_into()?,
                     response: self.response.into(),
                 })
@@ -86,17 +100,17 @@ macro_rules! impl_try_into {
     };
 }
 
-impl_try_into! { CognitoEventUserPoolsDefineAuthChallenge }
-impl_try_into! { CognitoEventUserPoolsCreateAuthChallenge }
-impl_try_into! { CognitoEventUserPoolsVerifyAuthChallenge }
+impl_try_into_for_cognito_challenge_event! { CognitoEventUserPoolsDefineAuthChallenge }
+impl_try_into_for_cognito_challenge_event! { CognitoEventUserPoolsCreateAuthChallenge }
+impl_try_into_for_cognito_challenge_event! { CognitoEventUserPoolsVerifyAuthChallenge }
 
-macro_rules! impl_from {
+macro_rules! impl_from_for_cognito_challenge_event {
     ($event:ident) => {
         impl From<$event> for CognitoChallengeEvent {
             fn from(from: $event) -> CognitoChallengeEvent {
                 CognitoChallengeEvent {
                     cognito_event_user_pools_header:
-                        from.cognito_event_user_pools_header,
+                        convert_cognito_event_user_pools_header_trigger_source(from.cognito_event_user_pools_header),
                     request: from.request.into(),
                     response: from.response.into(),
                 }
@@ -105,9 +119,168 @@ macro_rules! impl_from {
     };
 }
 
-impl_from! { CognitoEventUserPoolsDefineAuthChallenge }
-impl_from! { CognitoEventUserPoolsCreateAuthChallenge }
-impl_from! { CognitoEventUserPoolsVerifyAuthChallenge }
+impl_from_for_cognito_challenge_event! { CognitoEventUserPoolsDefineAuthChallenge }
+impl_from_for_cognito_challenge_event! { CognitoEventUserPoolsCreateAuthChallenge }
+impl_from_for_cognito_challenge_event! { CognitoEventUserPoolsVerifyAuthChallenge }
+
+fn try_convert_cognito_event_user_pools_header_trigger_source<T, U>(
+    value: CognitoEventUserPoolsHeader<T>,
+) -> Result<CognitoEventUserPoolsHeader<U>, Error>
+where
+    T: TryInto<U, Error=Error>,
+{
+    Ok(CognitoEventUserPoolsHeader {
+        version: value.version,
+        trigger_source: value.trigger_source.map(TryInto::try_into).transpose()?,
+        region: value.region,
+        user_pool_id: value.user_pool_id,
+        caller_context: value.caller_context,
+        user_name: value.user_name,
+    })
+}
+
+fn convert_cognito_event_user_pools_header_trigger_source<T, U>(
+    value: CognitoEventUserPoolsHeader<T>,
+) -> CognitoEventUserPoolsHeader<U>
+where
+    T: Into<U>,
+{
+    CognitoEventUserPoolsHeader {
+        version: value.version,
+        trigger_source: value.trigger_source.map(Into::into),
+        region: value.region,
+        user_pool_id: value.user_pool_id,
+        caller_context: value.caller_context,
+        user_name: value.user_name,
+    }
+}
+
+/// Universal trigger source for Cognito user pools.
+#[allow(missing_docs)]
+#[derive(Deserialize, Serialize, Clone, Debug, Default, Eq, PartialEq)]
+#[serde(untagged)]
+pub enum UniversalTriggerSource {
+    /// For `Default` derivation, and should not be used.
+    #[default]
+    Null,
+    PreSignup(CognitoEventUserPoolsPreSignupTriggerSource),
+    MigrateUser(CognitoEventUserPoolsMigrateUserTriggerSource),
+    PreTokenGen(CognitoEventUserPoolsPreTokenGenTriggerSource),
+    CustomMessage(CognitoEventUserPoolsCustomMessageTriggerSource),
+    PostConfirmation(CognitoEventUserPoolsPostConfirmationTriggerSource),
+    PreAuthentication(CognitoEventUserPoolsPreAuthenticationTriggerSource),
+    PostAuthentication(CognitoEventUserPoolsPostAuthenticationTriggerSource),
+    CreateAuthChallenge(CognitoEventUserPoolsCreateAuthChallengeTriggerSource),
+    DefineAuthChallenge(CognitoEventUserPoolsDefineAuthChallengeTriggerSource),
+    VerifyAuthChallenge(CognitoEventUserPoolsVerifyAuthChallengeTriggerSource),
+}
+
+macro_rules! impl_try_into_for_universal_trigger_source {
+    ($from:ident, $into:ident) => {
+        impl TryInto<$into> for UniversalTriggerSource {
+            type Error = Error;
+
+            fn try_into(self) -> Result<$into, Self::Error> {
+                match self {
+                    UniversalTriggerSource::$from(v) => Ok(v),
+                    _ => Err(Error::Inconvertible(stringify!($from -> $into))),
+                }
+            }
+        }
+    };
+}
+
+impl_try_into_for_universal_trigger_source! {
+    PreSignup,
+    CognitoEventUserPoolsPreSignupTriggerSource
+}
+impl_try_into_for_universal_trigger_source! {
+    MigrateUser,
+    CognitoEventUserPoolsMigrateUserTriggerSource
+}
+impl_try_into_for_universal_trigger_source! {
+    PreTokenGen,
+    CognitoEventUserPoolsPreTokenGenTriggerSource
+}
+impl_try_into_for_universal_trigger_source! {
+    CustomMessage,
+    CognitoEventUserPoolsCustomMessageTriggerSource
+}
+impl_try_into_for_universal_trigger_source! {
+    PostConfirmation,
+    CognitoEventUserPoolsPostConfirmationTriggerSource
+}
+impl_try_into_for_universal_trigger_source! {
+    PreAuthentication,
+    CognitoEventUserPoolsPreAuthenticationTriggerSource
+}
+impl_try_into_for_universal_trigger_source! {
+    PostAuthentication,
+    CognitoEventUserPoolsPostAuthenticationTriggerSource
+}
+impl_try_into_for_universal_trigger_source! {
+    CreateAuthChallenge,
+    CognitoEventUserPoolsCreateAuthChallengeTriggerSource
+}
+impl_try_into_for_universal_trigger_source! {
+    DefineAuthChallenge,
+    CognitoEventUserPoolsDefineAuthChallengeTriggerSource
+}
+impl_try_into_for_universal_trigger_source! {
+    VerifyAuthChallenge,
+    CognitoEventUserPoolsVerifyAuthChallengeTriggerSource
+}
+
+macro_rules! impl_from_for_universal_trigger_source {
+    ($from:ident, $into:ident) => {
+        impl From<$from> for UniversalTriggerSource {
+            fn from(from: $from) -> UniversalTriggerSource {
+                UniversalTriggerSource::$into(from)
+            }
+        }
+    }
+}
+
+impl_from_for_universal_trigger_source! {
+    CognitoEventUserPoolsPreSignupTriggerSource,
+    PreSignup
+}
+impl_from_for_universal_trigger_source! {
+    CognitoEventUserPoolsMigrateUserTriggerSource,
+    MigrateUser
+}
+impl_from_for_universal_trigger_source! {
+    CognitoEventUserPoolsPreTokenGenTriggerSource,
+    PreTokenGen
+}
+impl_from_for_universal_trigger_source! {
+    CognitoEventUserPoolsCustomMessageTriggerSource,
+    CustomMessage
+}
+impl_from_for_universal_trigger_source! {
+    CognitoEventUserPoolsPostConfirmationTriggerSource,
+    PostConfirmation
+}
+impl_from_for_universal_trigger_source! {
+    CognitoEventUserPoolsPreAuthenticationTriggerSource,
+    PreAuthentication
+}
+impl_from_for_universal_trigger_source! {
+    CognitoEventUserPoolsPostAuthenticationTriggerSource,
+    PostAuthentication
+}
+impl_from_for_universal_trigger_source! {
+    CognitoEventUserPoolsCreateAuthChallengeTriggerSource,
+    CreateAuthChallenge
+}
+impl_from_for_universal_trigger_source! {
+    CognitoEventUserPoolsDefineAuthChallengeTriggerSource,
+    DefineAuthChallenge
+}
+impl_from_for_universal_trigger_source! {
+    CognitoEventUserPoolsVerifyAuthChallengeTriggerSource,
+    VerifyAuthChallenge
+}
 
 /// Operations on [`CognitoEventUserPoolsDefineAuthChallengeResponse`].
 pub trait CognitoEventUserPoolsDefineAuthChallengeOps {
@@ -643,12 +816,182 @@ mod tests {
     use super::*;
     use aws_lambda_events::event::cognito::CognitoEventUserPoolsCallerContext;
 
+    use UniversalTriggerSource::*;
+
+    #[test]
+    fn serialize_universal_trigger_source_pre_sign_up() {
+        use CognitoEventUserPoolsPreSignupTriggerSource as TriggerSource;
+        assert_eq!(serde_json::to_string(&PreSignup(TriggerSource::SignUp)).unwrap(), "\"PreSignUp_SignUp\"");
+        assert_eq!(serde_json::to_string(&PreSignup(TriggerSource::AdminCreateUser)).unwrap(), "\"PreSignUp_AdminCreateUser\"");
+        assert_eq!(serde_json::to_string(&PreSignup(TriggerSource::ExternalProvider)).unwrap(), "\"PreSignUp_ExternalProvider\"");
+    }
+
+    #[test]
+    fn serialize_universal_trigger_source_migrate_user() {
+        use CognitoEventUserPoolsMigrateUserTriggerSource as TriggerSource;
+        assert_eq!(serde_json::to_string(&MigrateUser(TriggerSource::Authentication)).unwrap(), "\"UserMigration_Authentication\"");
+        assert_eq!(serde_json::to_string(&MigrateUser(TriggerSource::ForgotPassword)).unwrap(), "\"UserMigration_ForgotPassword\"");
+    }
+
+    #[test]
+    fn serialize_universal_trigger_source_pre_token_gen() {
+        use CognitoEventUserPoolsPreTokenGenTriggerSource as TriggerSource;
+        assert_eq!(serde_json::to_string(&PreTokenGen(TriggerSource::HostedAuth)).unwrap(), "\"TokenGeneration_HostedAuth\"");
+        assert_eq!(serde_json::to_string(&PreTokenGen(TriggerSource::Authentication)).unwrap(), "\"TokenGeneration_Authentication\"");
+        assert_eq!(serde_json::to_string(&PreTokenGen(TriggerSource::NewPasswordChallenge)).unwrap(), "\"TokenGeneration_NewPasswordChallenge\"");
+        assert_eq!(serde_json::to_string(&PreTokenGen(TriggerSource::AuthenticateDevice)).unwrap(), "\"TokenGeneration_AuthenticateDevice\"");
+        assert_eq!(serde_json::to_string(&PreTokenGen(TriggerSource::RefreshTokens)).unwrap(), "\"TokenGeneration_RefreshTokens\"");
+    }
+
+    #[test]
+    fn serialize_universal_trigger_source_custom_message() {
+        use CognitoEventUserPoolsCustomMessageTriggerSource as TriggerSource;
+        assert_eq!(serde_json::to_string(&CustomMessage(TriggerSource::SignUp)).unwrap(), "\"CustomMessage_SignUp\"");
+        assert_eq!(serde_json::to_string(&CustomMessage(TriggerSource::AdminCreateUser)).unwrap(), "\"CustomMessage_AdminCreateUser\"");
+        assert_eq!(serde_json::to_string(&CustomMessage(TriggerSource::ResendCode)).unwrap(), "\"CustomMessage_ResendCode\"");
+        assert_eq!(serde_json::to_string(&CustomMessage(TriggerSource::ForgotPassword)).unwrap(), "\"CustomMessage_ForgotPassword\"");
+        assert_eq!(serde_json::to_string(&CustomMessage(TriggerSource::UpdateUserAttribute)).unwrap(), "\"CustomMessage_UpdateUserAttribute\"");
+        assert_eq!(serde_json::to_string(&CustomMessage(TriggerSource::VerifyUserAttribute)).unwrap(), "\"CustomMessage_VerifyUserAttribute\"");
+        assert_eq!(serde_json::to_string(&CustomMessage(TriggerSource::Authentication)).unwrap(), "\"CustomMessage_Authentication\"");
+    }
+
+    #[test]
+    fn serialize_universal_trigger_source_post_confirmation() {
+        use CognitoEventUserPoolsPostConfirmationTriggerSource as TriggerSource;
+        assert_eq!(serde_json::to_string(&PostConfirmation(TriggerSource::ConfirmForgotPassword)).unwrap(), "\"PostConfirmation_ConfirmForgotPassword\"");
+        assert_eq!(serde_json::to_string(&PostConfirmation(TriggerSource::ConfirmSignUp)).unwrap(), "\"PostConfirmation_ConfirmSignUp\"");
+    }
+
+    #[test]
+    fn serialize_universal_trigger_source_pre_authentication() {
+        use CognitoEventUserPoolsPreAuthenticationTriggerSource as TriggerSource;
+        assert_eq!(serde_json::to_string(&PreAuthentication(TriggerSource::Authentication)).unwrap(), "\"PreAuthentication_Authentication\"");
+    }
+
+    #[test]
+    fn serialize_universal_trigger_source_post_authentication() {
+        use CognitoEventUserPoolsPostAuthenticationTriggerSource as TriggerSource;
+        assert_eq!(serde_json::to_string(&PostAuthentication(TriggerSource::Authentication)).unwrap(), "\"PostAuthentication_Authentication\"");
+    }
+
+    #[test]
+    fn serialize_universal_trigger_source_create_auth_challenge() {
+        use CognitoEventUserPoolsCreateAuthChallengeTriggerSource as TriggerSource;
+        assert_eq!(serde_json::to_string(&CreateAuthChallenge(TriggerSource::Authentication)).unwrap(), "\"CreateAuthChallenge_Authentication\"");
+    }
+
+    #[test]
+    fn serialize_universal_trigger_source_define_auth_challenge() {
+        use CognitoEventUserPoolsDefineAuthChallengeTriggerSource as TriggerSource;
+        assert_eq!(serde_json::to_string(&DefineAuthChallenge(TriggerSource::Authentication)).unwrap(), "\"DefineAuthChallenge_Authentication\"");
+    }
+
+    #[test]
+    fn serialize_universal_trigger_source_verify_auth_challenge() {
+        use CognitoEventUserPoolsVerifyAuthChallengeTriggerSource as TriggerSource;
+        assert_eq!(serde_json::to_string(&VerifyAuthChallenge(TriggerSource::Authentication)).unwrap(), "\"VerifyAuthChallengeResponse_Authentication\"");
+    }
+
+    #[test]
+    fn serialize_universal_trigger_source_null() {
+        assert_eq!(serde_json::to_string(&Null).unwrap(), "null");
+    }
+
+    fn deserialize_universal_trigger_source(s: &str) -> UniversalTriggerSource {
+        serde_json::from_str::<UniversalTriggerSource>(&format!("\"{s}\"")).unwrap()
+    }
+
+    #[test]
+    fn deserialize_universal_trigger_source_pre_sign_up() {
+        use CognitoEventUserPoolsPreSignupTriggerSource as TriggerSource;
+        assert_eq!(deserialize_universal_trigger_source("PreSignUp_SignUp"), PreSignup(TriggerSource::SignUp));
+        assert_eq!(deserialize_universal_trigger_source("PreSignUp_AdminCreateUser"), PreSignup(TriggerSource::AdminCreateUser));
+        assert_eq!(deserialize_universal_trigger_source("PreSignUp_ExternalProvider"), PreSignup(TriggerSource::ExternalProvider));
+    }
+
+    #[test]
+    fn deserialize_universal_trigger_source_migrate_user() {
+        use CognitoEventUserPoolsMigrateUserTriggerSource as TriggerSource;
+        assert_eq!(deserialize_universal_trigger_source("UserMigration_Authentication"), MigrateUser(TriggerSource::Authentication));
+        assert_eq!(deserialize_universal_trigger_source("UserMigration_ForgotPassword"), MigrateUser(TriggerSource::ForgotPassword));
+    }
+
+    #[test]
+    fn deserialize_universal_trigger_source_pre_token_gen() {
+        use CognitoEventUserPoolsPreTokenGenTriggerSource as TriggerSource;
+        assert_eq!(deserialize_universal_trigger_source("TokenGeneration_HostedAuth"), PreTokenGen(TriggerSource::HostedAuth));
+        assert_eq!(deserialize_universal_trigger_source("TokenGeneration_Authentication"), PreTokenGen(TriggerSource::Authentication));
+        assert_eq!(deserialize_universal_trigger_source("TokenGeneration_NewPasswordChallenge"), PreTokenGen(TriggerSource::NewPasswordChallenge));
+        assert_eq!(deserialize_universal_trigger_source("TokenGeneration_AuthenticateDevice"), PreTokenGen(TriggerSource::AuthenticateDevice));
+        assert_eq!(deserialize_universal_trigger_source("TokenGeneration_RefreshTokens"), PreTokenGen(TriggerSource::RefreshTokens));
+    }
+
+    #[test]
+    fn deserialize_universal_trigger_source_custom_message() {
+        use CognitoEventUserPoolsCustomMessageTriggerSource as TriggerSource;
+        assert_eq!(deserialize_universal_trigger_source("CustomMessage_SignUp"), CustomMessage(TriggerSource::SignUp));
+        assert_eq!(deserialize_universal_trigger_source("CustomMessage_AdminCreateUser"), CustomMessage(TriggerSource::AdminCreateUser));
+        assert_eq!(deserialize_universal_trigger_source("CustomMessage_ResendCode"), CustomMessage(TriggerSource::ResendCode));
+        assert_eq!(deserialize_universal_trigger_source("CustomMessage_ForgotPassword"), CustomMessage(TriggerSource::ForgotPassword));
+        assert_eq!(deserialize_universal_trigger_source("CustomMessage_UpdateUserAttribute"), CustomMessage(TriggerSource::UpdateUserAttribute));
+        assert_eq!(deserialize_universal_trigger_source("CustomMessage_VerifyUserAttribute"), CustomMessage(TriggerSource::VerifyUserAttribute));
+        assert_eq!(deserialize_universal_trigger_source("CustomMessage_Authentication"), CustomMessage(TriggerSource::Authentication));
+    }
+
+    #[test]
+    fn deserialize_universal_trigger_source_post_confirmation() {
+        use CognitoEventUserPoolsPostConfirmationTriggerSource as TriggerSource;
+        assert_eq!(deserialize_universal_trigger_source("PostConfirmation_ConfirmForgotPassword"), PostConfirmation(TriggerSource::ConfirmForgotPassword));
+        assert_eq!(deserialize_universal_trigger_source("PostConfirmation_ConfirmSignUp"), PostConfirmation(TriggerSource::ConfirmSignUp));
+    }
+
+    #[test]
+    fn deserialize_universal_trigger_source_pre_authentication() {
+        use CognitoEventUserPoolsPreAuthenticationTriggerSource as TriggerSource;
+        assert_eq!(deserialize_universal_trigger_source("PreAuthentication_Authentication"), PreAuthentication(TriggerSource::Authentication));
+    }
+
+    #[test]
+    fn deserialize_universal_trigger_source_post_authentication() {
+        use CognitoEventUserPoolsPostAuthenticationTriggerSource as TriggerSource;
+        assert_eq!(deserialize_universal_trigger_source("PostAuthentication_Authentication"), PostAuthentication(TriggerSource::Authentication));
+    }
+
+    #[test]
+    fn deserialize_universal_trigger_source_create_auth_challenge() {
+        use CognitoEventUserPoolsCreateAuthChallengeTriggerSource as TriggerSource;
+        assert_eq!(deserialize_universal_trigger_source("CreateAuthChallenge_Authentication"), CreateAuthChallenge(TriggerSource::Authentication));
+    }
+
+    #[test]
+    fn deserialize_universal_trigger_source_define_auth_challenge() {
+        use CognitoEventUserPoolsDefineAuthChallengeTriggerSource as TriggerSource;
+        assert_eq!(deserialize_universal_trigger_source("DefineAuthChallenge_Authentication"), DefineAuthChallenge(TriggerSource::Authentication));
+    }
+
+    #[test]
+    fn deserialize_universal_trigger_source_verify_auth_challenge() {
+        use CognitoEventUserPoolsVerifyAuthChallengeTriggerSource as TriggerSource;
+        assert_eq!(deserialize_universal_trigger_source("VerifyAuthChallengeResponse_Authentication"), VerifyAuthChallenge(TriggerSource::Authentication));
+    }
+
+    #[test]
+    fn deserialize_universal_trigger_source_null() {
+        assert_eq!(serde_json::from_str::<UniversalTriggerSource>("null").unwrap(), Null);
+    }
+
+    #[test]
+    fn deserialize_universal_trigger_source_invalid() {
+        assert!(serde_json::from_str::<UniversalTriggerSource>("\"Undefined\"").is_err());
+        assert!(serde_json::from_str::<UniversalTriggerSource>("\"\"").is_err());
+    }
+
     #[test]
     fn cognito_challenge_event_can_determine_define_auth_challenge() {
         let event = CognitoChallengeEvent {
             cognito_event_user_pools_header: CognitoEventUserPoolsHeader {
                 version: Some("1".into()),
-                trigger_source: Some("DefineAuthChallenge_Authentication".into()),
+                trigger_source: Some(DefineAuthChallenge(CognitoEventUserPoolsDefineAuthChallengeTriggerSource::Authentication)),
                 region: Some("ap-northeast-1".into()),
                 user_pool_id: Some("ap-northeast-1_XYZ".into()),
                 caller_context: CognitoEventUserPoolsCallerContext {
@@ -680,7 +1023,14 @@ mod tests {
             },
         };
         let expected = CognitoEventUserPoolsDefineAuthChallenge {
-            cognito_event_user_pools_header: event.cognito_event_user_pools_header.clone(),
+            cognito_event_user_pools_header: CognitoEventUserPoolsHeader {
+                version: event.cognito_event_user_pools_header.version.clone(),
+                trigger_source: Some(CognitoEventUserPoolsDefineAuthChallengeTriggerSource::Authentication),
+                region: event.cognito_event_user_pools_header.region.clone(),
+                user_pool_id: event.cognito_event_user_pools_header.user_pool_id.clone(),
+                caller_context: event.cognito_event_user_pools_header.caller_context.clone(),
+                user_name: event.cognito_event_user_pools_header.user_name.clone(),
+            },
             request: CognitoEventUserPoolsDefineAuthChallengeRequest {
                 user_attributes: event.request.user_attributes.clone(),
                 session: vec![],
@@ -701,7 +1051,7 @@ mod tests {
         let event = CognitoChallengeEvent {
             cognito_event_user_pools_header: CognitoEventUserPoolsHeader {
                 version: Some("1".into()),
-                trigger_source: Some("CreateAuthChallenge_Authentication".into()),
+                trigger_source: Some(CreateAuthChallenge(CognitoEventUserPoolsCreateAuthChallengeTriggerSource::Authentication)),
                 region: Some("ap-northeast-1".into()),
                 user_pool_id: Some("ap-northeast-1_XYZ".into()),
                 caller_context: CognitoEventUserPoolsCallerContext {
@@ -733,7 +1083,14 @@ mod tests {
             },
         };
         let expected = CognitoEventUserPoolsCreateAuthChallenge {
-            cognito_event_user_pools_header: event.cognito_event_user_pools_header.clone(),
+            cognito_event_user_pools_header: CognitoEventUserPoolsHeader {
+                version: event.cognito_event_user_pools_header.version.clone(),
+                trigger_source: Some(CognitoEventUserPoolsCreateAuthChallengeTriggerSource::Authentication),
+                region: event.cognito_event_user_pools_header.region.clone(),
+                user_pool_id: event.cognito_event_user_pools_header.user_pool_id.clone(),
+                caller_context: event.cognito_event_user_pools_header.caller_context.clone(),
+                user_name: event.cognito_event_user_pools_header.user_name.clone(),
+            },
             request: CognitoEventUserPoolsCreateAuthChallengeRequest {
                 user_attributes: event.request.user_attributes.clone(),
                 challenge_name: Some("CUSTOM_CHALLENGE".into()),
@@ -755,7 +1112,7 @@ mod tests {
         let event = CognitoChallengeEvent {
             cognito_event_user_pools_header: CognitoEventUserPoolsHeader {
                 version: Some("1".into()),
-                trigger_source: Some("VerifyAuthChallengeResponse_Authentication".into()),
+                trigger_source: Some(VerifyAuthChallenge(CognitoEventUserPoolsVerifyAuthChallengeTriggerSource::Authentication)),
                 region: Some("ap-northeast-1".into()),
                 user_pool_id: Some("ap-northeast-1_XYZ".into()),
                 caller_context: CognitoEventUserPoolsCallerContext {
@@ -788,7 +1145,14 @@ mod tests {
             },
         };
         let expected = CognitoEventUserPoolsVerifyAuthChallenge {
-            cognito_event_user_pools_header: event.cognito_event_user_pools_header.clone(),
+            cognito_event_user_pools_header: CognitoEventUserPoolsHeader {
+                version: event.cognito_event_user_pools_header.version.clone(),
+                trigger_source: Some(CognitoEventUserPoolsVerifyAuthChallengeTriggerSource::Authentication),
+                region: event.cognito_event_user_pools_header.region.clone(),
+                user_pool_id: event.cognito_event_user_pools_header.user_pool_id.clone(),
+                caller_context: event.cognito_event_user_pools_header.caller_context.clone(),
+                user_name: event.cognito_event_user_pools_header.user_name.clone(),
+            },
             request: CognitoEventUserPoolsVerifyAuthChallengeRequest {
                 user_attributes: event.request.user_attributes.clone(),
                 private_challenge_parameters: HashMap::from([
