@@ -16,9 +16,12 @@
 //! No request body is required.
 //! The response body is [`RequestChallengeResponse`] as `application/json`.
 //!
-//! There is not endpoint to finish the authentication, because subsequent steps are processed by Cognito triggers.
+//! There is no endpoint to finish the authentication, because subsequent steps
+//! are processed by Cognito triggers.
 
 use aws_sdk_dynamodb::{
+    error::{ProvideErrorMetadata, SdkError},
+    operation::put_item::PutItemError,
     primitives::DateTime,
     types::AttributeValue,
 };
@@ -92,7 +95,7 @@ async fn start_authentication(
         Ok((rcr, auth_state)) => {
             let ttl = DateTime::from(SystemTime::now()).secs() + 60;
             info!("putting authentication session: {}", base64url.encode(&rcr.public_key.challenge));
-            shared_state.dynamodb
+            let res = shared_state.dynamodb
                 .put_item()
                 .table_name(shared_state.session_table_name.clone())
                 .item(
@@ -107,7 +110,32 @@ async fn start_authentication(
                     AttributeValue::S(serde_json::to_string(&auth_state)?),
                 )
                 .send()
-                .await?;
+                .await;
+            if let Err(e) = &res {
+                match e {
+                    SdkError::ServiceError(e) => {
+                        match e.err() {
+                            PutItemError::ProvisionedThroughputExceededException(_) |
+                            PutItemError::RequestLimitExceeded(_) => {
+                                return Ok(Response::builder()
+                                    .status(StatusCode::SERVICE_UNAVAILABLE)
+                                    .header("Content-Type", "text/plain")
+                                    .body("service temporarily unavailable".into())?);
+                            }
+                            e => match e.code() {
+                                Some("ThrottlingException") | Some("ServiceUnavailable") => {
+                                    return Ok(Response::builder()
+                                        .status(StatusCode::SERVICE_UNAVAILABLE)
+                                        .header("Content-Type", "text/plain")
+                                        .body("service temporarily unavailable".into())?);
+                                },
+                                _ => res?,
+                            },
+                        }
+                    }
+                    _ => res?,
+                };
+            };
             serde_json::to_string(&rcr)?
         }
         Err(e) => {
@@ -117,7 +145,7 @@ async fn start_authentication(
     };
     Ok(Response::builder()
         .status(StatusCode::OK)
-        .header("Content-Type", "text/plain")
+        .header("Content-Type", "application/json")
         .body(res.into())?)
 }
 
@@ -135,4 +163,186 @@ async fn main() -> Result<(), Error> {
     run(service_fn(|req| async {
         function_handler(shared_state.clone(), req).await
     })).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use aws_sdk_dynamodb::operation::put_item::PutItemOutput;
+    use aws_smithy_mocks_experimental::{mock, MockResponseInterceptor, RuleMode};
+    use aws_smithy_runtime_api::client::orchestrator::HttpResponse;
+    use aws_smithy_runtime_api::http::StatusCode as SmithyStatusCode;
+    use aws_smithy_types::body::SdkBody;
+    use webauthn_rs::prelude::{RequestChallengeResponse, Url};
+
+    impl SharedState {
+        fn with_dynamodb_and_session_table_name(
+            dynamodb: aws_sdk_dynamodb::Client,
+            session_table_name: impl Into<String>,
+        ) -> Self {
+            let session_table_name = session_table_name.into();
+            let rp_id = "localhost".to_string();
+            let rp_origin = Url::parse("http://localhost:5173").unwrap();
+            SharedState {
+                webauthn: WebauthnBuilder::new(&rp_id, &rp_origin)
+                    .unwrap()
+                    .rp_name("Passkey Test")
+                    .build()
+                    .unwrap(),
+                dynamodb,
+                base_path: "/auth/credentials/discoverable".to_string(),
+                session_table_name,
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn start_authentication_with_put_item_ok() {
+        let put_item_ok = mock!(aws_sdk_dynamodb::Client::put_item)
+            .then_output(|| PutItemOutput::builder().build());
+
+        let put_item_mocks = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::Sequential)
+            .with_rule(&put_item_ok);
+
+        let dynamodb = aws_sdk_dynamodb::Client::from_conf(
+            aws_sdk_dynamodb::Config::builder()
+                .with_test_defaults()
+                .region(aws_sdk_dynamodb::config::Region::new("ap-northeast-1"))
+                .interceptor(put_item_mocks)
+                .build(),
+        );
+
+        let state = Arc::new(SharedState::with_dynamodb_and_session_table_name(
+            dynamodb,
+            "sessions",
+        ));
+
+        let res = start_authentication(state).await.unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        assert!(serde_json::from_slice::<RequestChallengeResponse>(res.body()).is_ok());
+    }
+
+    const RESOURCE_NOT_FOUND_EXCEPTION: &str = r#"{"__type": "com.amazonaws.dynamodb.v20120810#ResourceNotFoundException", "message": "Requested resource not found: Table: sessions not found"}"#;
+
+    const PROVISIONED_THROUGHPUT_EXCEEDED_EXCEPTION: &str = r#"{"__type": "com.amazonaws.dynamodb.v20120810#ProvisionedThroughputExceededException", "message": "Exceeded provisioned throughput."}"#;
+
+    const REQUEST_LIMIT_EXCEEDED: &str = r#"{"__type": "com.amazonaws.dynamodb.v20120810#RequestLimitExceeded", "message": "Exceeded request limit."}"#;
+
+    const THROTTLING_EXCEPTION: &str = r#"{"__type": "com.amazonaws.dynamodb.v20120810#ThrottlingException", "message": "Request throttled"}"#;
+
+    const SERVICE_UNAVAILABLE: &str = r#"{"__type": "com.amazonaws.dynamodb.v20120810#ServiceUnavailable", "message": "Service temporarily unavailable"}"#;
+
+    #[tokio::test]
+    async fn start_authentication_with_put_item_with_non_retryable_error() {
+        let put_item_not_found = mock!(aws_sdk_dynamodb::Client::put_item)
+            .then_http_response(|| {
+                HttpResponse::new(
+                    SmithyStatusCode::try_from(400).unwrap(),
+                    SdkBody::from(RESOURCE_NOT_FOUND_EXCEPTION),
+                )
+            });
+
+        let put_item_mocks = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::Sequential)
+            .with_rule(&put_item_not_found);
+
+        let dynamodb = aws_sdk_dynamodb::Client::from_conf(
+            aws_sdk_dynamodb::Config::builder()
+                .with_test_defaults()
+                .region(aws_sdk_dynamodb::config::Region::new("ap-northeast-1"))
+                .interceptor(put_item_mocks)
+                .build(),
+        );
+
+        let state = Arc::new(SharedState::with_dynamodb_and_session_table_name(
+            dynamodb,
+            "sessions",
+        ));
+
+        assert!(start_authentication(state).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn start_authentication_with_put_item_with_retryable_errors() {
+        let put_item_throughput_cap = mock!(aws_sdk_dynamodb::Client::put_item)
+            .match_requests(|req| req.table_name() == Some("sessions_throughput_cap"))
+            .then_http_response(|| {
+                HttpResponse::new(
+                    SmithyStatusCode::try_from(400).unwrap(),
+                    SdkBody::from(PROVISIONED_THROUGHPUT_EXCEEDED_EXCEPTION),
+                )
+            });
+
+        let put_item_request_cap = mock!(aws_sdk_dynamodb::Client::put_item)
+            .match_requests(|req| req.table_name() == Some("sessions_request_cap"))
+            .then_http_response(|| {
+                HttpResponse::new(
+                    SmithyStatusCode::try_from(400).unwrap(),
+                    SdkBody::from(REQUEST_LIMIT_EXCEEDED),
+                )
+            });
+
+        let put_item_throttled = mock!(aws_sdk_dynamodb::Client::put_item)
+            .match_requests(|req| req.table_name() == Some("sessions_throttled"))
+            .then_http_response(|| {
+                HttpResponse::new(
+                    SmithyStatusCode::try_from(400).unwrap(),
+                    SdkBody::from(THROTTLING_EXCEPTION),
+                )
+            });
+
+        let put_item_unavailable = mock!(aws_sdk_dynamodb::Client::put_item)
+            .match_requests(|req| req.table_name() == Some("sessions_unavailable"))
+            .then_http_response(|| {
+                HttpResponse::new(
+                    SmithyStatusCode::try_from(503).unwrap(),
+                    SdkBody::from(SERVICE_UNAVAILABLE),
+                )
+            });
+
+        let put_item_mocks = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::Sequential)
+            .with_rule(&put_item_throughput_cap)
+            .with_rule(&put_item_request_cap)
+            .with_rule(&put_item_throttled)
+            .with_rule(&put_item_unavailable);
+
+        let dynamodb = aws_sdk_dynamodb::Client::from_conf(
+            aws_sdk_dynamodb::Config::builder()
+                .with_test_defaults()
+                .region(aws_sdk_dynamodb::config::Region::new("ap-northeast-1"))
+                .interceptor(put_item_mocks)
+                .build(),
+        );
+
+        let state = Arc::new(SharedState::with_dynamodb_and_session_table_name(
+            dynamodb.clone(),
+            "sessions_throughput_cap",
+        ));
+        let res = start_authentication(state).await.unwrap();
+        assert_eq!(res.status(), StatusCode::SERVICE_UNAVAILABLE);
+
+        let state = Arc::new(SharedState::with_dynamodb_and_session_table_name(
+            dynamodb.clone(),
+            "sessions_request_cap",
+        ));
+        let res = start_authentication(state).await.unwrap();
+        assert_eq!(res.status(), StatusCode::SERVICE_UNAVAILABLE);
+
+        let state = Arc::new(SharedState::with_dynamodb_and_session_table_name(
+            dynamodb.clone(),
+            "sessions_throttled",
+        ));
+        let res = start_authentication(state).await.unwrap();
+        assert_eq!(res.status(), StatusCode::SERVICE_UNAVAILABLE);
+
+        let state = Arc::new(SharedState::with_dynamodb_and_session_table_name(
+            dynamodb,
+            "sessions_unavailable",
+        ));
+        let res = start_authentication(state).await.unwrap();
+        assert_eq!(res.status(), StatusCode::SERVICE_UNAVAILABLE);
+    }
 }

@@ -36,3 +36,9 @@ tracing-subscriber = { version = "0.3", default-features = false, features = ["f
 webauthn-rs = { git = "https://github.com/codemonger-io/webauthn-rs.git", tag = "v0.5.0-wo-openssl.0", features = ["danger-allow-state-serialisation", "preview-features", "resident-key-support"] }
 # webauthn-rs-proto = { path = "../../../../third-party/webauthn-rs/webauthn-rs-proto" }
 webauthn-rs-proto = { git = "https://github.com/codemonger-io/webauthn-rs.git", tag = "v0.5.0-wo-openssl.0" }
+
+[dev-dependencies]
+aws-sdk-dynamodb = { version = "1.54", features = ["test-util"] }
+aws-smithy-mocks-experimental = "0.2"
+aws-smithy-runtime-api = "1.7"
+aws-smithy-types = "1.2"
