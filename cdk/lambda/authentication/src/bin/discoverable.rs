@@ -20,6 +20,7 @@
 //! are processed by Cognito triggers.
 
 use aws_sdk_dynamodb::{
+    config::http::HttpResponse,
     error::{ProvideErrorMetadata, SdkError},
     operation::put_item::PutItemError,
     primitives::DateTime,
@@ -111,31 +112,13 @@ async fn start_authentication(
                 )
                 .send()
                 .await;
-            if let Err(e) = &res {
-                match e {
-                    SdkError::ServiceError(e) => {
-                        match e.err() {
-                            PutItemError::ProvisionedThroughputExceededException(_) |
-                            PutItemError::RequestLimitExceeded(_) => {
-                                return Ok(Response::builder()
-                                    .status(StatusCode::SERVICE_UNAVAILABLE)
-                                    .header("Content-Type", "text/plain")
-                                    .body("service temporarily unavailable".into())?);
-                            }
-                            e => match e.code() {
-                                Some("ThrottlingException") | Some("ServiceUnavailable") => {
-                                    return Ok(Response::builder()
-                                        .status(StatusCode::SERVICE_UNAVAILABLE)
-                                        .header("Content-Type", "text/plain")
-                                        .body("service temporarily unavailable".into())?);
-                                },
-                                _ => res?,
-                            },
-                        }
-                    }
-                    _ => res?,
-                };
-            };
+            if is_retryable_error(&res) {
+                return Ok(Response::builder()
+                    .status(StatusCode::SERVICE_UNAVAILABLE)
+                    .header("Content-Type", "text/plain")
+                    .body("service temporarily unavailable".into())?);
+            }
+            res?;
             serde_json::to_string(&rcr)?
         }
         Err(e) => {
@@ -147,6 +130,23 @@ async fn start_authentication(
         .status(StatusCode::OK)
         .header("Content-Type", "application/json")
         .body(res.into())?)
+}
+
+fn is_retryable_error<T>(res: &Result<T, SdkError<PutItemError, HttpResponse>>) -> bool {
+    match res {
+        Err(e) => match e {
+            SdkError::ServiceError(e) => match e.err() {
+                PutItemError::ProvisionedThroughputExceededException(_) |
+                PutItemError::RequestLimitExceeded(_) => true,
+                e => match e.code() {
+                    Some("ThrottlingException") | Some("ServiceUnavailable") => true,
+                    _ => false,
+                }
+            }
+            _ => false,
+        }
+        Ok(_) => false,
+    }
 }
 
 #[tokio::main]
