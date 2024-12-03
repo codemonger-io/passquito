@@ -80,11 +80,20 @@ async fn function_handler(
     shared_state: Arc<SharedState>,
     event: Request,
 ) -> Result<Response<Body>, Error> {
-    let job_path = event.raw_http_path().strip_prefix(&shared_state.base_path)
-        .ok_or(format!("path must start with {}", shared_state.base_path))?;
-    match job_path {
-        "/start" => start_authentication(shared_state).await,
-        _ => Err(format!("unsupported job path: {}", job_path).into()),
+    let job = event
+        .raw_http_path()
+        .strip_prefix(&shared_state.base_path)
+        .and_then(|job_path| match job_path {
+            "/start" => Some(start_authentication(shared_state)),
+            _ => None,
+        });
+    if let Some(job) = job {
+        job.await
+    } else {
+        Ok(Response::builder()
+            .status(StatusCode::BAD_REQUEST)
+            .header("Content-Type", "text/plain")
+            .body("bad request".into())?)
     }
 }
 
@@ -191,8 +200,39 @@ mod tests {
                     .build()
                     .unwrap(),
                 dynamodb,
-                base_path: "/auth/credentials/discoverable".to_string(),
+                base_path: "/discoverable".to_string(),
                 session_table_name,
+            }
+        }
+
+        fn with_base_path(base_path: impl Into<String>) -> Self {
+            let base_path = base_path.into();
+
+            let rp_id = "localhost".to_string();
+            let rp_origin = Url::parse("http://localhost:5173").unwrap();
+
+            let put_item_ok = mock!(aws_sdk_dynamodb::Client::put_item)
+                .then_output(|| PutItemOutput::builder().build());
+            let put_item_mocks = MockResponseInterceptor::new()
+                .rule_mode(RuleMode::Sequential)
+                .with_rule(&put_item_ok);
+            let dynamodb = aws_sdk_dynamodb::Client::from_conf(
+                aws_sdk_dynamodb::Config::builder()
+                    .with_test_defaults()
+                    .region(aws_sdk_dynamodb::config::Region::new("ap-northeast-1"))
+                    .interceptor(put_item_mocks)
+                    .build(),
+            );
+
+            SharedState {
+                webauthn: WebauthnBuilder::new(&rp_id, &rp_origin)
+                    .unwrap()
+                    .rp_name("Passkey Test")
+                    .build()
+                    .unwrap(),
+                dynamodb,
+                base_path,
+                session_table_name: "sessions".to_string(),
             }
         }
     }
@@ -344,5 +384,36 @@ mod tests {
         ));
         let res = start_authentication(state).await.unwrap();
         assert_eq!(res.status(), StatusCode::SERVICE_UNAVAILABLE);
+    }
+
+    #[tokio::test]
+    async fn function_handler_with_valid_path() {
+        let state = Arc::new(SharedState::with_base_path("/discoverable"));
+
+        let req = Request::default().with_raw_http_path("/discoverable/start");
+
+        let res = function_handler(state, req).await.unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        assert!(serde_json::from_slice::<RequestChallengeResponse>(res.body()).is_ok());
+    }
+
+    #[tokio::test]
+    async fn function_handler_with_invalid_path_prefix() {
+        let state = Arc::new(SharedState::with_base_path("/discoverable"));
+
+        let req = Request::default().with_raw_http_path("/start-discovery");
+
+        let res = function_handler(state, req).await.unwrap();
+        assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn function_handler_with_invalid_job_path() {
+        let state = Arc::new(SharedState::with_base_path("/discoverable"));
+
+        let req = Request::default().with_raw_http_path("/discoverable/finish");
+
+        let res = function_handler(state, req).await.unwrap();
+        assert_eq!(res.status(), StatusCode::BAD_REQUEST);
     }
 }
