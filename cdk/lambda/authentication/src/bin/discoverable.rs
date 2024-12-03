@@ -237,28 +237,15 @@ mod tests {
         }
     }
 
+    impl Default for SharedState {
+        fn default() -> Self {
+            SharedState::with_base_path("/discoverable")
+        }
+    }
+
     #[tokio::test]
     async fn start_authentication_with_put_item_ok() {
-        let put_item_ok = mock!(aws_sdk_dynamodb::Client::put_item)
-            .then_output(|| PutItemOutput::builder().build());
-
-        let put_item_mocks = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::Sequential)
-            .with_rule(&put_item_ok);
-
-        let dynamodb = aws_sdk_dynamodb::Client::from_conf(
-            aws_sdk_dynamodb::Config::builder()
-                .with_test_defaults()
-                .region(aws_sdk_dynamodb::config::Region::new("ap-northeast-1"))
-                .interceptor(put_item_mocks)
-                .build(),
-        );
-
-        let state = Arc::new(SharedState::with_dynamodb_and_session_table_name(
-            dynamodb,
-            "sessions",
-        ));
-
+        let state = Arc::new(SharedState::default());
         let res = start_authentication(state).await.unwrap();
         assert_eq!(res.status(), StatusCode::OK);
         assert!(serde_json::from_slice::<RequestChallengeResponse>(res.body()).is_ok());
