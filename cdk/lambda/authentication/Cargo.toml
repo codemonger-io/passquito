@@ -33,7 +33,7 @@ tokio = { version = "1", features = ["macros"] }
 tracing = { version = "0.1", features = ["log"] }
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt"] }
 # webauthn-rs = { path = "../../../../third-party/webauthn-rs/webauthn-rs", features = ["danger-allow-state-serialisation", "preview-features", "resident-key-support"] }
-webauthn-rs = { git = "https://github.com/codemonger-io/webauthn-rs.git", tag = "v0.5.0-wo-openssl.0", features = ["danger-allow-state-serialisation", "preview-features", "resident-key-support"] }
+webauthn-rs = { git = "https://github.com/codemonger-io/webauthn-rs.git", tag = "v0.5.0-wo-openssl.0", features = ["conditional-ui", "danger-allow-state-serialisation", "resident-key-support"] }
 # webauthn-rs-proto = { path = "../../../../third-party/webauthn-rs/webauthn-rs-proto" }
 webauthn-rs-proto = { git = "https://github.com/codemonger-io/webauthn-rs.git", tag = "v0.5.0-wo-openssl.0" }
 
