@@ -38,7 +38,9 @@ webauthn-rs = { git = "https://github.com/codemonger-io/webauthn-rs.git", tag = 
 webauthn-rs-proto = { git = "https://github.com/codemonger-io/webauthn-rs.git", tag = "v0.5.0-wo-openssl.0" }
 
 [dev-dependencies]
+aws-sdk-cognitoidentityprovider = { version = "1.58", features = ["test-util"] }
 aws-sdk-dynamodb = { version = "1.54", features = ["test-util"] }
 aws-smithy-mocks-experimental = "0.2"
 aws-smithy-runtime-api = "1.7"
 aws-smithy-types = "1.2"
+derive_builder = "0.20"

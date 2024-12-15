@@ -60,8 +60,10 @@ use webauthn_rs::{
     prelude::{
         CreationChallengeResponse,
         CredentialID,
+        Passkey,
         PasskeyRegistration,
         Uuid,
+        WebauthnError,
     },
 };
 use webauthn_rs_proto::RegisterPublicKeyCredential;
@@ -69,7 +71,9 @@ use webauthn_rs_proto::RegisterPublicKeyCredential;
 use authentication::parameters::load_relying_party_origin;
 
 // Shared state.
-struct SharedState {
+#[cfg_attr(test, derive(derive_builder::Builder))]
+#[cfg_attr(test, builder(setter(into), pattern = "owned"))]
+struct SharedState<Webauthn> {
     webauthn: Webauthn,
     cognito: aws_sdk_cognitoidentityprovider::Client,
     dynamodb: aws_sdk_dynamodb::Client,
@@ -79,7 +83,7 @@ struct SharedState {
     credential_table_name: String,
 }
 
-impl SharedState {
+impl SharedState<Webauthn> {
     async fn new() -> Result<Self, Error> {
         let config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
         let (rp_id, rp_origin) =
@@ -109,6 +113,12 @@ impl SharedState {
 #[serde(rename_all = "camelCase")]
 pub struct NewUserInfo {
     /// Username.
+    ///
+    /// When you register a new user, specify a preferred username which may
+    /// identify a person.
+    ///
+    /// When you register a new credential for an existing user, specify the
+    /// unique ID of the user.
     pub username: String,
 
     /// Display name.
@@ -117,6 +127,7 @@ pub struct NewUserInfo {
 
 /// Beginning of a session to register a new user.
 #[derive(Clone, Debug, Serialize)]
+#[cfg_attr(test, derive(Deserialize))]
 #[serde(rename_all = "camelCase")]
 pub struct StartRegistrationSession {
     /// Session ID.
@@ -137,10 +148,13 @@ pub struct FinishRegistrationSession {
     pub public_key_credential: RegisterPublicKeyCredential,
 }
 
-async fn function_handler(
-    shared_state: Arc<SharedState>,
+async fn function_handler<Webauthn>(
+    shared_state: Arc<SharedState<Webauthn>>,
     event: Request,
-) -> Result<Response<Body>, Error> {
+) -> Result<Response<Body>, Error>
+where
+    Webauthn: WebauthnStartRegistration + WebauthnFinishRegistration,
+{
     let job_path = event.raw_http_path()
         .strip_prefix(&shared_state.base_path)
         .ok_or(format!("path must start with \"{}\"", shared_state.base_path))?;
@@ -161,10 +175,13 @@ async fn function_handler(
     }
 }
 
-async fn start_registration(
-    shared_state: Arc<SharedState>,
+async fn start_registration<Webauthn>(
+    shared_state: Arc<SharedState<Webauthn>>,
     user_info: NewUserInfo,
-) -> Result<Response<Body>, Error> {
+) -> Result<Response<Body>, Error>
+where
+    Webauthn: WebauthnStartRegistration,
+{
     info!("start_registration: {:?}", user_info);
 
     // resolves the existing user
@@ -287,10 +304,13 @@ async fn start_registration(
         .body(res.into())?)
 }
 
-async fn finish_registration(
-    shared_state: Arc<SharedState>,
+async fn finish_registration<Webauthn>(
+    shared_state: Arc<SharedState<Webauthn>>,
     session: FinishRegistrationSession,
-) -> Result<Response<Body>, Error> {
+) -> Result<Response<Body>, Error>
+where
+    Webauthn: WebauthnFinishRegistration,
+{
     info!("finish_registration: {}", session.session_id);
 
     // pops the session
@@ -446,4 +466,370 @@ async fn main() -> Result<(), Error> {
     run(service_fn(|req| async {
         function_handler(shared_state.clone(), req).await
     })).await
+}
+
+/// Phase of webauthn for starting registration.
+trait WebauthnStartRegistration {
+    /// Initiates the registration of a new passkey.
+    fn start_passkey_registration(
+        &self,
+        user_unique_id: Uuid,
+        user_name: &str,
+        user_display_name: &str,
+        exclude_credentials: Option<Vec<CredentialID>>,
+    ) -> Result<(CreationChallengeResponse, PasskeyRegistration), WebauthnError>;
+}
+
+/// Phase of webauthn for finishing registration.
+trait WebauthnFinishRegistration {
+    /// Completes the registration of the passkey.
+    fn finish_passkey_registration(
+        &self,
+        reg: &RegisterPublicKeyCredential,
+        state: &PasskeyRegistration,
+    ) -> Result<Passkey, WebauthnError>;
+}
+
+impl WebauthnStartRegistration for Webauthn {
+    #[inline]
+    fn start_passkey_registration(
+        &self,
+        user_unique_id: Uuid,
+        user_name: &str,
+        user_display_name: &str,
+        exclude_credentials: Option<Vec<CredentialID>>,
+    ) -> Result<(CreationChallengeResponse, PasskeyRegistration), WebauthnError> {
+        self.start_passkey_registration(
+            user_unique_id,
+            user_name,
+            user_display_name,
+            exclude_credentials,
+        )
+    }
+}
+
+impl WebauthnFinishRegistration for Webauthn {
+    #[inline]
+    fn finish_passkey_registration(
+        &self,
+        reg: &RegisterPublicKeyCredential,
+        state: &PasskeyRegistration,
+    ) -> Result<Passkey, WebauthnError> {
+        self.finish_passkey_registration(reg, state)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use aws_smithy_mocks_experimental::{mock, MockResponseInterceptor, Rule, RuleMode};
+
+    use self::mocks::webauthn::{
+        ConstantWebauthnStartRegistration,
+        ConstantWebauthnFinishRegistration,
+    };
+
+    #[tokio::test]
+    async fn start_registration_of_new_user() {
+        let cognito = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::cognito::list_users_empty());
+        let dynamodb = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::dynamodb::put_item_ok());
+
+        let shared_state: SharedState<ConstantWebauthnStartRegistration> = SharedStateBuilder::default()
+            .webauthn(ConstantWebauthnStartRegistration::new(
+                self::mocks::webauthn::OK_CREATION_CHALLENGE_RESPONSE,
+                self::mocks::webauthn::OK_PASSKEY_REGISTRATION,
+            ))
+            .cognito(self::mocks::cognito::new_client(cognito))
+            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .base_path("/auth/credentials/registration")
+            .user_pool_id("ap-northeast-1_123456789")
+            .session_table_name("sessions")
+            .credential_table_name("credentials")
+            .build()
+            .unwrap();
+        let shared_state = Arc::new(shared_state);
+
+        let res = start_registration(
+            shared_state,
+            NewUserInfo {
+                username: "test".into(),
+                display_name: "Test User".into(),
+            },
+        ).await.unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        assert!(serde_json::from_slice::<StartRegistrationSession>(res.body()).is_ok());
+    }
+
+    #[tokio::test]
+    async fn finish_registration_of_legitimate_user() {
+        let cognito = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::cognito::admin_create_user_ok())
+            .with_rule(&self::mocks::cognito::admin_set_user_password_ok());
+        let dynamodb = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::dynamodb::delete_item_ok())
+            .with_rule(&self::mocks::dynamodb::put_item_ok());
+
+        let shared_state: SharedState<ConstantWebauthnFinishRegistration> = SharedStateBuilder::default()
+            .webauthn(ConstantWebauthnFinishRegistration::new(
+                self::mocks::webauthn::OK_PASSKEY,
+            ))
+            .cognito(self::mocks::cognito::new_client(cognito))
+            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .base_path("/auth/credentials/registration")
+            .user_pool_id("ap-northeast-1_123456789")
+            .session_table_name("sessions")
+            .credential_table_name("credentials")
+            .build()
+            .unwrap();
+        let shared_state = Arc::new(shared_state);
+
+        let res = finish_registration(
+            shared_state,
+            FinishRegistrationSession {
+                session_id: "dummy-session-id".to_string(),
+                public_key_credential: serde_json::from_str(
+                    self::mocks::webauthn::OK_REGISTER_PUBLIC_KEY_CREDENTIAL,
+                ).unwrap(),
+            },
+        ).await.unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+    }
+
+    mod mocks {
+        use super::*;
+
+        pub(crate) mod webauthn {
+            use super::*;
+
+            pub(crate) struct ConstantWebauthnStartRegistration {
+                creation_challenge_response: String,
+                passkey_registration: String,
+            }
+
+            impl ConstantWebauthnStartRegistration {
+                pub(crate) fn new(
+                    creation_challenge_response: impl Into<String>,
+                    passkey_registration: impl Into<String>,
+                ) -> Self {
+                    Self {
+                        creation_challenge_response: creation_challenge_response.into(),
+                        passkey_registration: passkey_registration.into(),
+                    }
+                }
+            }
+
+            impl WebauthnStartRegistration for ConstantWebauthnStartRegistration {
+                fn start_passkey_registration(
+                    &self,
+                    _: Uuid,
+                    _: &str,
+                    _: &str,
+                    _: Option<Vec<CredentialID>>,
+                ) -> Result<(CreationChallengeResponse, PasskeyRegistration), WebauthnError> {
+                    Ok((
+                        serde_json::from_str(&self.creation_challenge_response).unwrap(),
+                        serde_json::from_str(&self.passkey_registration).unwrap(),
+                    ))
+                }
+            }
+
+            pub(crate) struct ConstantWebauthnFinishRegistration {
+                passkey: String,
+            }
+
+            impl ConstantWebauthnFinishRegistration {
+                pub(crate) fn new(passkey: impl Into<String>) -> Self {
+                    Self {
+                        passkey: passkey.into(),
+                    }
+                }
+            }
+
+            impl WebauthnFinishRegistration for ConstantWebauthnFinishRegistration {
+                fn finish_passkey_registration(
+                    &self,
+                    _: &RegisterPublicKeyCredential,
+                    _: &PasskeyRegistration,
+                ) -> Result<Passkey, WebauthnError> {
+                    Ok(serde_json::from_str(&self.passkey).unwrap())
+                }
+            }
+
+            pub(crate) const OK_CREATION_CHALLENGE_RESPONSE: &str = r#"{
+                "publicKey": {
+                    "rp": {
+                        "id": "localhost",
+                        "name": "Passkey Test"
+                    },
+                    "user": {
+                        "id": "8TZ_kg_dp_pr0t7SDvGJiw",
+                        "name": "test",
+                        "displayName": "Test User"
+                    },
+                    "challenge": "fS_B1MxJouaI0QpuYtrsl6kheAAqtQlUgyAfaxOYdXE",
+                    "pubKeyCredParams": [
+                        {
+                            "type": "public-key",
+                            "alg": -7
+                        },
+                        {
+                            "type": "public-key",
+                            "alg": -8
+                        }
+                    ]
+                }
+            }"#;
+
+            pub(crate) const OK_PASSKEY_REGISTRATION: &str = r#"{
+                "rs": {
+                    "policy": "required",
+                    "exclude_credentials": [],
+                    "challenge": "fS_B1MxJouaI0QpuYtrsl6kheAAqtQlUgyAfaxOYdXE",
+                    "credential_algorithms": ["ECDSA_SHA256", "EDDSA"],
+                    "require_resident_key": true,
+                    "authenticator_attachment": null,
+                    "extensions": {},
+                    "allow_synchronised_authenticators": false
+                }
+            }"#;
+
+            pub(crate) const OK_REGISTER_PUBLIC_KEY_CREDENTIAL: &str = r#"{
+                "id": "zVgCuXz99SsFmTTo",
+                "rawId": "zVgCuXz99SsFmTTo",
+                "response": {
+                    "attestationObject": "",
+                    "clientDataJSON": ""
+                },
+                "type": "public-key",
+                "extensions": {}
+            }"#;
+
+            pub(crate) const OK_PASSKEY: &str = r#"{
+                "cred": {
+                    "cred_id": "VD-k4AUT6FLUNmROa7OAiA",
+                    "cred": {
+                        "type_": "ES256",
+                        "key": {
+                            "EC_EC2": {
+                                "curve": "SECP256R1",
+                                "x": "",
+                                "y": ""
+                            }
+                        }
+                    },
+                    "counter": 1,
+                    "transports": null,
+                    "user_verified": true,
+                    "backup_eligible": true,
+                    "backup_state": false,
+                    "registration_policy": "required",
+                    "extensions": {},
+                    "attestation": {
+                        "data": "None",
+                        "metadata": "None"
+                    },
+                    "attestation_format": "none"
+                }
+            }"#;
+        }
+
+        pub(crate) mod cognito {
+            use super::*;
+
+            use aws_sdk_cognitoidentityprovider::{
+                config::Region,
+                operation::{
+                    admin_create_user::AdminCreateUserOutput,
+                    admin_set_user_password::AdminSetUserPasswordOutput,
+                    list_users::ListUsersOutput,
+                },
+                types::{AttributeType, UserType},
+                Client,
+                Config,
+            };
+
+            pub(crate) fn new_client(mocks: MockResponseInterceptor) -> Client {
+                Client::from_conf(
+                    Config::builder()
+                        .with_test_defaults()
+                        .region(Region::new("ap-northeast-1"))
+                        .interceptor(mocks)
+                        .build(),
+                )
+            }
+
+            pub(crate) fn list_users_empty() -> Rule {
+                mock!(Client::list_users)
+                    .then_output(|| ListUsersOutput::builder().build())
+            }
+
+            pub(crate) fn admin_create_user_ok() -> Rule {
+                mock!(Client::admin_create_user)
+                    .then_output(|| AdminCreateUserOutput::builder()
+                        .user(UserType::builder()
+                            .attributes(AttributeType::builder()
+                                .name("sub")
+                                .value("dummy-sub-123")
+                                .build()
+                                .unwrap())
+                            .build())
+                        .build())
+            }
+
+            pub(crate) fn admin_set_user_password_ok() -> Rule {
+                mock!(Client::admin_set_user_password)
+                    .then_output(|| AdminSetUserPasswordOutput::builder().build())
+            }
+        }
+
+        pub(crate) mod dynamodb {
+            use super::*;
+
+            use aws_sdk_dynamodb::{
+                config::Region,
+                operation::delete_item::DeleteItemOutput,
+                operation::put_item::PutItemOutput,
+                Client,
+                Config,
+            };
+
+            pub(crate) fn new_client(mocks: MockResponseInterceptor) -> Client {
+                Client::from_conf(
+                    Config::builder()
+                        .with_test_defaults()
+                        .region(Region::new("ap-northeast-1"))
+                        .interceptor(mocks)
+                        .build(),
+                )
+            }
+
+            pub(crate) fn put_item_ok() -> Rule {
+                mock!(Client::put_item)
+                    .then_output(|| PutItemOutput::builder().build())
+            }
+
+            pub(crate) fn delete_item_ok() -> Rule {
+                mock!(Client::delete_item)
+                    .then_output(|| {
+                        let ttl = DateTime::from(SystemTime::now()).secs() + 60;
+                        DeleteItemOutput::builder()
+                            .attributes("ttl", AttributeValue::N(format!("{}", ttl)))
+                            .attributes("state", AttributeValue::S(super::webauthn::OK_PASSKEY_REGISTRATION.to_string()))
+                            .attributes("userId", AttributeValue::S("8TZ_kg_dp_pr0t7SDvGJiw".to_string()))
+                            .attributes("userInfo", AttributeValue::M(HashMap::from([
+                                ("username".to_string(), AttributeValue::S("test".to_string())),
+                                ("displayName".to_string(), AttributeValue::S("Test User".to_string())),
+                            ])))
+                            .build()
+                    })
+            }
+        }
+    }
 }
