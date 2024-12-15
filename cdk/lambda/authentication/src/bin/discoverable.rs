@@ -214,7 +214,7 @@ mod tests {
             let put_item_ok = mock!(aws_sdk_dynamodb::Client::put_item)
                 .then_output(|| PutItemOutput::builder().build());
             let put_item_mocks = MockResponseInterceptor::new()
-                .rule_mode(RuleMode::Sequential)
+                .rule_mode(RuleMode::MatchAny)
                 .with_rule(&put_item_ok);
             let dynamodb = aws_sdk_dynamodb::Client::from_conf(
                 aws_sdk_dynamodb::Config::builder()
@@ -272,7 +272,7 @@ mod tests {
             });
 
         let put_item_mocks = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::Sequential)
+            .rule_mode(RuleMode::MatchAny)
             .with_rule(&put_item_not_found);
 
         let dynamodb = aws_sdk_dynamodb::Client::from_conf(
@@ -330,7 +330,7 @@ mod tests {
             });
 
         let put_item_mocks = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::Sequential)
+            .rule_mode(RuleMode::MatchAny)
             .with_rule(&put_item_throughput_cap)
             .with_rule(&put_item_request_cap)
             .with_rule(&put_item_throttled)
