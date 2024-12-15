@@ -77,9 +77,13 @@ struct SharedState<Webauthn> {
     webauthn: Webauthn,
     cognito: aws_sdk_cognitoidentityprovider::Client,
     dynamodb: aws_sdk_dynamodb::Client,
+    #[cfg_attr(test, builder(default = "\"/auth/cedentials/registration/\".to_string()"))]
     base_path: String,
+    #[cfg_attr(test, builder(default = "\"ap-northeast-1_123456789\".to_string()"))]
     user_pool_id: String,
+    #[cfg_attr(test, builder(default = "\"sessions\".to_string()"))]
     session_table_name: String,
+    #[cfg_attr(test, builder(default = "\"credentials\".to_string()"))]
     credential_table_name: String,
 }
 
@@ -169,7 +173,14 @@ where
             let session: FinishRegistrationSession = event
                 .payload()?
                 .ok_or("missing registration session")?;
-            finish_registration(shared_state, session).await
+            match finish_registration(shared_state, session).await {
+                Ok(res) => Ok(res),
+                Err(ErrorResponse::Unauthorized(e)) => Ok(Response::builder()
+                    .status(StatusCode::UNAUTHORIZED)
+                    .header("Content-Type", "text/plain")
+                    .body(e.into())?),
+                Err(ErrorResponse::Unhandled(e)) => Err(e),
+            }
         }
         _ => Err(format!("unsupported job path: {}", job_path).into()),
     }
@@ -307,7 +318,7 @@ where
 async fn finish_registration<Webauthn>(
     shared_state: Arc<SharedState<Webauthn>>,
     session: FinishRegistrationSession,
-) -> Result<Response<Body>, Error>
+) -> Result<Response<Body>, ErrorResponse>
 where
     Webauthn: WebauthnFinishRegistration,
 {
@@ -325,7 +336,7 @@ where
         .send()
         .await?
         .attributes
-        .ok_or("expired or wrong registration session")?;
+        .ok_or_else(|| ErrorResponse::unauthorized("missing session"))?;
 
     // the session may have expired
     let ttl: i64 = item.get("ttl")
@@ -334,7 +345,7 @@ where
         .or(Err("invalid ttl"))?
         .parse()?;
     if ttl < DateTime::from(SystemTime::now()).secs() {
-        return Err("registration session expired".into());
+        return Err(ErrorResponse::unauthorized("expired session"));
     }
 
     // extracts the registration state
@@ -519,6 +530,27 @@ impl WebauthnFinishRegistration for Webauthn {
     }
 }
 
+#[derive(Debug)]
+enum ErrorResponse {
+    Unauthorized(String),
+    Unhandled(Error),
+}
+
+impl ErrorResponse {
+    fn unauthorized(message: impl Into<String>) -> Self {
+        Self::Unauthorized(message.into())
+    }
+}
+
+impl<E> From<E> for ErrorResponse
+where
+    E: Into<Error>,
+{
+    fn from(e: E) -> Self {
+        ErrorResponse::Unhandled(e.into())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -546,10 +578,6 @@ mod tests {
             ))
             .cognito(self::mocks::cognito::new_client(cognito))
             .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
-            .base_path("/auth/credentials/registration")
-            .user_pool_id("ap-northeast-1_123456789")
-            .session_table_name("sessions")
-            .credential_table_name("credentials")
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -573,7 +601,7 @@ mod tests {
             .with_rule(&self::mocks::cognito::admin_set_user_password_ok());
         let dynamodb = MockResponseInterceptor::new()
             .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::dynamodb::delete_item_ok())
+            .with_rule(&self::mocks::dynamodb::delete_item_session())
             .with_rule(&self::mocks::dynamodb::put_item_ok());
 
         let shared_state: SharedState<ConstantWebauthnFinishRegistration> = SharedStateBuilder::default()
@@ -582,10 +610,6 @@ mod tests {
             ))
             .cognito(self::mocks::cognito::new_client(cognito))
             .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
-            .base_path("/auth/credentials/registration")
-            .user_pool_id("ap-northeast-1_123456789")
-            .session_table_name("sessions")
-            .credential_table_name("credentials")
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -600,6 +624,66 @@ mod tests {
             },
         ).await.unwrap();
         assert_eq!(res.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn finish_registration_with_missing_session() {
+        let cognito = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny);
+        let dynamodb = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::dynamodb::delete_item_missing_session());
+
+        let shared_state: SharedState<ConstantWebauthnFinishRegistration> = SharedStateBuilder::default()
+            .webauthn(ConstantWebauthnFinishRegistration::new(
+                self::mocks::webauthn::OK_PASSKEY,
+            ))
+            .cognito(self::mocks::cognito::new_client(cognito))
+            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .build()
+            .unwrap();
+        let shared_state = Arc::new(shared_state);
+
+        let res = finish_registration(
+            shared_state,
+            FinishRegistrationSession {
+                session_id: "dummy-session-id".to_string(),
+                public_key_credential: serde_json::from_str(
+                    self::mocks::webauthn::OK_REGISTER_PUBLIC_KEY_CREDENTIAL,
+                ).unwrap(),
+            },
+        ).await.err().unwrap();
+        assert!(matches!(res, ErrorResponse::Unauthorized(_)));
+    }
+
+    #[tokio::test]
+    async fn finish_registration_with_expired_session() {
+        let cognito = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny);
+        let dynamodb = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::dynamodb::delete_item_expired_session());
+
+        let shared_state: SharedState<ConstantWebauthnFinishRegistration> = SharedStateBuilder::default()
+            .webauthn(ConstantWebauthnFinishRegistration::new(
+                self::mocks::webauthn::OK_PASSKEY,
+            ))
+            .cognito(self::mocks::cognito::new_client(cognito))
+            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .build()
+            .unwrap();
+        let shared_state = Arc::new(shared_state);
+
+        let res = finish_registration(
+            shared_state,
+            FinishRegistrationSession {
+                session_id: "dummy-session-id".to_string(),
+                public_key_credential: serde_json::from_str(
+                    self::mocks::webauthn::OK_REGISTER_PUBLIC_KEY_CREDENTIAL,
+                ).unwrap(),
+            },
+        ).await.err().unwrap();
+        assert!(matches!(res, ErrorResponse::Unauthorized(_)));
     }
 
     mod mocks {
@@ -815,7 +899,7 @@ mod tests {
                     .then_output(|| PutItemOutput::builder().build())
             }
 
-            pub(crate) fn delete_item_ok() -> Rule {
+            pub(crate) fn delete_item_session() -> Rule {
                 mock!(Client::delete_item)
                     .then_output(|| {
                         let ttl = DateTime::from(SystemTime::now()).secs() + 60;
@@ -827,6 +911,21 @@ mod tests {
                                 ("username".to_string(), AttributeValue::S("test".to_string())),
                                 ("displayName".to_string(), AttributeValue::S("Test User".to_string())),
                             ])))
+                            .build()
+                    })
+            }
+
+            pub(crate) fn delete_item_missing_session() -> Rule {
+                mock!(Client::delete_item)
+                    .then_output(|| DeleteItemOutput::builder().build())
+            }
+
+            pub(crate) fn delete_item_expired_session() -> Rule {
+                mock!(Client::delete_item)
+                    .then_output(|| {
+                        let ttl = DateTime::from(SystemTime::now()).secs() - 60;
+                        DeleteItemOutput::builder()
+                            .attributes("ttl", AttributeValue::N(format!("{}", ttl)))
                             .build()
                     })
             }
