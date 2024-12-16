@@ -162,7 +162,7 @@ where
     let job_path = event.raw_http_path()
         .strip_prefix(&shared_state.base_path)
         .ok_or(format!("path must start with \"{}\"", shared_state.base_path))?;
-    match job_path {
+    let res = match job_path {
         "/start" => {
             let user_info: NewUserInfo = event
                 .payload()?
@@ -173,23 +173,24 @@ where
             let session: FinishRegistrationSession = event
                 .payload()?
                 .ok_or("missing registration session")?;
-            match finish_registration(shared_state, session).await {
-                Ok(res) => Ok(res),
-                Err(ErrorResponse::Unauthorized(e)) => Ok(Response::builder()
-                    .status(StatusCode::UNAUTHORIZED)
-                    .header("Content-Type", "text/plain")
-                    .body(e.into())?),
-                Err(ErrorResponse::Unhandled(e)) => Err(e),
-            }
+            finish_registration(shared_state, session).await
         }
-        _ => Err(format!("unsupported job path: {}", job_path).into()),
+        _ => return Err(format!("unsupported job path: {}", job_path).into()),
+    };
+    match res {
+        Ok(res) => Ok(res),
+        Err(ErrorResponse::Unauthorized(msg)) => Ok(Response::builder()
+            .status(StatusCode::UNAUTHORIZED)
+            .header("Content-Type", "text/plain")
+            .body(msg.into())?),
+        Err(ErrorResponse::Unhandled(e)) => Err(e),
     }
 }
 
 async fn start_registration<Webauthn>(
     shared_state: Arc<SharedState<Webauthn>>,
     user_info: NewUserInfo,
-) -> Result<Response<Body>, Error>
+) -> Result<Response<Body>, ErrorResponse>
 where
     Webauthn: WebauthnStartRegistration,
 {
