@@ -1,7 +1,7 @@
 //! Registration.
 //!
 //! You have to configure the following environment variables:
-//! - `BASE_PATH`: base path to provide the service; e.g., `/auth/cedentials/registration/`
+//! - `BASE_PATH`: base path to provide the service; e.g., `/auth/credentials/registration/`
 //! - `SESSION_TABLE_NAME`: name of the DynamoDB table to store sessions
 //! - `USER_POOL_ID`: ID of the Cognito user pool
 //! - `CREDENTIAL_TABLE_NAME`: name of the DynamoDB table to store credentials
@@ -77,7 +77,7 @@ struct SharedState<Webauthn> {
     webauthn: Webauthn,
     cognito: aws_sdk_cognitoidentityprovider::Client,
     dynamodb: aws_sdk_dynamodb::Client,
-    #[cfg_attr(test, builder(default = "\"/auth/cedentials/registration/\".to_string()"))]
+    #[cfg_attr(test, builder(default = "\"/auth/credentials/registration\".to_string()"))]
     base_path: String,
     #[cfg_attr(test, builder(default = "\"ap-northeast-1_123456789\".to_string()"))]
     user_pool_id: String,
@@ -161,26 +161,60 @@ where
 {
     let job_path = event.raw_http_path()
         .strip_prefix(&shared_state.base_path)
-        .ok_or(format!("path must start with \"{}\"", shared_state.base_path))?;
+        .ok_or_else(|| {
+            error!("path must start with \"{}\"", shared_state.base_path);
+            ErrorResponse::BadRequest("bad request".to_string())
+        });
     let res = match job_path {
-        "/start" => {
-            let user_info: NewUserInfo = event
-                .payload()?
-                .ok_or("missing new user info")?;
-            start_registration(shared_state, user_info).await
+        Ok(p) if p == "/start" => {
+            let user_info: Result<NewUserInfo, ErrorResponse> = event
+                .payload()
+                .map_err(|e| {
+                    error!("failed to parse payload: {e}");
+                    ErrorResponse::BadRequest("invalid payload".to_string())
+                })
+                .and_then(|payload| {
+                    payload.ok_or_else(|| {
+                        ErrorResponse::BadRequest("invalid payload".to_string())
+                    })
+                });
+            match user_info {
+                Ok(user_info) => start_registration(shared_state, user_info).await,
+                Err(e) => Err(e),
+            }
         }
-        "/finish" => {
-            let session: FinishRegistrationSession = event
-                .payload()?
-                .ok_or("missing registration session")?;
-            finish_registration(shared_state, session).await
+        Ok(p) if p == "/finish" => {
+            let session: Result<FinishRegistrationSession, ErrorResponse> = event
+                .payload()
+                .map_err(|e| {
+                    error!("failed to parse payload: {e}");
+                    ErrorResponse::BadRequest("invalid payload".to_string())
+                })
+                .and_then(|payload| {
+                    payload.ok_or_else(|| {
+                        ErrorResponse::BadRequest("invalid payload".to_string())
+                    })
+                });
+            match session {
+                Ok(session) => finish_registration(shared_state, session).await,
+                Err(e) => Err(e),
+            }
         }
-        _ => return Err(format!("unsupported job path: {}", job_path).into()),
+        Ok(p) => {
+            error!("unsupported job path: {}", p);
+            Err(ErrorResponse::BadRequest("bad request".into()))
+        }
+        Err(e) => Err(e),
     };
     match res {
         Ok(res) => Ok(res),
+        // TODO: ErrorResponse::try_into_response
         Err(ErrorResponse::Unauthorized(msg)) => Ok(Response::builder()
             .status(StatusCode::UNAUTHORIZED)
+            .header("Content-Type", "text/plain")
+            .body(msg.into())?),
+        Err(ErrorResponse::BadRequest(msg)) => Ok(Response::builder()
+            .status(StatusCode::BAD_REQUEST)
             .header("Content-Type", "text/plain")
             .body(msg.into())?),
         Err(ErrorResponse::Unhandled(e)) => Err(e),
@@ -533,6 +567,7 @@ impl WebauthnFinishRegistration for Webauthn {
 
 #[derive(Debug)]
 enum ErrorResponse {
+    BadRequest(String),
     Unauthorized(String),
     Unhandled(Error),
 }
@@ -557,11 +592,129 @@ mod tests {
     use super::*;
 
     use aws_smithy_mocks_experimental::{mock, MockResponseInterceptor, Rule, RuleMode};
+    use lambda_http::http;
 
     use self::mocks::webauthn::{
+        ConstantWebauthn,
         ConstantWebauthnStartRegistration,
         ConstantWebauthnFinishRegistration,
     };
+
+    #[tokio::test]
+    async fn function_handler_with_invalid_payload() {
+        let cognito = MockResponseInterceptor::new();
+        let dynamodb = MockResponseInterceptor::new();
+
+        let shared_state: SharedState<ConstantWebauthn> = SharedStateBuilder::default()
+            .webauthn(ConstantWebauthn::new(
+                self::mocks::webauthn::OK_CREATION_CHALLENGE_RESPONSE,
+                self::mocks::webauthn::OK_PASSKEY_REGISTRATION,
+                self::mocks::webauthn::OK_PASSKEY,
+            ))
+            .cognito(self::mocks::cognito::new_client(cognito))
+            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .build()
+            .unwrap();
+        let shared_state = Arc::new(shared_state);
+
+        // "/start" action
+        // - no payload
+        let mut request = Request::default()
+            .with_raw_http_path("/auth/credentials/registration/start");
+        *request.method_mut() = http::Method::POST;
+        request.headers_mut().insert(http::header::CONTENT_TYPE, "application/json".parse().unwrap());
+        let res = function_handler(shared_state.clone(), request).await.unwrap();
+        assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+        // - invalid JSON payload
+        let mut request = Request::default()
+            .with_raw_http_path("/auth/credentials/registration/start");
+        *request.method_mut() = http::Method::POST;
+        *request.body_mut() = r#"{"invalidField":null}"#.into();
+        request.headers_mut().insert(http::header::CONTENT_TYPE, "application/json".parse().unwrap());
+        let res = function_handler(shared_state.clone(), request).await.unwrap();
+        assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+        // - bad Content-Type
+        let mut request = Request::default()
+            .with_raw_http_path("/auth/credentials/registration/start");
+        *request.method_mut() = http::Method::POST;
+        *request.body_mut() = r#"{"username":"test","displayName":"Test User"}"#.into();
+        request.headers_mut().insert(http::header::CONTENT_TYPE, "text/plain".parse().unwrap());
+        let res = function_handler(shared_state.clone(), request).await.unwrap();
+        assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+
+        // "/finish" action
+        // - no payload
+        let mut request = Request::default()
+            .with_raw_http_path("/auth/credentials/registration/finish");
+        *request.method_mut() = http::Method::POST;
+        request.headers_mut().insert(http::header::CONTENT_TYPE, "application/json".parse().unwrap());
+        let res = function_handler(shared_state.clone(), request).await.unwrap();
+        assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+        // - invalid JSON payload
+        let mut request = Request::default()
+            .with_raw_http_path("/auth/credentials/registration/finish");
+        *request.method_mut() = http::Method::POST;
+        *request.body_mut() = r#"{"invalidField":null}"#.into();
+        request.headers_mut().insert(http::header::CONTENT_TYPE, "application/json".parse().unwrap());
+        let res = function_handler(shared_state.clone(), request).await.unwrap();
+        assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+        // - bad Content-Type
+        let mut request = Request::default()
+            .with_raw_http_path("/auth/credentials/registration/finish");
+        *request.method_mut() = http::Method::POST;
+        *request.body_mut() = r#"{
+            "sessionId": "dummy-session-id",
+            "publicKeyCredential": {
+                "id": "zVgCuXz99SsFmTTo",
+                "rawId": "zVgCuXz99SsFmTTo",
+                "response": {
+                    "attestationObject": "",
+                    "clientDataJSON": ""
+                },
+                "type": "public-key",
+                "extensions": {}
+            }
+        }"#.into();
+        request.headers_mut().insert(http::header::CONTENT_TYPE, "text/plain".parse().unwrap());
+        let res = function_handler(shared_state.clone(), request).await.unwrap();
+        assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn function_handler_with_invalid_path() {
+        let cognito = MockResponseInterceptor::new();
+        let dynamodb = MockResponseInterceptor::new();
+
+        let shared_state: SharedState<ConstantWebauthn> = SharedStateBuilder::default()
+            .webauthn(ConstantWebauthn::new(
+                self::mocks::webauthn::OK_CREATION_CHALLENGE_RESPONSE,
+                self::mocks::webauthn::OK_PASSKEY_REGISTRATION,
+                self::mocks::webauthn::OK_PASSKEY,
+            ))
+            .cognito(self::mocks::cognito::new_client(cognito))
+            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .build()
+            .unwrap();
+        let shared_state = Arc::new(shared_state);
+
+        // not starting with the prefix
+        let mut request = Request::default()
+            .with_raw_http_path("/passkey/registration/start");
+        *request.method_mut() = http::Method::POST;
+        *request.body_mut() = r#"{"username":"test","displayName":"Test User"}"#.into();
+        request.headers_mut().insert(http::header::CONTENT_TYPE, "application/json".parse().unwrap());
+        let res = function_handler(shared_state.clone(), request).await.unwrap();
+        assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+
+        // unsupported action
+        let mut request = Request::default()
+            .with_raw_http_path("/auth/credentials/registration/cancel");
+        *request.method_mut() = http::Method::POST;
+        *request.body_mut() = r#"{"username":"test","displayName":"Test User"}"#.into();
+        request.headers_mut().insert(http::header::CONTENT_TYPE, "application/json".parse().unwrap());
+        let res = function_handler(shared_state.clone(), request).await.unwrap();
+        assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+    }
 
     #[tokio::test]
     async fn start_registration_of_new_user() {
@@ -692,6 +845,54 @@ mod tests {
 
         pub(crate) mod webauthn {
             use super::*;
+
+            pub(crate) struct ConstantWebauthn {
+                start: ConstantWebauthnStartRegistration,
+                finish: ConstantWebauthnFinishRegistration,
+            }
+
+            impl ConstantWebauthn {
+                pub(crate) fn new(
+                    creation_challenge_response: impl Into<String>,
+                    passkey_registration: impl Into<String>,
+                    passkey: impl Into<String>,
+                ) -> Self {
+                    Self {
+                        start: ConstantWebauthnStartRegistration::new(
+                            creation_challenge_response,
+                            passkey_registration,
+                        ),
+                        finish: ConstantWebauthnFinishRegistration::new(passkey),
+                    }
+                }
+            }
+
+            impl WebauthnStartRegistration for ConstantWebauthn {
+                fn start_passkey_registration(
+                    &self,
+                    user_unique_id: Uuid,
+                    user_name: &str,
+                    user_display_name: &str,
+                    excluded_credentials: Option<Vec<CredentialID>>,
+                ) -> Result<(CreationChallengeResponse, PasskeyRegistration), WebauthnError> {
+                    self.start.start_passkey_registration(
+                        user_unique_id,
+                        user_name,
+                        user_display_name,
+                        excluded_credentials,
+                    )
+                }
+            }
+
+            impl WebauthnFinishRegistration for ConstantWebauthn {
+                fn finish_passkey_registration(
+                    &self,
+                    reg: &RegisterPublicKeyCredential,
+                    state: &PasskeyRegistration,
+                ) -> Result<Passkey, WebauthnError> {
+                    self.finish.finish_passkey_registration(reg, state)
+                }
+            }
 
             pub(crate) struct ConstantWebauthnStartRegistration {
                 creation_challenge_response: String,
