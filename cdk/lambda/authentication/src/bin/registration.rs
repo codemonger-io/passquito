@@ -159,6 +159,23 @@ async fn function_handler<Webauthn>(
 where
     Webauthn: WebauthnStartRegistration + WebauthnFinishRegistration,
 {
+    // common parsing pattern of the payload
+    macro_rules! parse_payload {
+        ($event:expr, $type:ty) => {
+            $event
+                .payload::<$type>()
+                .map_err(|e| {
+                    error!("failed to parse payload: {e}");
+                    ErrorResponse::BadRequest("invalid payload".to_string())
+                })
+                .and_then(|payload| {
+                    payload.ok_or_else(|| {
+                        ErrorResponse::BadRequest("invalid payload".to_string())
+                    })
+                })
+        };
+    }
+
     let job_path = event.raw_http_path()
         .strip_prefix(&shared_state.base_path)
         .ok_or_else(|| {
@@ -167,35 +184,13 @@ where
         });
     let res = match job_path {
         Ok(p) if p == "/start" => {
-            let user_info: Result<NewUserInfo, ErrorResponse> = event
-                .payload()
-                .map_err(|e| {
-                    error!("failed to parse payload: {e}");
-                    ErrorResponse::BadRequest("invalid payload".to_string())
-                })
-                .and_then(|payload| {
-                    payload.ok_or_else(|| {
-                        ErrorResponse::BadRequest("invalid payload".to_string())
-                    })
-                });
-            match user_info {
+            match parse_payload!(event, NewUserInfo) {
                 Ok(user_info) => start_registration(shared_state, user_info).await,
                 Err(e) => Err(e),
             }
         }
         Ok(p) if p == "/finish" => {
-            let session: Result<FinishRegistrationSession, ErrorResponse> = event
-                .payload()
-                .map_err(|e| {
-                    error!("failed to parse payload: {e}");
-                    ErrorResponse::BadRequest("invalid payload".to_string())
-                })
-                .and_then(|payload| {
-                    payload.ok_or_else(|| {
-                        ErrorResponse::BadRequest("invalid payload".to_string())
-                    })
-                });
-            match session {
+            match parse_payload!(event, FinishRegistrationSession) {
                 Ok(session) => finish_registration(shared_state, session).await,
                 Err(e) => Err(e),
             }
