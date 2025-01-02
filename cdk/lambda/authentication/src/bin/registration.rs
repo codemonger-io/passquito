@@ -208,16 +208,7 @@ where
     };
     match res {
         Ok(res) => Ok(res),
-        // TODO: ErrorResponse::try_into_response
-        Err(ErrorResponse::Unauthorized(msg)) => Ok(Response::builder()
-            .status(StatusCode::UNAUTHORIZED)
-            .header("Content-Type", "text/plain")
-            .body(msg.into())?),
-        Err(ErrorResponse::BadRequest(msg)) => Ok(Response::builder()
-            .status(StatusCode::BAD_REQUEST)
-            .header("Content-Type", "text/plain")
-            .body(msg.into())?),
-        Err(ErrorResponse::Unhandled(e)) => Err(e),
+        Err(res) => res.try_into(),
     }
 }
 
@@ -584,6 +575,24 @@ where
 {
     fn from(e: E) -> Self {
         ErrorResponse::Unhandled(e.into())
+    }
+}
+
+impl TryInto<Response<Body>> for ErrorResponse {
+    type Error = Error;
+
+    fn try_into(self) -> Result<Response<Body>, Self::Error> {
+        match self {
+            ErrorResponse::BadRequest(msg) => Ok(Response::builder()
+                .status(StatusCode::BAD_REQUEST)
+                .header("Content-Type", "text/plain")
+                .body(msg.into())?),
+            ErrorResponse::Unauthorized(msg) => Ok(Response::builder()
+                .status(StatusCode::UNAUTHORIZED)
+                .header("Content-Type", "text/plain")
+                .body(msg.into())?),
+            ErrorResponse::Unhandled(e) => Err(e),
+        }
     }
 }
 
