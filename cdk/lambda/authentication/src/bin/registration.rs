@@ -30,8 +30,6 @@ use aws_sdk_cognitoidentityprovider::types::{
     MessageActionType,
 };
 use aws_sdk_dynamodb::{
-    error::{ProvideErrorMetadata, SdkError},
-    operation::put_item::PutItemError,
     primitives::{DateTime, DateTimeFormat},
     types::{AttributeValue, ReturnValue},
 };
@@ -71,6 +69,7 @@ use webauthn_rs::{
 use webauthn_rs_proto::RegisterPublicKeyCredential;
 
 use authentication::parameters::load_relying_party_origin;
+use authentication::sdk_error_ext::SdkErrorExt;
 
 // Shared state.
 #[cfg_attr(test, derive(derive_builder::Builder))]
@@ -610,26 +609,6 @@ impl TryInto<Response<Body>> for ErrorResponse {
                 .header("Content-Type", "text/plain")
                 .body(msg.into())?),
             ErrorResponse::Unhandled(e) => Err(e),
-        }
-    }
-}
-
-trait SdkErrorExt {
-    fn is_retryable(&self) -> bool;
-}
-
-impl<R> SdkErrorExt for SdkError<PutItemError, R> {
-    fn is_retryable(&self) -> bool {
-        match self {
-            SdkError::ServiceError(e) => match e.err() {
-                PutItemError::ProvisionedThroughputExceededException(_) |
-                PutItemError::RequestLimitExceeded(_) => true,
-                e => match e.code() {
-                    Some("ServiceUnavailable") | Some("ThrottlingException") => true,
-                    _ => false,
-                }
-            }
-            _ => false,
         }
     }
 }
