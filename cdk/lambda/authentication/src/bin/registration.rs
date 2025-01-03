@@ -30,6 +30,8 @@ use aws_sdk_cognitoidentityprovider::types::{
     MessageActionType,
 };
 use aws_sdk_dynamodb::{
+    error::{ProvideErrorMetadata, SdkError},
+    operation::put_item::PutItemError,
     primitives::{DateTime, DateTimeFormat},
     types::{AttributeValue, ReturnValue},
 };
@@ -450,7 +452,7 @@ where
             let created_at = DateTime::from(SystemTime::now())
                 .fmt(DateTimeFormat::DateTime)?;
             info!("storing credential: {}", credential_id);
-            shared_state.dynamodb
+            let res = shared_state.dynamodb
                 .put_item()
                 .table_name(shared_state.credential_table_name.clone())
                 .item(
@@ -470,7 +472,31 @@ where
                 .item("createdAt", AttributeValue::S(created_at.clone()))
                 .item("updatedAt", AttributeValue::S(created_at))
                 .send()
-                .await?;
+                .await
+                .map_err(|e| match &e {
+                    SdkError::ServiceError(se) => match se.err() {
+                        PutItemError::ProvisionedThroughputExceededException(_) |
+                        PutItemError::RequestLimitExceeded(_) => {
+                            ErrorResponse::Unavailable("too many requests".to_string())
+                        }
+                        e if e.code() == Some("ServiceUnavailable") || e.code() == Some("ThrottlingException") => {
+                            ErrorResponse::Unavailable("service unavailable".to_string())
+                        }
+                        _ => e.into(),
+                    }
+                    _ => e.into(),
+                });
+            if let Err(e) = res {
+                error!("failed to store credential: {e:?}");
+                shared_state.cognito
+                    .admin_delete_user()
+                    .user_pool_id(shared_state.user_pool_id.clone())
+                    .username(user_unique_id)
+                    .send()
+                    .await?;
+                // TODO: what if deleting the user fails?
+                return Err(e);
+            }
         }
         Err(e) => {
             error!("failed to finish registration: {}", e);
@@ -555,6 +581,7 @@ impl WebauthnFinishRegistration for Webauthn {
 enum ErrorResponse {
     BadRequest(String),
     Unauthorized(String),
+    Unavailable(String),
     Unhandled(Error),
 }
 
@@ -584,6 +611,10 @@ impl TryInto<Response<Body>> for ErrorResponse {
                 .body(msg.into())?),
             ErrorResponse::Unauthorized(msg) => Ok(Response::builder()
                 .status(StatusCode::UNAUTHORIZED)
+                .header("Content-Type", "text/plain")
+                .body(msg.into())?),
+            ErrorResponse::Unavailable(msg) => Ok(Response::builder()
+                .status(StatusCode::SERVICE_UNAVAILABLE)
                 .header("Content-Type", "text/plain")
                 .body(msg.into())?),
             ErrorResponse::Unhandled(e) => Err(e),
@@ -844,6 +875,150 @@ mod tests {
         assert!(matches!(res, ErrorResponse::Unauthorized(_)));
     }
 
+    #[tokio::test]
+    async fn finish_registration_with_credential_table_put_item_throughput_exceeded() {
+        let admin_delete_user = self::mocks::cognito::admin_delete_user_ok();
+        let cognito = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::cognito::admin_create_user_ok())
+            .with_rule(&self::mocks::cognito::admin_set_user_password_ok())
+            .with_rule(&admin_delete_user);
+        let dynamodb = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::dynamodb::delete_item_session())
+            .with_rule(&self::mocks::dynamodb::put_item_throughput_exceeded());
+
+        let shared_state: SharedState<ConstantWebauthnFinishRegistration> = SharedStateBuilder::default()
+            .webauthn(ConstantWebauthnFinishRegistration::new(
+                self::mocks::webauthn::OK_PASSKEY,
+            ))
+            .cognito(self::mocks::cognito::new_client(cognito))
+            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .build()
+            .unwrap();
+        let shared_state = Arc::new(shared_state);
+
+        let res = finish_registration(
+            shared_state,
+            FinishRegistrationSession {
+                session_id: "dummy-session-id".to_string(),
+                public_key_credential: serde_json::from_str(
+                    self::mocks::webauthn::OK_REGISTER_PUBLIC_KEY_CREDENTIAL,
+                ).unwrap(),
+            },
+        ).await.err().unwrap();
+        assert!(matches!(res, ErrorResponse::Unavailable(_)));
+        assert_eq!(admin_delete_user.num_calls(), 1);
+    }
+
+    #[tokio::test]
+    async fn finish_registration_with_credential_table_put_item_request_limit_exceeded() {
+        let admin_delete_user = self::mocks::cognito::admin_delete_user_ok();
+        let cognito = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::cognito::admin_create_user_ok())
+            .with_rule(&self::mocks::cognito::admin_set_user_password_ok())
+            .with_rule(&admin_delete_user);
+        let dynamodb = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::dynamodb::delete_item_session())
+            .with_rule(&self::mocks::dynamodb::put_item_request_limit_exceeded());
+
+        let shared_state: SharedState<ConstantWebauthnFinishRegistration> = SharedStateBuilder::default()
+            .webauthn(ConstantWebauthnFinishRegistration::new(
+                self::mocks::webauthn::OK_PASSKEY,
+            ))
+            .cognito(self::mocks::cognito::new_client(cognito))
+            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .build()
+            .unwrap();
+        let shared_state = Arc::new(shared_state);
+
+        let res = finish_registration(
+            shared_state,
+            FinishRegistrationSession {
+                session_id: "dummy-session-id".to_string(),
+                public_key_credential: serde_json::from_str(
+                    self::mocks::webauthn::OK_REGISTER_PUBLIC_KEY_CREDENTIAL,
+                ).unwrap(),
+            },
+        ).await.err().unwrap();
+        assert!(matches!(res, ErrorResponse::Unavailable(_)));
+        assert_eq!(admin_delete_user.num_calls(), 1);
+    }
+
+    #[tokio::test]
+    async fn finish_registration_with_credential_table_put_item_service_unavailable() {
+        let admin_delete_user = self::mocks::cognito::admin_delete_user_ok();
+        let cognito = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::cognito::admin_create_user_ok())
+            .with_rule(&self::mocks::cognito::admin_set_user_password_ok())
+            .with_rule(&admin_delete_user);
+        let dynamodb = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::dynamodb::delete_item_session())
+            .with_rule(&self::mocks::dynamodb::put_item_service_unavailable());
+
+        let shared_state: SharedState<ConstantWebauthnFinishRegistration> = SharedStateBuilder::default()
+            .webauthn(ConstantWebauthnFinishRegistration::new(
+                self::mocks::webauthn::OK_PASSKEY,
+            ))
+            .cognito(self::mocks::cognito::new_client(cognito))
+            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .build()
+            .unwrap();
+        let shared_state = Arc::new(shared_state);
+
+        let res = finish_registration(
+            shared_state,
+            FinishRegistrationSession {
+                session_id: "dummy-session-id".to_string(),
+                public_key_credential: serde_json::from_str(
+                    self::mocks::webauthn::OK_REGISTER_PUBLIC_KEY_CREDENTIAL,
+                ).unwrap(),
+            },
+        ).await.err().unwrap();
+        assert!(matches!(res, ErrorResponse::Unavailable(_)));
+        assert_eq!(admin_delete_user.num_calls(), 1);
+    }
+
+    #[tokio::test]
+    async fn finish_registration_with_credential_table_put_item_throttling_exception() {
+        let admin_delete_user = self::mocks::cognito::admin_delete_user_ok();
+        let cognito = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::cognito::admin_create_user_ok())
+            .with_rule(&self::mocks::cognito::admin_set_user_password_ok())
+            .with_rule(&admin_delete_user);
+        let dynamodb = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::dynamodb::delete_item_session())
+            .with_rule(&self::mocks::dynamodb::put_item_throttling_exception());
+
+        let shared_state: SharedState<ConstantWebauthnFinishRegistration> = SharedStateBuilder::default()
+            .webauthn(ConstantWebauthnFinishRegistration::new(
+                self::mocks::webauthn::OK_PASSKEY,
+            ))
+            .cognito(self::mocks::cognito::new_client(cognito))
+            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .build()
+            .unwrap();
+        let shared_state = Arc::new(shared_state);
+
+        let res = finish_registration(
+            shared_state,
+            FinishRegistrationSession {
+                session_id: "dummy-session-id".to_string(),
+                public_key_credential: serde_json::from_str(
+                    self::mocks::webauthn::OK_REGISTER_PUBLIC_KEY_CREDENTIAL,
+                ).unwrap(),
+            },
+        ).await.err().unwrap();
+        assert!(matches!(res, ErrorResponse::Unavailable(_)));
+        assert_eq!(admin_delete_user.num_calls(), 1);
+    }
+
     mod mocks {
         use super::*;
 
@@ -1037,6 +1212,7 @@ mod tests {
                 config::Region,
                 operation::{
                     admin_create_user::AdminCreateUserOutput,
+                    admin_delete_user::AdminDeleteUserOutput,
                     admin_set_user_password::AdminSetUserPasswordOutput,
                     list_users::ListUsersOutput,
                 },
@@ -1077,6 +1253,11 @@ mod tests {
                 mock!(Client::admin_set_user_password)
                     .then_output(|| AdminSetUserPasswordOutput::builder().build())
             }
+
+            pub(crate) fn admin_delete_user_ok() -> Rule {
+                mock!(Client::admin_delete_user)
+                    .then_output(|| AdminDeleteUserOutput::builder().build())
+            }
         }
 
         pub(crate) mod dynamodb {
@@ -1089,6 +1270,17 @@ mod tests {
                 Client,
                 Config,
             };
+            use aws_smithy_runtime_api::client::orchestrator::HttpResponse;
+            use aws_smithy_runtime_api::http::StatusCode as SmithyStatusCode;
+            use aws_smithy_types::body::SdkBody;
+
+            const PROVISIONED_THROUGHPUT_EXCEEDED_EXCEPTION: &str = r#"{"__type": "com.amazonaws.dynamodb.v20120810#ProvisionedThroughputExceededException", "message": "Exceeded provisioned throughput."}"#;
+
+            const REQUEST_LIMIT_EXCEEDED: &str = r#"{"__type": "com.amazonaws.dynamodb.v20120810#RequestLimitExceeded", "message": "Exceeded request limit."}"#;
+
+            const SERVICE_UNAVAILABLE: &str = r#"{"__type": "com.amazonaws.dynamodb.v20120810#ServiceUnavailable", "message": "Service unavailable."}"#;
+
+            const THROTTLING_EXCEPTION: &str = r#"{"__type": "com.amazonaws.dynamodb.v20120810#ThrottlingException", "message": "Throttled."}"#;
 
             pub(crate) fn new_client(mocks: MockResponseInterceptor) -> Client {
                 Client::from_conf(
@@ -1103,6 +1295,46 @@ mod tests {
             pub(crate) fn put_item_ok() -> Rule {
                 mock!(Client::put_item)
                     .then_output(|| PutItemOutput::builder().build())
+            }
+
+            pub(crate) fn put_item_throughput_exceeded() -> Rule {
+                mock!(Client::put_item)
+                    .then_http_response(|| {
+                        HttpResponse::new(
+                            SmithyStatusCode::try_from(400).unwrap(),
+                            SdkBody::from(PROVISIONED_THROUGHPUT_EXCEEDED_EXCEPTION),
+                        )
+                    })
+            }
+
+            pub(crate) fn put_item_request_limit_exceeded() -> Rule {
+                mock!(Client::put_item)
+                    .then_http_response(|| {
+                        HttpResponse::new(
+                            SmithyStatusCode::try_from(400).unwrap(),
+                            SdkBody::from(REQUEST_LIMIT_EXCEEDED),
+                        )
+                    })
+            }
+
+            pub(crate) fn put_item_service_unavailable() -> Rule {
+                mock!(Client::put_item)
+                    .then_http_response(|| {
+                        HttpResponse::new(
+                            SmithyStatusCode::try_from(503).unwrap(),
+                            SdkBody::from(SERVICE_UNAVAILABLE),
+                        )
+                    })
+            }
+
+            pub(crate) fn put_item_throttling_exception() -> Rule {
+                mock!(Client::put_item)
+                    .then_http_response(|| {
+                        HttpResponse::new(
+                            SmithyStatusCode::try_from(400).unwrap(),
+                            SdkBody::from(THROTTLING_EXCEPTION),
+                        )
+                    })
             }
 
             pub(crate) fn delete_item_session() -> Rule {
