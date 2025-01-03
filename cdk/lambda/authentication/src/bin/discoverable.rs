@@ -21,7 +21,7 @@
 
 use aws_sdk_dynamodb::{
     config::http::HttpResponse,
-    error::{ProvideErrorMetadata, SdkError},
+    error::SdkError,
     operation::put_item::PutItemError,
     primitives::DateTime,
     types::AttributeValue,
@@ -47,6 +47,7 @@ use tracing::{error, info};
 use webauthn_rs::{Webauthn, WebauthnBuilder};
 
 use authentication::parameters::load_relying_party_origin;
+use authentication::sdk_error_ext::SdkErrorExt as _;
 
 // State shared among Lambda invocations.
 struct SharedState {
@@ -143,17 +144,7 @@ async fn start_authentication(
 
 fn is_retryable_error<T>(res: &Result<T, SdkError<PutItemError, HttpResponse>>) -> bool {
     match res {
-        Err(e) => match e {
-            SdkError::ServiceError(e) => match e.err() {
-                PutItemError::ProvisionedThroughputExceededException(_) |
-                PutItemError::RequestLimitExceeded(_) => true,
-                e => match e.code() {
-                    Some("ThrottlingException") | Some("ServiceUnavailable") => true,
-                    _ => false,
-                }
-            }
-            _ => false,
-        }
+        Err(e) => e.is_retryable(),
         Ok(_) => false,
     }
 }
