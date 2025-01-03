@@ -473,18 +473,10 @@ where
                 .item("updatedAt", AttributeValue::S(created_at))
                 .send()
                 .await
-                .map_err(|e| match &e {
-                    SdkError::ServiceError(se) => match se.err() {
-                        PutItemError::ProvisionedThroughputExceededException(_) |
-                        PutItemError::RequestLimitExceeded(_) => {
-                            ErrorResponse::Unavailable("too many requests".to_string())
-                        }
-                        e if e.code() == Some("ServiceUnavailable") || e.code() == Some("ThrottlingException") => {
-                            ErrorResponse::Unavailable("service unavailable".to_string())
-                        }
-                        _ => e.into(),
-                    }
-                    _ => e.into(),
+                .map_err(|e| if e.is_retryable() {
+                    ErrorResponse::Unavailable("too many requests".to_string())
+                } else {
+                    e.into()
                 });
             if let Err(e) = res {
                 error!("failed to store credential: {e:?}");
@@ -618,6 +610,26 @@ impl TryInto<Response<Body>> for ErrorResponse {
                 .header("Content-Type", "text/plain")
                 .body(msg.into())?),
             ErrorResponse::Unhandled(e) => Err(e),
+        }
+    }
+}
+
+trait SdkErrorExt {
+    fn is_retryable(&self) -> bool;
+}
+
+impl<R> SdkErrorExt for SdkError<PutItemError, R> {
+    fn is_retryable(&self) -> bool {
+        match self {
+            SdkError::ServiceError(e) => match e.err() {
+                PutItemError::ProvisionedThroughputExceededException(_) |
+                PutItemError::RequestLimitExceeded(_) => true,
+                e => match e.code() {
+                    Some("ServiceUnavailable") | Some("ThrottlingException") => true,
+                    _ => false,
+                }
+            }
+            _ => false,
         }
     }
 }
