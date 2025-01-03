@@ -20,6 +20,8 @@ aws-config = "1.5"
 aws-sdk-cognitoidentityprovider = "1.58"
 aws-sdk-dynamodb = "1.54"
 aws-sdk-ssm = "1.55"
+aws-smithy-runtime-api = "1.7"
+aws-smithy-types = "1.2"
 aws_lambda_events = { version = "0.15", default-features = false, features = ["cognito"] }
 base64 = "0.22"
 getrandom = "0.2"
@@ -41,6 +43,4 @@ webauthn-rs-proto = { git = "https://github.com/codemonger-io/webauthn-rs.git", 
 aws-sdk-cognitoidentityprovider = { version = "1.58", features = ["test-util"] }
 aws-sdk-dynamodb = { version = "1.54", features = ["test-util"] }
 aws-smithy-mocks-experimental = "0.2"
-aws-smithy-runtime-api = "1.7"
-aws-smithy-types = "1.2"
 derive_builder = "0.20"
