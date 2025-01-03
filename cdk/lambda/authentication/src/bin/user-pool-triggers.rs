@@ -183,6 +183,12 @@ async fn create_auth_challenge(
             }
         } else {
             info!("non existing user");
+            // not to allow an attacker to know if the user does not exist,
+            // we generate a challene with a fake credential ID. the fake
+            // credential ID must be deterministic reagarding the username,
+            // because the attacker might notice if the credential ID for the
+            // same username varied over time.
+            //
             // generates 160 bits (20 bytes) fake credential ID from username
             // TODO: secret salt
             let mut hash = ring::digest::Context::new(&digest::SHA256);
