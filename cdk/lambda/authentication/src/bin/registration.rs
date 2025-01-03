@@ -68,6 +68,7 @@ use webauthn_rs::{
 };
 use webauthn_rs_proto::RegisterPublicKeyCredential;
 
+use authentication::error_response::ErrorResponse;
 use authentication::parameters::load_relying_party_origin;
 use authentication::sdk_error_ext::SdkErrorExt;
 
@@ -167,11 +168,11 @@ where
                 .payload::<$type>()
                 .map_err(|e| {
                     error!("failed to parse payload: {e}");
-                    ErrorResponse::BadRequest("invalid payload".to_string())
+                    ErrorResponse::bad_request("invalid payload")
                 })
                 .and_then(|payload| {
                     payload.ok_or_else(|| {
-                        ErrorResponse::BadRequest("invalid payload".to_string())
+                        ErrorResponse::bad_request("invalid payload")
                     })
                 })
         };
@@ -181,7 +182,7 @@ where
         .strip_prefix(&shared_state.base_path)
         .ok_or_else(|| {
             error!("path must start with \"{}\"", shared_state.base_path);
-            ErrorResponse::BadRequest("bad request".to_string())
+            ErrorResponse::bad_request("bad request")
         });
     let res = match job_path {
         Ok(p) if p == "/start" => {
@@ -198,7 +199,7 @@ where
         }
         Ok(p) => {
             error!("unsupported job path: {}", p);
-            Err(ErrorResponse::BadRequest("bad request".into()))
+            Err(ErrorResponse::bad_request("bad request"))
         }
         Err(e) => Err(e),
     };
@@ -473,7 +474,7 @@ where
                 .send()
                 .await
                 .map_err(|e| if e.is_retryable() {
-                    ErrorResponse::Unavailable("too many requests".to_string())
+                    ErrorResponse::unavailable("too many requests")
                 } else {
                     e.into()
                 });
@@ -565,51 +566,6 @@ impl WebauthnFinishRegistration for Webauthn {
         state: &PasskeyRegistration,
     ) -> Result<Passkey, WebauthnError> {
         self.finish_passkey_registration(reg, state)
-    }
-}
-
-#[derive(Debug)]
-enum ErrorResponse {
-    BadRequest(String),
-    Unauthorized(String),
-    Unavailable(String),
-    Unhandled(Error),
-}
-
-impl ErrorResponse {
-    fn unauthorized(message: impl Into<String>) -> Self {
-        Self::Unauthorized(message.into())
-    }
-}
-
-impl<E> From<E> for ErrorResponse
-where
-    E: Into<Error>,
-{
-    fn from(e: E) -> Self {
-        ErrorResponse::Unhandled(e.into())
-    }
-}
-
-impl TryInto<Response<Body>> for ErrorResponse {
-    type Error = Error;
-
-    fn try_into(self) -> Result<Response<Body>, Self::Error> {
-        match self {
-            ErrorResponse::BadRequest(msg) => Ok(Response::builder()
-                .status(StatusCode::BAD_REQUEST)
-                .header("Content-Type", "text/plain")
-                .body(msg.into())?),
-            ErrorResponse::Unauthorized(msg) => Ok(Response::builder()
-                .status(StatusCode::UNAUTHORIZED)
-                .header("Content-Type", "text/plain")
-                .body(msg.into())?),
-            ErrorResponse::Unavailable(msg) => Ok(Response::builder()
-                .status(StatusCode::SERVICE_UNAVAILABLE)
-                .header("Content-Type", "text/plain")
-                .body(msg.into())?),
-            ErrorResponse::Unhandled(e) => Err(e),
-        }
     }
 }
 
