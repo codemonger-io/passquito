@@ -20,9 +20,6 @@
 //! are processed by Cognito triggers.
 
 use aws_sdk_dynamodb::{
-    config::http::HttpResponse,
-    error::SdkError,
-    operation::put_item::PutItemError,
     primitives::DateTime,
     types::AttributeValue,
 };
@@ -46,6 +43,7 @@ use std::time::SystemTime;
 use tracing::{error, info};
 use webauthn_rs::{Webauthn, WebauthnBuilder};
 
+use authentication::error_response::ErrorResponse;
 use authentication::parameters::load_relying_party_origin;
 use authentication::sdk_error_ext::SdkErrorExt as _;
 
@@ -81,32 +79,36 @@ async fn function_handler(
     shared_state: Arc<SharedState>,
     event: Request,
 ) -> Result<Response<Body>, Error> {
-    let job = event
+    let job_path = event
         .raw_http_path()
         .strip_prefix(&shared_state.base_path)
-        .and_then(|job_path| match job_path {
-            "/start" => Some(start_authentication(shared_state)),
-            _ => None,
+        .ok_or_else(|| {
+            error!("path must start with \"{}\"", shared_state.base_path);
+            ErrorResponse::bad_request("bad request")
         });
-    if let Some(job) = job {
-        job.await
-    } else {
-        Ok(Response::builder()
-            .status(StatusCode::BAD_REQUEST)
-            .header("Content-Type", "text/plain")
-            .body("bad request".into())?)
+    let res = match job_path {
+        Ok(p) if p == "/start" => start_authentication(shared_state).await,
+        Ok(p) => {
+            error!("unsupported job path: {}", p);
+            Err(ErrorResponse::bad_request("bad request"))
+        }
+        Err(e) => Err(e),
+    };
+    match res {
+        Ok(res) => Ok(res),
+        Err(e) => e.try_into(),
     }
 }
 
 async fn start_authentication(
     shared_state: Arc<SharedState>,
-) -> Result<Response<Body>, Error> {
+) -> Result<Response<Body>, ErrorResponse> {
     info!("start_authentication");
     let res = match shared_state.webauthn.start_discoverable_authentication() {
         Ok((rcr, auth_state)) => {
             let ttl = DateTime::from(SystemTime::now()).secs() + 60;
             info!("putting authentication session: {}", base64url.encode(&rcr.public_key.challenge));
-            let res = shared_state.dynamodb
+            shared_state.dynamodb
                 .put_item()
                 .table_name(shared_state.session_table_name.clone())
                 .item(
@@ -121,14 +123,12 @@ async fn start_authentication(
                     AttributeValue::S(serde_json::to_string(&auth_state)?),
                 )
                 .send()
-                .await;
-            if is_retryable_error(&res) {
-                return Ok(Response::builder()
-                    .status(StatusCode::SERVICE_UNAVAILABLE)
-                    .header("Content-Type", "text/plain")
-                    .body("service temporarily unavailable".into())?);
-            }
-            res?;
+                .await
+                .map_err(|e| if e.is_retryable() {
+                    ErrorResponse::unavailable("service temporarily unavailable")
+                } else {
+                    e.into()
+                })?;
             serde_json::to_string(&rcr)?
         }
         Err(e) => {
@@ -140,13 +140,6 @@ async fn start_authentication(
         .status(StatusCode::OK)
         .header("Content-Type", "application/json")
         .body(res.into())?)
-}
-
-fn is_retryable_error<T>(res: &Result<T, SdkError<PutItemError, HttpResponse>>) -> bool {
-    match res {
-        Err(e) => e.is_retryable(),
-        Ok(_) => false,
-    }
 }
 
 #[tokio::main]
@@ -279,7 +272,8 @@ mod tests {
             "sessions",
         ));
 
-        assert!(start_authentication(state).await.is_err());
+        let res = start_authentication(state).await.err().unwrap();
+        assert!(matches!(res, ErrorResponse::Unhandled(_)));
     }
 
     #[tokio::test]
@@ -339,29 +333,29 @@ mod tests {
             dynamodb.clone(),
             "sessions_throughput_cap",
         ));
-        let res = start_authentication(state).await.unwrap();
-        assert_eq!(res.status(), StatusCode::SERVICE_UNAVAILABLE);
+        let res = start_authentication(state).await.err().unwrap();
+        assert!(matches!(res, ErrorResponse::Unavailable(_)));
 
         let state = Arc::new(SharedState::with_dynamodb_and_session_table_name(
             dynamodb.clone(),
             "sessions_request_cap",
         ));
-        let res = start_authentication(state).await.unwrap();
-        assert_eq!(res.status(), StatusCode::SERVICE_UNAVAILABLE);
+        let res = start_authentication(state).await.err().unwrap();
+        assert!(matches!(res, ErrorResponse::Unavailable(_)));
 
         let state = Arc::new(SharedState::with_dynamodb_and_session_table_name(
             dynamodb.clone(),
             "sessions_throttled",
         ));
-        let res = start_authentication(state).await.unwrap();
-        assert_eq!(res.status(), StatusCode::SERVICE_UNAVAILABLE);
+        let res = start_authentication(state).await.err().unwrap();
+        assert!(matches!(res, ErrorResponse::Unavailable(_)));
 
         let state = Arc::new(SharedState::with_dynamodb_and_session_table_name(
             dynamodb,
             "sessions_unavailable",
         ));
-        let res = start_authentication(state).await.unwrap();
-        assert_eq!(res.status(), StatusCode::SERVICE_UNAVAILABLE);
+        let res = start_authentication(state).await.err().unwrap();
+        assert!(matches!(res, ErrorResponse::Unavailable(_)));
     }
 
     #[tokio::test]
