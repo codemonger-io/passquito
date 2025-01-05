@@ -57,6 +57,7 @@ const CHALLENGE_PARAMETER_NAME: &str = "passkeyTestChallenge";
 // State shared among Lambda invocations.
 struct SharedState {
     webauthn: Webauthn,
+    rp_id: String, // no interface to get the relying party ID from `Webauthn`
     dynamodb: aws_sdk_dynamodb::Client,
     session_table_name: String,
     credential_table_name: String,
@@ -72,6 +73,7 @@ impl SharedState {
             .build()?;
         Ok(Self {
             webauthn,
+            rp_id: rp_id.to_string(),
             dynamodb: aws_sdk_dynamodb::Client::new(&config),
             session_table_name: env::var("SESSION_TABLE_NAME")
                 .or(Err("SESSION_TABLE_NAME env must be set"))?,
@@ -201,7 +203,7 @@ async fn create_auth_challenge(
             getrandom::getrandom(&mut challenge)?;
             let rcr = RequestChallengeResponse {
                 public_key: PublicKeyCredentialRequestOptions {
-                    rp_id: "localhost".into(),
+                    rp_id: shared_state.rp_id.clone(),
                     challenge: challenge.into(),
                     allow_credentials: vec![AllowCredentials {
                         type_: "public-key".into(),
@@ -252,7 +254,7 @@ async fn verify_auth_challenge(
     };
 
     // extracts the user handle from `credential`
-    // it must match the user_unique_id in the event
+    // it must match `user_name` (user unique ID) in the event
     let cred_user_handle = credential.response.user_handle.as_ref()
         .map(|h| base64url.encode(h))
         .ok_or("missing user handle in credential")?;
