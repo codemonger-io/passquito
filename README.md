@@ -27,9 +27,9 @@ The following sections in [_Web Authentication: An API for accessing Public Key 
 
 #### Registration of a new user
 
-1. *Your app* provides a *form* for the *user* to sign up.
+1. *Your app* provides a *form* for a *user* to sign up.
 
-2. A *user* fills the *form* with the *username* and the *display name*.
+2. The *user* fills the *form* with the *username* and the *display name*.
 
    Neither the *username* nor the *display name* are necessarily unique.
    They are provided for the *user* to locate the *passkey* in *user*'s device.
@@ -40,7 +40,9 @@ The following sections in [_Web Authentication: An API for accessing Public Key 
 
 5. The *registration start endpoint* generates a unique ID for the *user* → the *user ID*.
 
-6. The *registration start endpoint* creates a new *challenge*.
+6. The *registration start endpoint* creates a *public key credential creation options* which includes a *challenge*.
+
+   The __*user handle* of the *public key credential creation options* is the *user ID*__.
 
 7. The *registration start endpoint* stores a new *registration session* in the *session store*.
 
@@ -51,9 +53,9 @@ The following sections in [_Web Authentication: An API for accessing Public Key 
    - *display name*
    - *challenge*
 
-8. The *registration start endpoint* returns the *session ID* and *public key creation options* which include the *challenge* to *your app*.
+8. The *registration start endpoint* returns the *session ID* and *public key credential creation options* to *your app*.
 
-9. *Your app* initiates a public key creation with the *public key creation options*.
+9. *Your app* initiates a public key creation with the *public key credential creation options*.
 
 10. The *user* authorizes the public key creation.
 
@@ -110,12 +112,12 @@ sequenceDiagram
     activate RegistrationStartEndpoint
 
     RegistrationStartEndpoint->>RegistrationStartEndpoint: Generate a user ID
-    RegistrationStartEndpoint->>RegistrationStartEndpoint: Create a challenge
+    RegistrationStartEndpoint->>RegistrationStartEndpoint: Create a public key credential creation options
     RegistrationStartEndpoint->>SessionStore: Store a registration session
     activate SessionStore
     SessionStore-->>RegistrationStartEndpoint: Registration session
     deactivate SessionStore
-    RegistrationStartEndpoint-->>YourApp: Session ID, public key creation options
+    RegistrationStartEndpoint-->>YourApp: Session ID, public key credential creation options
     deactivate RegistrationStartEndpoint
     YourApp-)Authenticator: Initiate a public key creation
     activate Authenticator
@@ -162,7 +164,170 @@ The authentication scenarios have two variations:
 1. [Authentication with discoverable credentials](#authentication-with-discoverable-credentials)
 2. [Authentication of a specific user](#authentication-of-a-specific-user)
 
+The authentication sceanrios utilize the custom authentication challenge Lambda triggers of *AWS Cognito* to implement a custom authentication flow.
+Please refer to [Section _Custom authentication challenge Lambda triggers_ in _Amazon Cognito Developer Guide_](https://docs.aws.amazon.com/cognito/latest/developerguide/user-pool-lambda-challenge.html) for better understanding of the custom authentication flow.
+
 #### Authentication with discoverable credentials
+
+1. *Your app* shows a web page for a *user* to sign in.
+
+2. *Your app* sends a POST request to the *discoverable endpoint* (`/discoverable/start`).
+
+3. The *discoverable endpoint* creates a *public key credential request options* which include a *challenge* and a *relying party ID*.
+
+4. The *discoverable endpoint* stores a new *discoverable authentication session* in the *session store*.
+
+   The *discoverable authentication session* includes the following parameters:
+   - *challenge*: the primary key
+   - *public key credential request options*
+
+5. The *discoverable endpoint* returns the *public key credential request options* to *your app*.
+
+6. *Your app* initiates a discoverable credential request with the *public key credential request options*.
+
+7. *User's authenticator* asks the *user* to select a *passkey* from those associated with the *relying party ID* in *user's authenticator*.
+
+   A *passkey* includes a key pair of a *private key* and a *public key*.
+
+8. The *user* selects a *passkey*.
+
+9. *User's authenticator* asks the *user* to authorize the use of the *passkey*.
+
+10. The *user* authorizes the use of the *passkey*.
+
+11. *User's authenticator* signs the *challenge* with the *private key* → the *signature*.
+
+12. *User's authenticator* returns a *public key credential* which includes the *public key* and the *signature* to *your app*.
+
+13. *Your app* extracts the *user handle* from the *public key credential*, which is __equal to the *user ID*__.
+
+14. *Your app* calls the *InitiateAuth* AWS Cognito API with the following parameters:
+    - `AuthFlow`: `"CUSTOM_AUTH"`
+    - `AuthParameters`:
+      - `USERNAME`: *user ID*
+
+15. *AWS Cognito* invokes the *define auth challenge trigger*.
+
+16. The *define auth challenge trigger* initiates a custom authentication flow.
+
+17. *AWS Cognito* invokes the *create auth challenge trigger*.
+
+18. The *create auth challenge trigger* returns a dummy challenge parameter.
+
+    __The true *challenge* was created at Step 3.__
+
+19. *AWS Cognito* returns a *custom challenge* to *your app*.
+
+20. *Your app* calls the *RespondToAuthChallenge* AWS Cognito API with the following parameters:
+    - `ChallengeName`: `"CUSTOM_CHALLENGE"`
+    - `Session`: the session associated with the *custom challenge*
+    - `ChallengeResponses`:
+      - `USERNAME`: *user ID*
+      - `ANSWER`: the *public key credential*
+
+21. *AWS Cognito* invokes the *verify auth challenge trigger*.
+
+22. The *verify auth challenge trigger* pops the *discoverable authentication session* associated with the *challenge* from the *session store*.
+
+    **This is the *discoverable authentication session* stored at Step 4.**
+
+23. The *verify auth challenge trigger* queries the *credential store* for the *public keys* associated with the *user ID*.
+
+24. The *verify auth challenge trigger* verifies the *public key credential*.
+
+    The following parameters are involved in the verification:
+    - *challenge*
+    - *public keys*
+    - *signature*
+
+25. The *verify auth challenge trigger* updates the used *public key* in the *credential store* if necessary.
+
+26. The *verify auth challenge trigger* accepts the *public key credential*.
+
+27. *AWS Cognito* returns an access tokens to *your app*.
+
+Sequence diagram:
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant Authenticator
+    participant YourApp
+    participant DiscoverableEndpoint
+    participant Cognito
+    participant DefineAuthChallenge
+    participant CreateAuthChallenge
+    participant VerifyAuthChallenge
+    participant SessionStore
+    participant CredentialStore
+
+    YourApp-)User: Show the sign-in page
+    activate YourApp
+
+    YourApp->>DiscoverableEndpoint: POST /discoverable/start
+    activate DiscoverableEndpoint
+    DiscoverableEndpoint->>DiscoverableEndpoint: Create a public key credential request options
+    DiscoverableEndpoint->>SessionStore: Store a discoverable authentication session
+    activate SessionStore
+    SessionStore-->>DiscoverableEndpoint: Discoverable authentication session
+    deactivate SessionStore
+    DiscoverableEndpoint-->>YourApp: Public key credential request options
+    deactivate DiscoverableEndpoint
+
+    YourApp-)Authenticator: Initiate a discoverable credential request
+    activate Authenticator
+    deactivate YourApp
+
+    Authenticator-)User: Ask to select a passkey
+    User-)Authenticator: Select a passkey
+    Authenticator-)User: Ask to authorize the use of the passkey
+    User-)Authenticator: Authorize the use of the passkey
+    Authenticator->>Authenticator: Sign the challenge
+    Authenticator-)YourApp: Public key credential
+    activate YourApp
+    deactivate Authenticator
+
+    YourApp->>YourApp: Extract the user ID
+    YourApp->>Cognito: InitiateAuth
+    activate Cognito
+    Cognito->>DefineAuthChallenge: Invoke
+    activate DefineAuthChallenge
+    DefineAuthChallenge-->>Cognito: Initiate a custom authentication flow
+    deactivate DefineAuthChallenge
+    Cognito->>CreateAuthChallenge: Invoke
+    activate CreateAuthChallenge
+    CreateAuthChallenge-->>Cognito: Dummy challenge
+    deactivate CreateAuthChallenge
+    Cognito-->>YourApp: Custom challenge
+    deactivate Cognito
+
+    YourApp->>Cognito: RespondToAuthChallenge
+    activate Cognito
+    Cognito->>VerifyAuthChallenge: Invoke
+    activate VerifyAuthChallenge
+    VerifyAuthChallenge->>SessionStore: Pop the discoverable authentication session
+    activate SessionStore
+    SessionStore-->>VerifyAuthChallenge: Discoverable authentication session
+    deactivate SessionStore
+    VerifyAuthChallenge->>CredentialStore: Query public keys
+    activate CredentialStore
+    CredentialStore-->>VerifyAuthChallenge: Public keys
+    deactivate CredentialStore
+    VerifyAuthChallenge->>VerifyAuthChallenge: Verify the public key credential
+    opt The public key has been updated
+        VerifyAuthChallenge->>CredentialStore: Update the public key
+        activate CredentialStore
+        CredentialStore-->>VerifyAuthChallenge: OK
+        deactivate CredentialStore
+    end
+    VerifyAuthChallenge-->>Cognito: Accept
+    deactivate VerifyAuthChallenge
+    Cognito-->>YourApp: Access tokens
+    deactivate Cognito
+
+    YourApp-)User: OK
+    deactivate YourApp
+```
 
 #### Authentication of a specific user
 
