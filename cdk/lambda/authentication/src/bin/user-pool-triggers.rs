@@ -30,11 +30,13 @@ use webauthn_rs::{
     Webauthn,
     WebauthnBuilder,
     prelude::{
+        AuthenticationResult,
         DiscoverableAuthentication,
         DiscoverableKey,
         Passkey,
         PasskeyAuthentication,
         RequestChallengeResponse,
+        WebauthnError,
     },
 };
 use webauthn_rs_proto::{
@@ -63,7 +65,7 @@ struct SharedState {
     credential_table_name: String,
 }
 
-impl SharedState {
+impl SharedState<Webauthn> {
     async fn new() -> Result<Self, Error> {
         let config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
         let (rp_id, rp_origin) =
@@ -88,10 +90,13 @@ impl SharedState {
 /// There are some code example in the following URLs:
 /// - https://github.com/awslabs/aws-lambda-rust-runtime/tree/main/examples
 /// - https://github.com/aws-samples/serverless-rust-demo/
-async fn function_handler(
-    shared_state: Arc<SharedState>,
+async fn function_handler<Webauthn>(
+    shared_state: Arc<SharedState<Webauthn>>,
     event: LambdaEvent<CognitoChallengeEvent>,
-) -> Result<CognitoChallengeEvent, Error> {
+) -> Result<CognitoChallengeEvent, Error>
+where
+    Webauthn: WebauthnCreateAuthChallenge + WebauthnVerifyAuthChallenge,
+{
     let (event, _) = event.into_parts();
     let result = match event.determine() {
         Ok(CognitoChallengeEventCase::Define(event)) =>
@@ -108,8 +113,8 @@ async fn function_handler(
 }
 
 // Handles "Define auth challenge" events.
-async fn define_auth_challenge(
-    _shared_state: Arc<SharedState>,
+async fn define_auth_challenge<Webauthn>(
+    _shared_state: Arc<SharedState<Webauthn>>,
     mut event: CognitoEventUserPoolsDefineAuthChallenge,
 ) -> Result<CognitoEventUserPoolsDefineAuthChallenge, Error> {
     info!("define_auth_challenge");
@@ -130,10 +135,13 @@ async fn define_auth_challenge(
 }
 
 // Handles "Create auth challenge" events.
-async fn create_auth_challenge(
-    shared_state: Arc<SharedState>,
+async fn create_auth_challenge<Webauthn>(
+    shared_state: Arc<SharedState<Webauthn>>,
     mut event: CognitoEventUserPoolsCreateAuthChallenge,
-) -> Result<CognitoEventUserPoolsCreateAuthChallenge, Error> {
+) -> Result<CognitoEventUserPoolsCreateAuthChallenge, Error>
+where
+    Webauthn: WebauthnCreateAuthChallenge,
+{
     info!("create_auth_challenge: {:?}", event);
     if event.sessions().is_empty() {
         let username = event.cognito_event_user_pools_header.user_name
@@ -234,10 +242,13 @@ async fn create_auth_challenge(
 }
 
 // Handles "Verify auth challenge" events.
-async fn verify_auth_challenge(
-    shared_state: Arc<SharedState>,
+async fn verify_auth_challenge<Webauthn>(
+    shared_state: Arc<SharedState<Webauthn>>,
     mut event: CognitoEventUserPoolsVerifyAuthChallenge,
-) -> Result<CognitoEventUserPoolsVerifyAuthChallenge, Error> {
+) -> Result<CognitoEventUserPoolsVerifyAuthChallenge, Error>
+where
+    Webauthn: WebauthnVerifyAuthChallenge,
+{
     info!("verify_auth_challenge: {:?}", event);
 
     let user_handle = event.cognito_event_user_pools_header.user_name.as_ref()
@@ -483,4 +494,59 @@ async fn main() -> Result<(), Error> {
     run(service_fn(|req| async {
         function_handler(shared_state.clone(), req).await
     })).await
+}
+
+/// Phase of webauthn for creating a custom auth challenge.
+trait WebauthnCreateAuthChallenge {
+    fn start_passkey_authentication(
+        self: &Self,
+        creds: &[Passkey],
+    ) -> Result<(RequestChallengeResponse, PasskeyAuthentication), WebauthnError>;
+}
+
+/// Phase of webauthn for verifying a custom auth challenge.
+trait WebauthnVerifyAuthChallenge {
+    fn finish_discoverable_authentication(
+        self: &Self,
+        reg: &PublicKeyCredential,
+        state: DiscoverableAuthentication,
+        creds: &[DiscoverableKey],
+    ) -> Result<AuthenticationResult, WebauthnError>;
+
+    fn finish_passkey_authentication(
+        self: &Self,
+        reg: &PublicKeyCredential,
+        state: &PasskeyAuthentication,
+    ) -> Result<AuthenticationResult, WebauthnError>;
+}
+
+impl WebauthnCreateAuthChallenge for Webauthn {
+    #[inline]
+    fn start_passkey_authentication(
+        self: &Self,
+        creds: &[Passkey],
+    ) -> Result<(RequestChallengeResponse, PasskeyAuthentication), WebauthnError> {
+        self.start_passkey_authentication(creds)
+    }
+}
+
+impl WebauthnVerifyAuthChallenge for Webauthn {
+    #[inline]
+    fn finish_discoverable_authentication(
+        self: &Self,
+        reg: &PublicKeyCredential,
+        state: DiscoverableAuthentication,
+        creds: &[DiscoverableKey],
+    ) -> Result<AuthenticationResult, WebauthnError> {
+        self.finish_discoverable_authentication(reg, state, creds)
+    }
+
+    #[inline]
+    fn finish_passkey_authentication(
+        self: &Self,
+        reg: &PublicKeyCredential,
+        state: &PasskeyAuthentication,
+    ) -> Result<AuthenticationResult, WebauthnError> {
+        self.finish_passkey_authentication(reg, state)
+    }
 }
