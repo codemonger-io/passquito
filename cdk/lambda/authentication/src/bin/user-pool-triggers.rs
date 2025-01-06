@@ -57,11 +57,16 @@ use authentication::parameters::load_relying_party_origin;
 const CHALLENGE_PARAMETER_NAME: &str = "passkeyTestChallenge";
 
 // State shared among Lambda invocations.
-struct SharedState {
+#[cfg_attr(test, derive(derive_builder::Builder))]
+#[cfg_attr(test, builder(setter(into), pattern = "owned"))]
+struct SharedState<Webauthn> {
     webauthn: Webauthn,
+    #[cfg_attr(test, builder(default = "\"localhost\".to_string()"))]
     rp_id: String, // no interface to get the relying party ID from `Webauthn`
     dynamodb: aws_sdk_dynamodb::Client,
+    #[cfg_attr(test, builder(default = "\"sessions\".to_string()"))]
     session_table_name: String,
+    #[cfg_attr(test, builder(default = "\"credentials\".to_string()"))]
     credential_table_name: String,
 }
 
