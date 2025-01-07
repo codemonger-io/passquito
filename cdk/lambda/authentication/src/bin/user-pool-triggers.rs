@@ -555,3 +555,104 @@ impl WebauthnVerifyAuthChallenge for Webauthn {
         self.finish_passkey_authentication(reg, state)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use aws_lambda_events::event::cognito::CognitoEventUserPoolsChallengeResult;
+    use aws_smithy_mocks_experimental::{MockResponseInterceptor, RuleMode};
+
+    #[tokio::test]
+    async fn define_auth_challenge_start_custom_challenge() {
+        let dynamodb = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny);
+
+        let shared_state: SharedState<()> = SharedStateBuilder::default()
+            .webauthn(())
+            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .build()
+            .unwrap();
+        let shared_state = Arc::new(shared_state);
+
+        let res = define_auth_challenge(
+            shared_state,
+            CognitoEventUserPoolsDefineAuthChallenge::default(),
+        ).await.unwrap();
+        assert!(!res.response.issue_tokens);
+        assert!(!res.response.fail_authentication);
+        assert_eq!(res.response.challenge_name, Some("CUSTOM_CHALLENGE".to_string()));
+    }
+
+    #[tokio::test]
+    async fn define_auth_challenge_allow_custom_challenge() {
+        let dynamodb = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny);
+
+        let shared_state: SharedState<()> = SharedStateBuilder::default()
+            .webauthn(())
+            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .build()
+            .unwrap();
+        let shared_state = Arc::new(shared_state);
+
+        let mut event = CognitoEventUserPoolsDefineAuthChallenge::default();
+        event.request.session.push(
+            Some(CognitoEventUserPoolsChallengeResult {
+                challenge_name: Some("CUSTOM_CHALLENGE".to_string()),
+                challenge_result: true,
+                challenge_metadata: None,
+            }),
+        );
+        let res = define_auth_challenge(shared_state, event).await.unwrap();
+        assert!(res.response.issue_tokens);
+        assert!(!res.response.fail_authentication);
+        assert!(res.response.challenge_name.is_none());
+    }
+
+    #[tokio::test]
+    async fn define_auth_challenge_deny_custom_challenge() {
+        let dynamodb = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny);
+
+        let shared_state: SharedState<()> = SharedStateBuilder::default()
+            .webauthn(())
+            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .build()
+            .unwrap();
+        let shared_state = Arc::new(shared_state);
+
+        let mut event = CognitoEventUserPoolsDefineAuthChallenge::default();
+        event.request.session.push(
+            Some(CognitoEventUserPoolsChallengeResult {
+                challenge_name: Some("CUSTOM_CHALLENGE".to_string()),
+                challenge_result: false,
+                challenge_metadata: None,
+            }),
+        );
+        let res = define_auth_challenge(shared_state, event).await.unwrap();
+        assert!(!res.response.issue_tokens);
+        assert!(res.response.fail_authentication);
+        assert!(res.response.challenge_name.is_none());
+    }
+
+    pub(crate) mod mocks {
+        use super::*;
+
+        pub(crate) mod dynamodb {
+            use super::*;
+
+            use aws_sdk_dynamodb::{config::Region, Client, Config};
+
+            pub(crate) fn new_client(mocks: MockResponseInterceptor) -> Client {
+                Client::from_conf(
+                    Config::builder()
+                        .with_test_defaults()
+                        .region(Region::new("ap-northeast-1"))
+                        .interceptor(mocks)
+                        .build(),
+                )
+            }
+        }
+    }
+}
