@@ -561,7 +561,10 @@ mod tests {
     use super::*;
 
     use aws_lambda_events::event::cognito::CognitoEventUserPoolsChallengeResult;
-    use aws_smithy_mocks_experimental::{MockResponseInterceptor, RuleMode};
+    use aws_smithy_mocks_experimental::{mock, MockResponseInterceptor, Rule, RuleMode};
+    use std::collections::HashMap;
+
+    use self::mocks::webauthn::ConstantWebauthnCreateAuthChallenge;
 
     #[tokio::test]
     async fn define_auth_challenge_start_custom_challenge() {
@@ -636,13 +639,201 @@ mod tests {
         assert!(res.response.challenge_name.is_none());
     }
 
+    #[tokio::test]
+    async fn create_auth_challenge_for_existing_user() {
+        let dynamodb = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::dynamodb::query_a_credential());
+
+        let shared_state: SharedState<ConstantWebauthnCreateAuthChallenge> = SharedStateBuilder::default()
+            .webauthn(ConstantWebauthnCreateAuthChallenge::new(
+                self::mocks::webauthn::OK_REQUEST_CHALLENGE_RESPONSE,
+                self::mocks::webauthn::OK_PASSKEY_AUTHENTICATION,
+            ))
+            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .build()
+            .unwrap();
+        let shared_state = Arc::new(shared_state);
+
+        let mut event = CognitoEventUserPoolsCreateAuthChallenge::default();
+        event.cognito_event_user_pools_header.user_name = Some("testuseruniqueid".to_string());
+        let res = create_auth_challenge(shared_state, event).await.unwrap();
+        assert_eq!(res.response.challenge_metadata, Some("PASSKEY_TEST_CHALLENGE".to_string()));
+        let rcr: RequestChallengeResponse = serde_json::from_str(self::mocks::webauthn::OK_REQUEST_CHALLENGE_RESPONSE).unwrap();
+        assert_eq!(
+            res.response.public_challenge_parameters,
+            HashMap::from([
+                (
+                    CHALLENGE_PARAMETER_NAME.to_string(),
+                    serde_json::to_string(&rcr).unwrap(),
+                ),
+            ]),
+        );
+        let auth_state: PasskeyAuthentication = serde_json::from_str(self::mocks::webauthn::OK_PASSKEY_AUTHENTICATION).unwrap();
+        assert_eq!(
+            res.response.private_challenge_parameters,
+            HashMap::from([
+                (
+                    CHALLENGE_PARAMETER_NAME.to_string(),
+                    serde_json::to_string(&auth_state).unwrap(),
+                ),
+            ]),
+        );
+    }
+
+    #[tokio::test]
+    async fn create_auth_challenge_for_non_existing_user() {
+        let dynamodb = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny);
+
+        let shared_state: SharedState<ConstantWebauthnCreateAuthChallenge> = SharedStateBuilder::default()
+            .webauthn(ConstantWebauthnCreateAuthChallenge::new(
+                self::mocks::webauthn::OK_REQUEST_CHALLENGE_RESPONSE,
+                self::mocks::webauthn::OK_PASSKEY_AUTHENTICATION,
+            ))
+            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .build()
+            .unwrap();
+        let shared_state = Arc::new(shared_state);
+
+        let mut event = CognitoEventUserPoolsCreateAuthChallenge::default();
+        event.cognito_event_user_pools_header.user_name = Some("nonexistinguser".to_string());
+        event.request.user_not_found = true;
+
+        let res = create_auth_challenge(shared_state.clone(), event.clone()).await.unwrap();
+        assert_eq!(res.response.challenge_metadata, Some("PASSKEY_TEST_CHALLENGE".to_string()));
+        let rcr = res.response.public_challenge_parameters.get(CHALLENGE_PARAMETER_NAME).unwrap();
+        let rcr: RequestChallengeResponse = serde_json::from_str(rcr).unwrap();
+        // saves the credential ID to test if it does not change over time
+        let credential_id_1 = &rcr.public_key.allow_credentials[0].id;
+
+        // second attempt
+        let res = create_auth_challenge(shared_state, event).await.unwrap();
+        let rcr = res.response.public_challenge_parameters.get(CHALLENGE_PARAMETER_NAME).unwrap();
+        let rcr: RequestChallengeResponse = serde_json::from_str(rcr).unwrap();
+        let credential_id_2 = &rcr.public_key.allow_credentials[0].id;
+        assert_eq!(credential_id_1, credential_id_2);
+    }
+
     pub(crate) mod mocks {
         use super::*;
+
+        pub(crate) mod webauthn {
+            use super::*;
+
+            pub(crate) const OK_REQUEST_CHALLENGE_RESPONSE: &str = r#"{
+                "publicKey": {
+                    "challenge": "fS_B1MxJouaI0QpuYtrsl6kheAAqtQlUgyAfaxOYdXE",
+                    "rpId": "localhost",
+                    "allowCredentials": [],
+                    "userVerification": "preferred"
+                },
+                "mediation": null
+            }"#;
+
+            pub(crate) const OK_PASSKEY_AUTHENTICATION: &str = r#"{
+                "ast": {
+                    "credentials": [
+                        {
+                            "cred_id": "VD-k4AUT6FLUNmROa7OAiA",
+                            "cred": {
+                                "type_": "ES256",
+                                "key": {
+                                    "EC_EC2": {
+                                        "curve": "SECP256R1",
+                                        "x": "",
+                                        "y": ""
+                                    }
+                                }
+                            },
+                            "counter": 1,
+                            "transports": null,
+                            "user_verified": true,
+                            "backup_eligible": true,
+                            "backup_state": false,
+                            "registration_policy": "required",
+                            "extensions": {},
+                            "attestation": {
+                                "data": "None",
+                                "metadata": "None"
+                            },
+                            "attestation_format": "none"
+                        }
+                    ],
+                    "policy": "required",
+                    "challenge": "fS_B1MxJouaI0QpuYtrsl6kheAAqtQlUgyAfaxOYdXE",
+                    "appid": null,
+                    "allow_backup_eligible_upgrade": true
+                }
+            }"#;
+
+            pub(crate) const OK_PASSKEY: &str = r#"{
+                "cred": {
+                    "cred_id": "VD-k4AUT6FLUNmROa7OAiA",
+                    "cred": {
+                        "type_": "ES256",
+                        "key": {
+                            "EC_EC2": {
+                                "curve": "SECP256R1",
+                                "x": "",
+                                "y": ""
+                            }
+                        }
+                    },
+                    "counter": 1,
+                    "transports": null,
+                    "user_verified": true,
+                    "backup_eligible": true,
+                    "backup_state": false,
+                    "registration_policy": "required",
+                    "extensions": {},
+                    "attestation": {
+                        "data": "None",
+                        "metadata": "None"
+                    },
+                    "attestation_format": "none"
+                }
+            }"#;
+
+            pub(crate) struct ConstantWebauthnCreateAuthChallenge {
+                request_challenge_response: String,
+                passkey_authentication: String,
+            }
+
+            impl ConstantWebauthnCreateAuthChallenge {
+                pub(crate) fn new(
+                    request_challenge_response: impl Into<String>,
+                    passkey_authentication: impl Into<String>,
+                ) -> Self {
+                    Self {
+                        request_challenge_response: request_challenge_response.into(),
+                        passkey_authentication: passkey_authentication.into(),
+                    }
+                }
+            }
+
+            impl WebauthnCreateAuthChallenge for ConstantWebauthnCreateAuthChallenge {
+                fn start_passkey_authentication(
+                    &self,
+                    _creds: &[Passkey],
+                ) -> Result<(RequestChallengeResponse, PasskeyAuthentication), WebauthnError> {
+                    Ok((
+                        serde_json::from_str(&self.request_challenge_response).unwrap(),
+                        serde_json::from_str(&self.passkey_authentication).unwrap(),
+                    ))
+                }
+            }
+        }
 
         pub(crate) mod dynamodb {
             use super::*;
 
-            use aws_sdk_dynamodb::{config::Region, Client, Config};
+            use aws_sdk_dynamodb::{
+                config::Region,
+                operation::query::QueryOutput,
+                Client,
+                Config,
+            };
 
             pub(crate) fn new_client(mocks: MockResponseInterceptor) -> Client {
                 Client::from_conf(
@@ -652,6 +843,20 @@ mod tests {
                         .interceptor(mocks)
                         .build(),
                 )
+            }
+
+            pub(crate) fn query_a_credential() -> Rule {
+                mock!(Client::query)
+                    .then_output(|| {
+                        QueryOutput::builder()
+                            .items(HashMap::from([
+                                (
+                                    "credential".to_string(),
+                                    AttributeValue::S(super::webauthn::OK_PASSKEY.to_string()),
+                                ),
+                            ]))
+                            .build()
+                    })
             }
         }
     }
