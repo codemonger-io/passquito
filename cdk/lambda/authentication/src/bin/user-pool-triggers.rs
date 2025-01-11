@@ -103,6 +103,9 @@ where
     Webauthn: WebauthnCreateAuthChallenge + WebauthnVerifyAuthChallenge,
 {
     let (event, _) = event.into_parts();
+    // TODO: do not expose the error message to the client, because it might
+    //       contain sensitive information. log it and return a generic error
+    //       message instead.
     let result = match event.determine() {
         Ok(CognitoChallengeEventCase::Define(event)) =>
             define_auth_challenge(shared_state, event).await?.into(),
@@ -176,6 +179,8 @@ where
                 .map(|c| serde_json::from_str(c)
                     .or(Err("malformed credential in the database")))
                 .collect::<Result<Vec<_>, _>>()?;
+            // what if there is no credential?
+            // the subsequent `start_passkey_authentication` fails
 
             // starts authentication
             match shared_state.webauthn
@@ -194,6 +199,9 @@ where
                 }
                 Err(e) => {
                     error!("failed to start authentication: {}", e);
+                    // handles this as an "Internal Server Error"
+                    // TODO: does this benefit the attacker?
+                    return Err(format!("failed to start authentication: {}", e).into());
                 }
             }
         } else {
@@ -261,6 +269,7 @@ where
     let credential: PublicKeyCredential = match event.get_challenge_answer() {
         Ok(credential) => credential,
         Err(e) => {
+            // TODO: we should deny the authentication instead of returning an error
             error!(
                 "malformed challenge answer: {:?}",
                 event.get_raw_challenge_answer(),
@@ -564,7 +573,10 @@ mod tests {
     use aws_smithy_mocks_experimental::{mock, MockResponseInterceptor, Rule, RuleMode};
     use std::collections::HashMap;
 
-    use self::mocks::webauthn::ConstantWebauthnCreateAuthChallenge;
+    use self::mocks::webauthn::{
+        ConstantWebauthnCreateAuthChallenge,
+        NoCredentialWebauthnCreateAuthChallenge,
+    };
 
     #[tokio::test]
     async fn define_auth_challenge_start_custom_challenge() {
@@ -686,11 +698,8 @@ mod tests {
         let dynamodb = MockResponseInterceptor::new()
             .rule_mode(RuleMode::MatchAny);
 
-        let shared_state: SharedState<ConstantWebauthnCreateAuthChallenge> = SharedStateBuilder::default()
-            .webauthn(ConstantWebauthnCreateAuthChallenge::new(
-                self::mocks::webauthn::OK_REQUEST_CHALLENGE_RESPONSE,
-                self::mocks::webauthn::OK_PASSKEY_AUTHENTICATION,
-            ))
+        let shared_state: SharedState<NoCredentialWebauthnCreateAuthChallenge> = SharedStateBuilder::default()
+            .webauthn(NoCredentialWebauthnCreateAuthChallenge) // never used
             .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
             .build()
             .unwrap();
@@ -713,6 +722,24 @@ mod tests {
         let rcr: RequestChallengeResponse = serde_json::from_str(rcr).unwrap();
         let credential_id_2 = &rcr.public_key.allow_credentials[0].id;
         assert_eq!(credential_id_1, credential_id_2);
+    }
+
+    #[tokio::test]
+    async fn create_auth_challenge_for_user_wo_credential() {
+        let dynamodb = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::dynamodb::query_no_credential());
+
+        let shared_state: SharedState<NoCredentialWebauthnCreateAuthChallenge> = SharedStateBuilder::default()
+            .webauthn(NoCredentialWebauthnCreateAuthChallenge)
+            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .build()
+            .unwrap();
+        let shared_state = Arc::new(shared_state);
+
+        let mut event = CognitoEventUserPoolsCreateAuthChallenge::default();
+        event.cognito_event_user_pools_header.user_name = Some("testuseruniqueidwocredential".to_string());
+        assert!(create_auth_challenge(shared_state, event).await.is_err());
     }
 
     pub(crate) mod mocks {
@@ -823,6 +850,17 @@ mod tests {
                     ))
                 }
             }
+
+            pub(crate) struct NoCredentialWebauthnCreateAuthChallenge;
+
+            impl WebauthnCreateAuthChallenge for NoCredentialWebauthnCreateAuthChallenge {
+                fn start_passkey_authentication(
+                    &self,
+                    _creds: &[Passkey],
+                ) -> Result<(RequestChallengeResponse, PasskeyAuthentication), WebauthnError> {
+                    Err(WebauthnError::CredentialNotFound)
+                }
+            }
         }
 
         pub(crate) mod dynamodb {
@@ -857,6 +895,11 @@ mod tests {
                             ]))
                             .build()
                     })
+            }
+
+            pub(crate) fn query_no_credential() -> Rule {
+                mock!(Client::query)
+                    .then_output(|| QueryOutput::builder().build())
             }
         }
     }
