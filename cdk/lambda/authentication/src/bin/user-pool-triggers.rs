@@ -371,7 +371,7 @@ where
             auth_state,
             &discoverable_keys,
         ) {
-            Ok(auth_result) => {
+            Ok(auth_result) if auth_result.user_verified() => {
                 // updates the stored credential if necessary
                 for passkey in passkeys.iter_mut() {
                     let credential_id = base64url.encode(passkey.cred_id());
@@ -415,6 +415,10 @@ where
                 }
                 event.accept();
             }
+            Ok(_) => {
+                error!("token verified but user not verified");
+                event.reject();
+            }
             Err(e) => {
                 error!("authentication failed: {}", e);
                 event.reject();
@@ -430,7 +434,7 @@ where
             &credential,
             &auth_state,
         ) {
-            Ok(auth_result) => {
+            Ok(auth_result) if auth_result.user_verified() => {
                 // updates the stored credential if necessary
                 let credential_item = shared_state.dynamodb
                     .get_item()
@@ -488,6 +492,10 @@ where
                         .await?;
                 }
                 event.accept();
+            }
+            Ok(_) => {
+                error!("token verified but user not verified");
+                event.reject();
             }
             Err(e) => {
                 error!("authentication failed: {}", e);
@@ -581,6 +589,7 @@ mod tests {
         ConstantWebauthnCreateAuthChallenge,
         ConstantWebauthnVerifyAuthChallenge,
         NoCredentialWebauthnCreateAuthChallenge,
+        RejectingWebauthnVerifyAuthChallenge,
     };
 
     #[tokio::test]
@@ -768,12 +777,6 @@ mod tests {
         event.request.challenge_answer = Some(serde_json::Value::from(
             self::mocks::webauthn::OK_PUBLIC_KEY_CREDENTIAL,
         ));
-        event.request.private_challenge_parameters = HashMap::from([
-            (
-                CHALLENGE_PARAMETER_NAME.to_string(),
-                self::mocks::webauthn::OK_PASSKEY_AUTHENTICATION.to_string(),
-            ),
-        ]);
         let res = verify_auth_challenge(shared_state, event).await.unwrap();
         assert!(res.response.answer_correct);
     }
@@ -801,12 +804,6 @@ mod tests {
         event.request.challenge_answer = Some(serde_json::Value::from(
             self::mocks::webauthn::OK_PUBLIC_KEY_CREDENTIAL,
         ));
-        event.request.private_challenge_parameters = HashMap::from([
-            (
-                CHALLENGE_PARAMETER_NAME.to_string(),
-                self::mocks::webauthn::OK_PASSKEY_AUTHENTICATION.to_string(),
-            ),
-        ]);
         let res = verify_auth_challenge(shared_state, event).await.unwrap();
         assert!(res.response.answer_correct);
         assert_eq!(update_item_ok.num_calls(), 1);
@@ -875,6 +872,114 @@ mod tests {
         let res = verify_auth_challenge(shared_state, event).await.unwrap();
         assert!(res.response.answer_correct);
         assert_eq!(update_item_ok.num_calls(), 1);
+    }
+
+    #[tokio::test]
+    async fn verify_auth_challenge_of_discoverable_credential_with_verification_error() {
+        let dynamodb = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::dynamodb::delete_item_discovery_session())
+            .with_rule(&self::mocks::dynamodb::query_a_credential());
+
+        let shared_state: SharedState<RejectingWebauthnVerifyAuthChallenge> = SharedStateBuilder::default()
+            .webauthn(RejectingWebauthnVerifyAuthChallenge)
+            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .build()
+            .unwrap();
+        let shared_state = Arc::new(shared_state);
+
+        let mut event = CognitoEventUserPoolsVerifyAuthChallenge::default();
+        event.cognito_event_user_pools_header.user_name = Some("testuseruniqueid".to_string());
+        event.request.challenge_answer = Some(serde_json::Value::from(
+            self::mocks::webauthn::OK_PUBLIC_KEY_CREDENTIAL,
+        ));
+        let res = verify_auth_challenge(shared_state, event).await.unwrap();
+        assert!(!res.response.answer_correct);
+    }
+
+    #[tokio::test]
+    async fn verify_auth_challenge_of_cognito_initiated_credential_with_verification_error() {
+        let dynamodb = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::dynamodb::delete_item_no_credential())
+            .with_rule(&self::mocks::dynamodb::get_item_a_credential());
+
+        let shared_state: SharedState<RejectingWebauthnVerifyAuthChallenge> = SharedStateBuilder::default()
+            .webauthn(RejectingWebauthnVerifyAuthChallenge)
+            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .build()
+            .unwrap();
+        let shared_state = Arc::new(shared_state);
+
+        let mut event = CognitoEventUserPoolsVerifyAuthChallenge::default();
+        event.cognito_event_user_pools_header.user_name = Some("testuseruniqueid".to_string());
+        event.request.challenge_answer = Some(serde_json::Value::from(
+            self::mocks::webauthn::OK_PUBLIC_KEY_CREDENTIAL,
+        ));
+        event.request.private_challenge_parameters = HashMap::from([
+            (
+                CHALLENGE_PARAMETER_NAME.to_string(),
+                self::mocks::webauthn::OK_PASSKEY_AUTHENTICATION.to_string(),
+            ),
+        ]);
+        let res = verify_auth_challenge(shared_state, event).await.unwrap();
+        assert!(!res.response.answer_correct);
+    }
+
+    #[tokio::test]
+    async fn verify_auth_challenge_of_discoverable_credential_user_not_verified() {
+        let dynamodb = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::dynamodb::delete_item_discovery_session())
+            .with_rule(&self::mocks::dynamodb::query_a_credential());
+
+        let shared_state: SharedState<ConstantWebauthnVerifyAuthChallenge> = SharedStateBuilder::default()
+            .webauthn(ConstantWebauthnVerifyAuthChallenge::new(
+                self::mocks::webauthn::BAD_AUTHENTICATION_RESULT,
+            ))
+            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .build()
+            .unwrap();
+        let shared_state = Arc::new(shared_state);
+
+        let mut event = CognitoEventUserPoolsVerifyAuthChallenge::default();
+        event.cognito_event_user_pools_header.user_name = Some("testuseruniqueid".to_string());
+        event.request.challenge_answer = Some(serde_json::Value::from(
+            self::mocks::webauthn::OK_PUBLIC_KEY_CREDENTIAL,
+        ));
+        let res = verify_auth_challenge(shared_state, event).await.unwrap();
+        assert!(!res.response.answer_correct);
+    }
+
+    #[tokio::test]
+    async fn verify_auth_challenge_of_cognito_initiated_credential_user_not_verified() {
+        let dynamodb = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::dynamodb::delete_item_no_credential())
+            .with_rule(&self::mocks::dynamodb::get_item_a_credential());
+
+        let shared_state: SharedState<ConstantWebauthnVerifyAuthChallenge> = SharedStateBuilder::default()
+            .webauthn(ConstantWebauthnVerifyAuthChallenge::new(
+                self::mocks::webauthn::BAD_AUTHENTICATION_RESULT,
+            ))
+            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .build()
+            .unwrap();
+        let shared_state = Arc::new(shared_state);
+
+        let mut event = CognitoEventUserPoolsVerifyAuthChallenge::default();
+        event.cognito_event_user_pools_header.user_name = Some("testuseruniqueid".to_string());
+        event.request.challenge_answer = Some(serde_json::Value::from(
+            self::mocks::webauthn::OK_PUBLIC_KEY_CREDENTIAL,
+        ));
+        event.request.private_challenge_parameters = HashMap::from([
+            (
+                CHALLENGE_PARAMETER_NAME.to_string(),
+                self::mocks::webauthn::OK_PASSKEY_AUTHENTICATION.to_string(),
+            ),
+        ]);
+        let res = verify_auth_challenge(shared_state, event).await.unwrap();
+        assert!(!res.response.answer_correct);
     }
 
     pub(crate) mod mocks {
@@ -1001,6 +1106,16 @@ mod tests {
             // NOTE: `webauthn-rs` does not evaluate `needs_update` but checks
             //       if any property is updated; e.g., `counter`
 
+            pub(crate) const BAD_AUTHENTICATION_RESULT: &str = r#"{
+                "cred_id": "VD-k4AUT6FLUNmROa7OAiA",
+                "needs_update": false,
+                "user_verified": false,
+                "backup_state": false,
+                "backup_eligible": true,
+                "counter": 1,
+                "extensions": {}
+            }"#;
+
             pub(crate) struct ConstantWebauthnCreateAuthChallenge {
                 request_challenge_response: String,
                 passkey_authentication: String,
@@ -1071,6 +1186,27 @@ mod tests {
                     _state: &PasskeyAuthentication,
                 ) -> Result<AuthenticationResult, WebauthnError> {
                     Ok(serde_json::from_str(&self.authentication_result).unwrap())
+                }
+            }
+
+            pub(crate) struct RejectingWebauthnVerifyAuthChallenge;
+
+            impl WebauthnVerifyAuthChallenge for RejectingWebauthnVerifyAuthChallenge {
+                fn finish_discoverable_authentication(
+                    &self,
+                    _reg: &PublicKeyCredential,
+                    _state: DiscoverableAuthentication,
+                    _creds: &[DiscoverableKey],
+                ) -> Result<AuthenticationResult, WebauthnError> {
+                    Err(WebauthnError::UserNotVerified)
+                }
+
+                fn finish_passkey_authentication(
+                    &self,
+                    _reg: &PublicKeyCredential,
+                    _state: &PasskeyAuthentication,
+                ) -> Result<AuthenticationResult, WebauthnError> {
+                    Err(WebauthnError::UserNotVerified)
                 }
             }
         }
