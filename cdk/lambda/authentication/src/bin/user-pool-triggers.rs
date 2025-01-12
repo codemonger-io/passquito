@@ -296,26 +296,30 @@ where
     // extracts the challenge from `credential`
     // https://github.com/kanidm/webauthn-rs/blob/0ff6b525d428b5155243a37e1672c1e3205d41e8/webauthn-rs-core/src/core.rs#L702-L705
     // https://developer.mozilla.org/en-US/docs/Web/API/AuthenticatorResponse/clientDataJSON#type
-    let client_data: CollectedClientData = match serde_json::from_slice(
-        credential.response.client_data_json.as_ref(),
-    ) {
-        Ok(client_data) => client_data,
+    //
+    // rejects the request if the client data JSON is bad; i.e.,
+    // - cannot be deserialized as `CollectedClientData`
+    // - has a type other than "webauthn.get"
+    //
+    // never returns an error, because the above inputs are client errors
+    let client_challenge = serde_json::from_slice(credential.response.client_data_json.as_ref())
+        .map_err(|e| format!("malformed client data: {}", e))
+        .and_then(|client_data: CollectedClientData| {
+            if client_data.type_ == "webauthn.get" {
+                Ok(client_data)
+            } else {
+                Err(format!("invalid client data type: {}", client_data.type_))
+            }
+        })
+        .map(|client_data| client_data.challenge);
+    let client_challenge = match client_challenge {
+        Ok(client_challenge) => client_challenge,
         Err(e) => {
-            // rejects the request instead of returning an error, because this
-            // is a client error
-            error!("malformed client data: {}", e);
+            error!("{}", e);
             event.reject();
             return Ok(event);
         }
     };
-    if client_data.type_ != "webauthn.get" {
-        // TODO: reject the request instead of returning an error, because this
-        // is a client error
-        error!("invalid client data type: {}", client_data.type_);
-        event.reject();
-        return Ok(event);
-    }
-    let client_challenge = client_data.challenge;
 
     // obtains the session corresponding to the challenge
     // TODO: we want to save DynamoDB access by first checking if the challenge
