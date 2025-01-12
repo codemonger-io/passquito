@@ -286,10 +286,11 @@ where
         .map(|h| base64url.encode(h))
         .ok_or("missing user handle in credential")?;
     if user_handle != &cred_user_handle {
-        // TODO: we should reject the request instead of returning an error,
-        //       because this should be a client error (really?)
+        // rejects the request instead of returning an error, because this
+        // should be a client error (really?)
         error!("user handle mismatch: {} vs {}", user_handle, cred_user_handle);
-        return Err("credential mismatch".into());
+        event.reject();
+        return Ok(event);
     }
 
     // extracts the challenge from `credential`
@@ -1000,6 +1001,29 @@ mod tests {
         let mut event = CognitoEventUserPoolsVerifyAuthChallenge::default();
         event.cognito_event_user_pools_header.user_name = Some("testuseruniqueid".to_string());
         event.request.challenge_answer = Some(serde_json::Value::from("{}"));
+        let res = verify_auth_challenge(shared_state, event).await.unwrap();
+        assert!(!res.response.answer_correct);
+    }
+
+    #[tokio::test]
+    async fn verify_auth_challenge_with_user_handle_mismatch() {
+        let dynamodb = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny);
+
+        let shared_state: SharedState<ConstantWebauthnVerifyAuthChallenge> = SharedStateBuilder::default()
+            .webauthn(ConstantWebauthnVerifyAuthChallenge::new(
+                self::mocks::webauthn::OK_AUTHENTICATION_RESULT,
+            ))
+            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .build()
+            .unwrap();
+        let shared_state = Arc::new(shared_state);
+
+        let mut event = CognitoEventUserPoolsVerifyAuthChallenge::default();
+        event.cognito_event_user_pools_header.user_name = Some("anotheruseruniqueid".to_string());
+        event.request.challenge_answer = Some(serde_json::Value::from(
+            self::mocks::webauthn::OK_PUBLIC_KEY_CREDENTIAL,
+        ));
         let res = verify_auth_challenge(shared_state, event).await.unwrap();
         assert!(!res.response.answer_correct);
     }
