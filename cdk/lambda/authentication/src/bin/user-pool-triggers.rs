@@ -269,7 +269,8 @@ where
     let credential: PublicKeyCredential = match event.get_challenge_answer() {
         Ok(credential) => credential,
         Err(e) => {
-            // TODO: we should deny the authentication instead of returning an error
+            // TODO: we should reject the request instead of returning an error,
+            //       because this is a client error
             error!(
                 "malformed challenge answer: {:?}",
                 event.get_raw_challenge_answer(),
@@ -284,6 +285,8 @@ where
         .map(|h| base64url.encode(h))
         .ok_or("missing user handle in credential")?;
     if user_handle != &cred_user_handle {
+        // TODO: we should reject the request instead of returning an error,
+        //       because this should be a client error (really?)
         error!("user handle mismatch: {} vs {}", user_handle, cred_user_handle);
         return Err("credential mismatch".into());
     }
@@ -325,6 +328,7 @@ where
             .or(Err("malformed ttl"))?
             .parse()?;
         if ttl < DateTime::from(SystemTime::now()).secs() {
+            // TODO: expired session should not be an error but be rejected
             return Err("session expired".into());
         }
         let auth_state = session.get("state")
@@ -575,6 +579,7 @@ mod tests {
 
     use self::mocks::webauthn::{
         ConstantWebauthnCreateAuthChallenge,
+        ConstantWebauthnVerifyAuthChallenge,
         NoCredentialWebauthnCreateAuthChallenge,
     };
 
@@ -742,6 +747,68 @@ mod tests {
         assert!(create_auth_challenge(shared_state, event).await.is_err());
     }
 
+    #[tokio::test]
+    async fn verify_auth_challenge_of_discoverable_credential() {
+        let dynamodb = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::dynamodb::delete_item_discovery_session())
+            .with_rule(&self::mocks::dynamodb::query_a_credential());
+
+        let shared_state: SharedState<ConstantWebauthnVerifyAuthChallenge> = SharedStateBuilder::default()
+            .webauthn(ConstantWebauthnVerifyAuthChallenge::new(
+                self::mocks::webauthn::OK_AUTHENTICATION_RESULT,
+            ))
+            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .build()
+            .unwrap();
+        let shared_state = Arc::new(shared_state);
+
+        let mut event = CognitoEventUserPoolsVerifyAuthChallenge::default();
+        event.cognito_event_user_pools_header.user_name = Some("testuseruniqueid".to_string());
+        event.request.challenge_answer = Some(serde_json::Value::from(
+            self::mocks::webauthn::OK_PUBLIC_KEY_CREDENTIAL,
+        ));
+        event.request.private_challenge_parameters = HashMap::from([
+            (
+                CHALLENGE_PARAMETER_NAME.to_string(),
+                self::mocks::webauthn::OK_PASSKEY_AUTHENTICATION.to_string(),
+            ),
+        ]);
+        let res = verify_auth_challenge(shared_state, event).await.unwrap();
+        assert!(res.response.answer_correct);
+    }
+
+    #[tokio::test]
+    async fn verify_auth_challenge_of_cognito_initiated_credential() {
+        let dynamodb = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::dynamodb::delete_item_no_credential())
+            .with_rule(&self::mocks::dynamodb::get_item_a_credential());
+
+        let shared_state: SharedState<ConstantWebauthnVerifyAuthChallenge> = SharedStateBuilder::default()
+            .webauthn(ConstantWebauthnVerifyAuthChallenge::new(
+                self::mocks::webauthn::OK_AUTHENTICATION_RESULT,
+            ))
+            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .build()
+            .unwrap();
+        let shared_state = Arc::new(shared_state);
+
+        let mut event = CognitoEventUserPoolsVerifyAuthChallenge::default();
+        event.cognito_event_user_pools_header.user_name = Some("testuseruniqueid".to_string());
+        event.request.challenge_answer = Some(serde_json::Value::from(
+            self::mocks::webauthn::OK_PUBLIC_KEY_CREDENTIAL,
+        ));
+        event.request.private_challenge_parameters = HashMap::from([
+            (
+                CHALLENGE_PARAMETER_NAME.to_string(),
+                self::mocks::webauthn::OK_PASSKEY_AUTHENTICATION.to_string(),
+            ),
+        ]);
+        let res = verify_auth_challenge(shared_state, event).await.unwrap();
+        assert!(res.response.answer_correct);
+    }
+
     pub(crate) mod mocks {
         use super::*;
 
@@ -794,6 +861,8 @@ mod tests {
                 }
             }"#;
 
+            pub(crate) const OK_DISCOVERABLE_AUTHENTICATION: &str = OK_PASSKEY_AUTHENTICATION;
+
             pub(crate) const OK_PASSKEY: &str = r#"{
                 "cred": {
                     "cred_id": "VD-k4AUT6FLUNmROa7OAiA",
@@ -820,6 +889,36 @@ mod tests {
                     },
                     "attestation_format": "none"
                 }
+            }"#;
+
+            pub(crate) const OK_PUBLIC_KEY_CREDENTIAL: &str = r#"{
+                "id": "VD-k4AUT6FLUNmROa7OAiA",
+                "rawId": "VD-k4AUT6FLUNmROa7OAiA",
+                "response": {
+                    "authenticatorData": "",
+                    "clientDataJSON": "ewogICJ0eXBlIjogIndlYmF1dGhuLmdldCIsCiAgImNoYWxsZW5nZSI6ICJmU19CMU14Sm91YUkwUXB1WXRyc2w2a2hlQUFxdFFsVWd5QWZheE9ZZFhFIiwKICAib3JpZ2luIjogImh0dHA6Ly9sb2NhbGhvc3QiCn0K",
+                    "signature": "",
+                    "userHandle": "testuseruniqueid"
+                },
+                "extensions": {},
+                "type": "public-key"
+            }"#;
+            // the `clientDataJSON` field is a base64url-encoded value of the
+            // following JSON:
+            // {
+            //     "type": "webauthn.get",
+            //     "challenge": "fS_B1MxJouaI0QpuYtrsl6kheAAqtQlUgyAfaxOYdXE",
+            //     "origin": "http://localhost"
+            // }
+
+            pub(crate) const OK_AUTHENTICATION_RESULT: &str = r#"{
+                "cred_id": "VD-k4AUT6FLUNmROa7OAiA",
+                "needs_update": false,
+                "user_verified": true,
+                "backup_state": false,
+                "backup_eligible": true,
+                "counter": 1,
+                "extensions": {}
             }"#;
 
             pub(crate) struct ConstantWebauthnCreateAuthChallenge {
@@ -861,6 +960,39 @@ mod tests {
                     Err(WebauthnError::CredentialNotFound)
                 }
             }
+
+            pub(crate) struct ConstantWebauthnVerifyAuthChallenge {
+                authentication_result: String,
+            }
+
+            impl ConstantWebauthnVerifyAuthChallenge {
+                pub(crate) fn new(
+                    authentication_result: impl Into<String>,
+                ) -> Self {
+                    Self {
+                        authentication_result: authentication_result.into(),
+                    }
+                }
+            }
+
+            impl WebauthnVerifyAuthChallenge for ConstantWebauthnVerifyAuthChallenge {
+                fn finish_discoverable_authentication(
+                    &self,
+                    _reg: &PublicKeyCredential,
+                    _state: DiscoverableAuthentication,
+                    _creds: &[DiscoverableKey],
+                ) -> Result<AuthenticationResult, WebauthnError> {
+                    Ok(serde_json::from_str(&self.authentication_result).unwrap())
+                }
+
+                fn finish_passkey_authentication(
+                    &self,
+                    _reg: &PublicKeyCredential,
+                    _state: &PasskeyAuthentication,
+                ) -> Result<AuthenticationResult, WebauthnError> {
+                    Ok(serde_json::from_str(&self.authentication_result).unwrap())
+                }
+            }
         }
 
         pub(crate) mod dynamodb {
@@ -868,7 +1000,11 @@ mod tests {
 
             use aws_sdk_dynamodb::{
                 config::Region,
-                operation::query::QueryOutput,
+                operation::{
+                    delete_item::DeleteItemOutput,
+                    get_item::GetItemOutput,
+                    query::QueryOutput,
+                },
                 Client,
                 Config,
             };
@@ -900,6 +1036,34 @@ mod tests {
             pub(crate) fn query_no_credential() -> Rule {
                 mock!(Client::query)
                     .then_output(|| QueryOutput::builder().build())
+            }
+
+            pub(crate) fn delete_item_discovery_session() -> Rule {
+                mock!(Client::delete_item)
+                    .then_output(|| {
+                        let ttl = DateTime::from(SystemTime::now()).secs() + 60;
+                        DeleteItemOutput::builder()
+                            .attributes("ttl", AttributeValue::N(format!("{}", ttl)))
+                            .attributes("state", AttributeValue::S(super::webauthn::OK_DISCOVERABLE_AUTHENTICATION.to_string()))
+                            .build()
+                    })
+            }
+
+            pub(crate) fn delete_item_no_credential() -> Rule {
+                mock!(Client::delete_item)
+                    .then_output(|| DeleteItemOutput::builder().build())
+            }
+
+            pub(crate) fn get_item_a_credential() -> Rule {
+                mock!(Client::get_item)
+                    .then_output(|| {
+                        GetItemOutput::builder()
+                            .item(
+                                "credential",
+                                AttributeValue::S(super::webauthn::OK_PASSKEY.to_string()),
+                            )
+                            .build()
+                    })
             }
         }
     }
