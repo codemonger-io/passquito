@@ -296,12 +296,24 @@ where
     // extracts the challenge from `credential`
     // https://github.com/kanidm/webauthn-rs/blob/0ff6b525d428b5155243a37e1672c1e3205d41e8/webauthn-rs-core/src/core.rs#L702-L705
     // https://developer.mozilla.org/en-US/docs/Web/API/AuthenticatorResponse/clientDataJSON#type
-    let client_data: CollectedClientData = serde_json::from_slice(
+    let client_data: CollectedClientData = match serde_json::from_slice(
         credential.response.client_data_json.as_ref(),
-    )?;
+    ) {
+        Ok(client_data) => client_data,
+        Err(e) => {
+            // rejects the request instead of returning an error, because this
+            // is a client error
+            error!("malformed client data: {}", e);
+            event.reject();
+            return Ok(event);
+        }
+    };
     if client_data.type_ != "webauthn.get" {
+        // TODO: reject the request instead of returning an error, because this
+        // is a client error
         error!("invalid client data type: {}", client_data.type_);
-        return Err("invalild client data type".into());
+        event.reject();
+        return Ok(event);
     }
     let client_challenge = client_data.challenge;
 
@@ -937,7 +949,7 @@ mod tests {
 
         let shared_state: SharedState<ConstantWebauthnVerifyAuthChallenge> = SharedStateBuilder::default()
             .webauthn(ConstantWebauthnVerifyAuthChallenge::new(
-                self::mocks::webauthn::BAD_AUTHENTICATION_RESULT,
+                self::mocks::webauthn::AUTHENTICATION_RESULT_USER_NOT_VERIFIED,
             ))
             .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
             .build()
@@ -962,7 +974,7 @@ mod tests {
 
         let shared_state: SharedState<ConstantWebauthnVerifyAuthChallenge> = SharedStateBuilder::default()
             .webauthn(ConstantWebauthnVerifyAuthChallenge::new(
-                self::mocks::webauthn::BAD_AUTHENTICATION_RESULT,
+                self::mocks::webauthn::AUTHENTICATION_RESULT_USER_NOT_VERIFIED,
             ))
             .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
             .build()
@@ -1023,6 +1035,52 @@ mod tests {
         event.cognito_event_user_pools_header.user_name = Some("anotheruseruniqueid".to_string());
         event.request.challenge_answer = Some(serde_json::Value::from(
             self::mocks::webauthn::OK_PUBLIC_KEY_CREDENTIAL,
+        ));
+        let res = verify_auth_challenge(shared_state, event).await.unwrap();
+        assert!(!res.response.answer_correct);
+    }
+
+    #[tokio::test]
+    async fn verify_auth_challenge_with_malformed_client_data() {
+        let dynamodb = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny);
+
+        let shared_state: SharedState<ConstantWebauthnVerifyAuthChallenge> = SharedStateBuilder::default()
+            .webauthn(ConstantWebauthnVerifyAuthChallenge::new(
+                self::mocks::webauthn::OK_AUTHENTICATION_RESULT,
+            ))
+            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .build()
+            .unwrap();
+        let shared_state = Arc::new(shared_state);
+
+        let mut event = CognitoEventUserPoolsVerifyAuthChallenge::default();
+        event.cognito_event_user_pools_header.user_name = Some("testuseruniqueid".to_string());
+        event.request.challenge_answer = Some(serde_json::Value::from(
+            self::mocks::webauthn::PUBLIC_KEY_CREDENTIAL_MALFORMED_CLIENT_DATA,
+        ));
+        let res = verify_auth_challenge(shared_state, event).await.unwrap();
+        assert!(!res.response.answer_correct);
+    }
+
+    #[tokio::test]
+    async fn verify_auth_challenge_with_bad_client_data_type() {
+        let dynamodb = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny);
+
+        let shared_state: SharedState<ConstantWebauthnVerifyAuthChallenge> = SharedStateBuilder::default()
+            .webauthn(ConstantWebauthnVerifyAuthChallenge::new(
+                self::mocks::webauthn::OK_AUTHENTICATION_RESULT,
+            ))
+            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .build()
+            .unwrap();
+        let shared_state = Arc::new(shared_state);
+
+        let mut event = CognitoEventUserPoolsVerifyAuthChallenge::default();
+        event.cognito_event_user_pools_header.user_name = Some("testuseruniqueid".to_string());
+        event.request.challenge_answer = Some(serde_json::Value::from(
+            self::mocks::webauthn::PUBLIC_KEY_CREDENTIAL_BAD_CLIENT_DATA_TYPE,
         ));
         let res = verify_auth_challenge(shared_state, event).await.unwrap();
         assert!(!res.response.answer_correct);
@@ -1130,6 +1188,41 @@ mod tests {
             //     "origin": "http://localhost"
             // }
 
+            pub(crate) const PUBLIC_KEY_CREDENTIAL_MALFORMED_CLIENT_DATA: &str = r#"{
+                "id": "VD-k4AUT6FLUNmROa7OAiA",
+                "rawId": "VD-k4AUT6FLUNmROa7OAiA",
+                "response": {
+                    "authenticatorData": "",
+                    "clientDataJSON": "e30K",
+                    "signature": "",
+                    "userHandle": "testuseruniqueid"
+                },
+                "extensions": {},
+                "type": "public-key"
+            }"#;
+            // the `clientDataJSON` field is a base64url-encoded value of an
+            // empty JSON object; i.e., `{}`
+
+            pub(crate) const PUBLIC_KEY_CREDENTIAL_BAD_CLIENT_DATA_TYPE: &str = r#"{
+                "id": "VD-k4AUT6FLUNmROa7OAiA",
+                "rawId": "VD-k4AUT6FLUNmROa7OAiA",
+                "response": {
+                    "authenticatorData": "",
+                    "clientDataJSON": "ewogICJ0eXBlIjogIndlYmF1dGhuLmNyZWF0ZSIsCiAgImNoYWxsZW5nZSI6ICJmU19CMU14Sm91YUkwUXB1WXRyc2w2a2hlQUFxdFFsVWd5QWZheE9ZZFhFIiwKICAib3JpZ2luIjogImh0dHA6Ly9sb2NhbGhvc3QiCn0K",
+                    "signature": "",
+                    "userHandle": "testuseruniqueid"
+                },
+                "extensions": {},
+                "type": "public-key"
+            }"#;
+            // the `clientDataJSON` field is a base64url-encoded value of the
+            // following JSON:
+            // {
+            //     "type": "webauthn.create",
+            //     "challenge": "fS_B1MxJouaI0QpuYtrsl6kheAAqtQlUgyAfaxOYdXE",
+            //     "origin": "http://localhost"
+            // }
+
             pub(crate) const OK_AUTHENTICATION_RESULT: &str = r#"{
                 "cred_id": "VD-k4AUT6FLUNmROa7OAiA",
                 "needs_update": false,
@@ -1152,7 +1245,7 @@ mod tests {
             // NOTE: `webauthn-rs` does not evaluate `needs_update` but checks
             //       if any property is updated; e.g., `counter`
 
-            pub(crate) const BAD_AUTHENTICATION_RESULT: &str = r#"{
+            pub(crate) const AUTHENTICATION_RESULT_USER_NOT_VERIFIED: &str = r#"{
                 "cred_id": "VD-k4AUT6FLUNmROa7OAiA",
                 "needs_update": false,
                 "user_verified": false,
