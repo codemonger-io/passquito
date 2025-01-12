@@ -779,6 +779,40 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn verify_auth_challenge_of_discoverable_credential_with_update() {
+        let update_item_ok = self::mocks::dynamodb::update_item_ok();
+        let dynamodb = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::dynamodb::delete_item_discovery_session())
+            .with_rule(&self::mocks::dynamodb::query_a_credential())
+            .with_rule(&update_item_ok);
+
+        let shared_state: SharedState<ConstantWebauthnVerifyAuthChallenge> = SharedStateBuilder::default()
+            .webauthn(ConstantWebauthnVerifyAuthChallenge::new(
+                self::mocks::webauthn::OK_AUTHENTICATION_RESULT_UPDATED,
+            ))
+            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .build()
+            .unwrap();
+        let shared_state = Arc::new(shared_state);
+
+        let mut event = CognitoEventUserPoolsVerifyAuthChallenge::default();
+        event.cognito_event_user_pools_header.user_name = Some("testuseruniqueid".to_string());
+        event.request.challenge_answer = Some(serde_json::Value::from(
+            self::mocks::webauthn::OK_PUBLIC_KEY_CREDENTIAL,
+        ));
+        event.request.private_challenge_parameters = HashMap::from([
+            (
+                CHALLENGE_PARAMETER_NAME.to_string(),
+                self::mocks::webauthn::OK_PASSKEY_AUTHENTICATION.to_string(),
+            ),
+        ]);
+        let res = verify_auth_challenge(shared_state, event).await.unwrap();
+        assert!(res.response.answer_correct);
+        assert_eq!(update_item_ok.num_calls(), 1);
+    }
+
+    #[tokio::test]
     async fn verify_auth_challenge_of_cognito_initiated_credential() {
         let dynamodb = MockResponseInterceptor::new()
             .rule_mode(RuleMode::MatchAny)
@@ -807,6 +841,40 @@ mod tests {
         ]);
         let res = verify_auth_challenge(shared_state, event).await.unwrap();
         assert!(res.response.answer_correct);
+    }
+
+    #[tokio::test]
+    async fn verify_auth_challenge_of_cognito_initiated_credential_with_update() {
+        let update_item_ok = self::mocks::dynamodb::update_item_ok();
+        let dynamodb = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::dynamodb::delete_item_no_credential())
+            .with_rule(&self::mocks::dynamodb::get_item_a_credential())
+            .with_rule(&update_item_ok);
+
+        let shared_state: SharedState<ConstantWebauthnVerifyAuthChallenge> = SharedStateBuilder::default()
+            .webauthn(ConstantWebauthnVerifyAuthChallenge::new(
+                self::mocks::webauthn::OK_AUTHENTICATION_RESULT_UPDATED,
+            ))
+            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .build()
+            .unwrap();
+        let shared_state = Arc::new(shared_state);
+
+        let mut event = CognitoEventUserPoolsVerifyAuthChallenge::default();
+        event.cognito_event_user_pools_header.user_name = Some("testuseruniqueid".to_string());
+        event.request.challenge_answer = Some(serde_json::Value::from(
+            self::mocks::webauthn::OK_PUBLIC_KEY_CREDENTIAL,
+        ));
+        event.request.private_challenge_parameters = HashMap::from([
+            (
+                CHALLENGE_PARAMETER_NAME.to_string(),
+                self::mocks::webauthn::OK_PASSKEY_AUTHENTICATION.to_string(),
+            ),
+        ]);
+        let res = verify_auth_challenge(shared_state, event).await.unwrap();
+        assert!(res.response.answer_correct);
+        assert_eq!(update_item_ok.num_calls(), 1);
     }
 
     pub(crate) mod mocks {
@@ -921,6 +989,18 @@ mod tests {
                 "extensions": {}
             }"#;
 
+            pub(crate) const OK_AUTHENTICATION_RESULT_UPDATED: &str = r#"{
+                "cred_id": "VD-k4AUT6FLUNmROa7OAiA",
+                "needs_update": true,
+                "user_verified": true,
+                "backup_state": false,
+                "backup_eligible": true,
+                "counter": 2,
+                "extensions": {}
+            }"#;
+            // NOTE: `webauthn-rs` does not evaluate `needs_update` but checks
+            //       if any property is updated; e.g., `counter`
+
             pub(crate) struct ConstantWebauthnCreateAuthChallenge {
                 request_challenge_response: String,
                 passkey_authentication: String,
@@ -1004,6 +1084,7 @@ mod tests {
                     delete_item::DeleteItemOutput,
                     get_item::GetItemOutput,
                     query::QueryOutput,
+                    update_item::UpdateItemOutput,
                 },
                 Client,
                 Config,
@@ -1064,6 +1145,11 @@ mod tests {
                             )
                             .build()
                     })
+            }
+
+            pub(crate) fn update_item_ok() -> Rule {
+                mock!(Client::update_item)
+                    .then_output(|| UpdateItemOutput::builder().build())
             }
         }
     }
