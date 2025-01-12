@@ -268,14 +268,15 @@ where
         .ok_or("missing username in request")?;
     let credential: PublicKeyCredential = match event.get_challenge_answer() {
         Ok(credential) => credential,
-        Err(e) => {
-            // TODO: we should reject the request instead of returning an error,
-            //       because this is a client error
+        Err(_) => {
+            // rejects the request instead of returning an error, because this
+            // is a client error
             error!(
                 "malformed challenge answer: {:?}",
                 event.get_raw_challenge_answer(),
             );
-            return Err(e.into());
+            event.reject();
+            return Ok(event);
         }
     };
 
@@ -978,6 +979,27 @@ mod tests {
                 self::mocks::webauthn::OK_PASSKEY_AUTHENTICATION.to_string(),
             ),
         ]);
+        let res = verify_auth_challenge(shared_state, event).await.unwrap();
+        assert!(!res.response.answer_correct);
+    }
+
+    #[tokio::test]
+    async fn verify_auth_challenge_with_malformed_challenge_answer() {
+        let dynamodb = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny);
+
+        let shared_state: SharedState<ConstantWebauthnVerifyAuthChallenge> = SharedStateBuilder::default()
+            .webauthn(ConstantWebauthnVerifyAuthChallenge::new(
+                self::mocks::webauthn::OK_AUTHENTICATION_RESULT,
+            ))
+            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .build()
+            .unwrap();
+        let shared_state = Arc::new(shared_state);
+
+        let mut event = CognitoEventUserPoolsVerifyAuthChallenge::default();
+        event.cognito_event_user_pools_header.user_name = Some("testuseruniqueid".to_string());
+        event.request.challenge_answer = Some(serde_json::Value::from("{}"));
         let res = verify_auth_challenge(shared_state, event).await.unwrap();
         assert!(!res.response.answer_correct);
     }
