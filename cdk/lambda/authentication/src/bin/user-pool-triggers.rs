@@ -409,7 +409,7 @@ where
                         // already been done in
                         // `finish_discoverable_authentication`:
                         // https://github.com/kanidm/webauthn-rs/blob/8c2d2bdff441f5eea885371cff81e73c97f490a8/webauthn-rs-core/src/core.rs#L1158-L1177
-                        shared_state.dynamodb
+                        let res = shared_state.dynamodb
                             .update_item()
                             .table_name(
                                 shared_state.credential_table_name.clone(),
@@ -437,8 +437,13 @@ where
                             .condition_expression("attributes_exists(pk)")
                             .return_values(ReturnValue::None)
                             .send()
-                            .await?;
-                        // TODO: should we tolerate the failure to update?
+                            .await;
+                        // tolerates the failure to update
+                        // TODO: this might allow an attacker slight chance to
+                        //       use a cloned authenticator
+                        if let Err(e) = res {
+                            error!("failed to update credential: {}", e);
+                        }
                     }
                 }
                 event.accept();
@@ -493,7 +498,7 @@ where
                     // https://github.com/kanidm/webauthn-rs/blob/8c2d2bdff441f5eea885371cff81e73c97f490a8/webauthn-rs-core/src/core.rs#L1158-L1177
                     let updated_at = DateTime::from(SystemTime::now())
                         .fmt(DateTimeFormat::DateTime)?;
-                    shared_state.dynamodb
+                    let res = shared_state.dynamodb
                         .update_item()
                         .table_name(
                             shared_state.credential_table_name.clone(),
@@ -522,8 +527,13 @@ where
                         .condition_expression("attributes_exists(pk)")
                         .return_values(ReturnValue::None)
                         .send()
-                        .await?;
-                    // TODO: should we tolerate the failure to update?
+                        .await;
+                    // tolerates the failure to update
+                    // TODO: this might allow an attacker slight chance to
+                    //       use a cloned authenticator
+                    if let Err(e) = res {
+                        error!("failed to update credential: {}", e);
+                    }
                 }
                 event.accept();
             }
@@ -1130,6 +1140,70 @@ mod tests {
         assert!(!res.response.answer_correct);
     }
 
+    #[tokio::test]
+    async fn verify_auth_challenge_of_discoverable_credential_with_update_error() {
+        let update_item = self::mocks::dynamodb::update_item_write_throughput_exceeded();
+        let dynamodb = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::dynamodb::delete_item_discovery_session())
+            .with_rule(&self::mocks::dynamodb::query_a_credential())
+            .with_rule(&update_item);
+
+        let shared_state: SharedState<ConstantWebauthnVerifyAuthChallenge> = SharedStateBuilder::default()
+            .webauthn(ConstantWebauthnVerifyAuthChallenge::new(
+                self::mocks::webauthn::OK_AUTHENTICATION_RESULT_UPDATED,
+            ))
+            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .build()
+            .unwrap();
+        let shared_state = Arc::new(shared_state);
+
+        let mut event = CognitoEventUserPoolsVerifyAuthChallenge::default();
+        event.cognito_event_user_pools_header.user_name = Some("testuseruniqueid".to_string());
+        event.request.challenge_answer = Some(serde_json::Value::from(
+            self::mocks::webauthn::OK_PUBLIC_KEY_CREDENTIAL,
+        ));
+        let res = verify_auth_challenge(shared_state, event).await.unwrap();
+        // tolerates the failure to update
+        assert!(res.response.answer_correct);
+        assert_eq!(update_item.num_calls(), 1);
+    }
+
+    #[tokio::test]
+    async fn verify_auth_challenge_of_cognito_initiated_credential_with_update_error() {
+        let update_item = self::mocks::dynamodb::update_item_write_throughput_exceeded();
+        let dynamodb = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::dynamodb::delete_item_no_credential())
+            .with_rule(&self::mocks::dynamodb::get_item_a_credential())
+            .with_rule(&update_item);
+
+        let shared_state: SharedState<ConstantWebauthnVerifyAuthChallenge> = SharedStateBuilder::default()
+            .webauthn(ConstantWebauthnVerifyAuthChallenge::new(
+                self::mocks::webauthn::OK_AUTHENTICATION_RESULT_UPDATED,
+            ))
+            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .build()
+            .unwrap();
+        let shared_state = Arc::new(shared_state);
+
+        let mut event = CognitoEventUserPoolsVerifyAuthChallenge::default();
+        event.cognito_event_user_pools_header.user_name = Some("testuseruniqueid".to_string());
+        event.request.challenge_answer = Some(serde_json::Value::from(
+            self::mocks::webauthn::OK_PUBLIC_KEY_CREDENTIAL,
+        ));
+        event.request.private_challenge_parameters = HashMap::from([
+            (
+                CHALLENGE_PARAMETER_NAME.to_string(),
+                self::mocks::webauthn::OK_PASSKEY_AUTHENTICATION.to_string(),
+            ),
+        ]);
+        let res = verify_auth_challenge(shared_state, event).await.unwrap();
+        // tolerates the failure to update
+        assert!(res.response.answer_correct);
+        assert_eq!(update_item.num_calls(), 1);
+    }
+
     pub(crate) mod mocks {
         use super::*;
 
@@ -1408,6 +1482,11 @@ mod tests {
                 Client,
                 Config,
             };
+            use aws_smithy_runtime_api::client::orchestrator::HttpResponse;
+            use aws_smithy_runtime_api::http::StatusCode as SmithyStatusCode;
+            use aws_smithy_types::body::SdkBody;
+
+            const PROVISIONED_THROUGHPUT_EXCEEDED_EXCEPTION: &str = r#"{"__type": "com.amazonaws.dynamodb.v20120810#ProvisionedThroughputExceededException", "message": "Exceeded provisioned throughput."}"#;
 
             pub(crate) fn new_client(mocks: MockResponseInterceptor) -> Client {
                 Client::from_conf(
@@ -1480,6 +1559,16 @@ mod tests {
             pub(crate) fn update_item_ok() -> Rule {
                 mock!(Client::update_item)
                     .then_output(|| UpdateItemOutput::builder().build())
+            }
+
+            pub(crate) fn update_item_write_throughput_exceeded() -> Rule {
+                mock!(Client::update_item)
+                    .then_http_response(|| {
+                        HttpResponse::new(
+                            SmithyStatusCode::try_from(400).unwrap(),
+                            SdkBody::from(PROVISIONED_THROUGHPUT_EXCEEDED_EXCEPTION),
+                        )
+                    })
             }
         }
     }
