@@ -334,3 +334,10 @@ sequenceDiagram
 #### Authentication of a specific user
 
 This is not precisely a passkey authentication, but a passwordless authentication.
+
+## License
+
+[MIT License](./LICENSE)
+
+Except for the following materials licensed under _CC BY-SA 4.0_ (<https://creativecommons.org/licenses/by-sa/4.0/>):
+- [_Passquito Logo_](./passquito.png) by [codemonger](https://codemonger.io)
