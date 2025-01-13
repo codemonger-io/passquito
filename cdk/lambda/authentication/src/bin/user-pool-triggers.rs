@@ -103,21 +103,23 @@ where
     Webauthn: WebauthnCreateAuthChallenge + WebauthnVerifyAuthChallenge,
 {
     let (event, _) = event.into_parts();
-    // TODO: do not expose the error message to the client, because it might
-    //       contain sensitive information. log it and return a generic error
-    //       message instead.
-    let result = match event.determine() {
+    match event.determine() {
         Ok(CognitoChallengeEventCase::Define(event)) =>
-            define_auth_challenge(shared_state, event).await?.into(),
+            define_auth_challenge(shared_state, event).await.map(Into::into),
         Ok(CognitoChallengeEventCase::Create(event)) =>
-            create_auth_challenge(shared_state, event).await?.into(),
+            create_auth_challenge(shared_state, event).await.map(Into::into),
         Ok(CognitoChallengeEventCase::Verify(event)) =>
-            verify_auth_challenge(shared_state, event).await?.into(),
+            verify_auth_challenge(shared_state, event).await.map(Into::into),
         Err(e) => {
-            return Err(format!("invalid Cognito challenge event: {}", e).into());
+            Err(format!("invalid Cognito challenge event: {}", e).into())
         }
-    };
-    Ok(result)
+    }.map_err(|e| {
+        // never exposes the error message to the client, because it might
+        // contain sensitive information. logs it and returns a generic error
+        // message instead.
+        error!("{e:?}");
+        "Internal Server Error".into()
+    })
 }
 
 // Handles "Define auth challenge" events.
@@ -633,8 +635,46 @@ mod tests {
         ConstantWebauthnCreateAuthChallenge,
         ConstantWebauthnVerifyAuthChallenge,
         NoCredentialWebauthnCreateAuthChallenge,
+        RejectingWebauthn,
         RejectingWebauthnVerifyAuthChallenge,
     };
+
+    #[tokio::test]
+    async fn function_handler_hiding_error_details() {
+        let dynamodb = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::dynamodb::query_table_not_found())
+            .with_rule(&self::mocks::dynamodb::delete_item_table_not_found());
+
+        let shared_state: SharedState<RejectingWebauthn> = SharedStateBuilder::default()
+            .webauthn(RejectingWebauthn)
+            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .build()
+            .unwrap();
+        let shared_state = Arc::new(shared_state);
+
+        // create_auth_challenge
+        let mut event = CognitoEventUserPoolsCreateAuthChallenge::default();
+        event.cognito_event_user_pools_header.user_name = Some("testuseruniqueid".to_string());
+        event.request.challenge_name = Some("CUSTOM_CHALLENGE".to_string()); // see CognitoChallengeEvent::determine
+        let res = function_handler(
+            shared_state.clone(),
+            LambdaEvent::new(event.try_into().unwrap(), lambda_runtime::Context::default()),
+        ).await.err().unwrap();
+        assert_eq!(res.to_string(), "Internal Server Error");
+
+        // verify_auth_challenge
+        let mut event = CognitoEventUserPoolsVerifyAuthChallenge::default();
+        event.cognito_event_user_pools_header.user_name = Some("testuseruniqueid".to_string());
+        event.request.challenge_answer = Some(serde_json::Value::from(
+            self::mocks::webauthn::OK_PUBLIC_KEY_CREDENTIAL,
+        ));
+        let res = function_handler(
+            shared_state,
+            LambdaEvent::new(event.try_into().unwrap(), lambda_runtime::Context::default()),
+        ).await.err().unwrap();
+        assert_eq!(res.to_string(), "Internal Server Error");
+    }
 
     #[tokio::test]
     async fn define_auth_challenge_start_custom_challenge() {
@@ -1446,6 +1486,36 @@ mod tests {
                 }
             }
 
+            pub(crate) struct RejectingWebauthn;
+
+            impl WebauthnCreateAuthChallenge for RejectingWebauthn {
+                fn start_passkey_authentication(
+                    &self,
+                    _creds: &[Passkey],
+                ) -> Result<(RequestChallengeResponse, PasskeyAuthentication), WebauthnError> {
+                    Err(WebauthnError::Configuration)
+                }
+            }
+
+            impl WebauthnVerifyAuthChallenge for RejectingWebauthn {
+                fn finish_discoverable_authentication(
+                    &self,
+                    _reg: &PublicKeyCredential,
+                    _state: DiscoverableAuthentication,
+                    _creds: &[DiscoverableKey],
+                ) -> Result<AuthenticationResult, WebauthnError> {
+                    Err(WebauthnError::UserNotVerified)
+                }
+
+                fn finish_passkey_authentication(
+                    &self,
+                    _reg: &PublicKeyCredential,
+                    _state: &PasskeyAuthentication,
+                ) -> Result<AuthenticationResult, WebauthnError> {
+                    Err(WebauthnError::UserNotVerified)
+                }
+            }
+
             pub(crate) struct RejectingWebauthnVerifyAuthChallenge;
 
             impl WebauthnVerifyAuthChallenge for RejectingWebauthnVerifyAuthChallenge {
@@ -1486,6 +1556,8 @@ mod tests {
             use aws_smithy_runtime_api::http::StatusCode as SmithyStatusCode;
             use aws_smithy_types::body::SdkBody;
 
+            const RESOURCE_NOT_FOUND_EXCEPTION: &str = r#"{"__type": "com.amazonaws.dynamodb.v20120810#ResourceNotFoundException", "message": "No such table."}"#;
+
             const PROVISIONED_THROUGHPUT_EXCEEDED_EXCEPTION: &str = r#"{"__type": "com.amazonaws.dynamodb.v20120810#ProvisionedThroughputExceededException", "message": "Exceeded provisioned throughput."}"#;
 
             pub(crate) fn new_client(mocks: MockResponseInterceptor) -> Client {
@@ -1517,6 +1589,16 @@ mod tests {
                     .then_output(|| QueryOutput::builder().build())
             }
 
+            pub(crate) fn query_table_not_found() -> Rule {
+                mock!(Client::query)
+                    .then_http_response(|| {
+                        HttpResponse::new(
+                            SmithyStatusCode::try_from(400).unwrap(),
+                            SdkBody::from(RESOURCE_NOT_FOUND_EXCEPTION),
+                        )
+                    })
+            }
+
             pub(crate) fn delete_item_discovery_session() -> Rule {
                 mock!(Client::delete_item)
                     .then_output(|| {
@@ -1542,6 +1624,16 @@ mod tests {
             pub(crate) fn delete_item_no_credential() -> Rule {
                 mock!(Client::delete_item)
                     .then_output(|| DeleteItemOutput::builder().build())
+            }
+
+            pub(crate) fn delete_item_table_not_found() -> Rule {
+                mock!(Client::delete_item)
+                    .then_http_response(|| {
+                        HttpResponse::new(
+                            SmithyStatusCode::try_from(400).unwrap(),
+                            SdkBody::from(RESOURCE_NOT_FOUND_EXCEPTION),
+                        )
+                    })
             }
 
             pub(crate) fn get_item_a_credential() -> Rule {
