@@ -346,8 +346,11 @@ where
             .or(Err("malformed ttl"))?
             .parse()?;
         if ttl < DateTime::from(SystemTime::now()).secs() {
-            // TODO: expired session should not be an error but be rejected
-            return Err("session expired".into());
+            // rejects the request instead of returning an error, because an
+            // expired session should be a client error
+            error!("session expired");
+            event.reject();
+            return Ok(event);
         }
         let auth_state = session.get("state")
             .ok_or("missing authentication state")?
@@ -400,6 +403,8 @@ where
                         .is_some_and(|b| b)
                     {
                         info!("updating credential: {}", credential_id);
+                        // TODO: we should make sure that the counter is
+                        //       greater than or equal to the recorded one
                         shared_state.dynamodb
                             .update_item()
                             .table_name(
@@ -429,6 +434,7 @@ where
                             .return_values(ReturnValue::None)
                             .send()
                             .await?;
+                        // TODO: should we tolerate the failure to update?
                     }
                 }
                 event.accept();
@@ -1090,6 +1096,30 @@ mod tests {
         assert!(!res.response.answer_correct);
     }
 
+    #[tokio::test]
+    async fn verify_auth_challenge_with_expired_session() {
+        let dynamodb = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::dynamodb::delete_item_expired_discovery_session());
+
+        let shared_state: SharedState<ConstantWebauthnVerifyAuthChallenge> = SharedStateBuilder::default()
+            .webauthn(ConstantWebauthnVerifyAuthChallenge::new(
+                self::mocks::webauthn::OK_AUTHENTICATION_RESULT,
+            ))
+            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .build()
+            .unwrap();
+        let shared_state = Arc::new(shared_state);
+
+        let mut event = CognitoEventUserPoolsVerifyAuthChallenge::default();
+        event.cognito_event_user_pools_header.user_name = Some("testuseruniqueid".to_string());
+        event.request.challenge_answer = Some(serde_json::Value::from(
+            self::mocks::webauthn::OK_PUBLIC_KEY_CREDENTIAL,
+        ));
+        let res = verify_auth_challenge(shared_state, event).await.unwrap();
+        assert!(!res.response.answer_correct);
+    }
+
     pub(crate) mod mocks {
         use super::*;
 
@@ -1402,6 +1432,17 @@ mod tests {
                 mock!(Client::delete_item)
                     .then_output(|| {
                         let ttl = DateTime::from(SystemTime::now()).secs() + 60;
+                        DeleteItemOutput::builder()
+                            .attributes("ttl", AttributeValue::N(format!("{}", ttl)))
+                            .attributes("state", AttributeValue::S(super::webauthn::OK_DISCOVERABLE_AUTHENTICATION.to_string()))
+                            .build()
+                    })
+            }
+
+            pub(crate) fn delete_item_expired_discovery_session() -> Rule {
+                mock!(Client::delete_item)
+                    .then_output(|| {
+                        let ttl = DateTime::from(SystemTime::now()).secs() - 60;
                         DeleteItemOutput::builder()
                             .attributes("ttl", AttributeValue::N(format!("{}", ttl)))
                             .attributes("state", AttributeValue::S(super::webauthn::OK_DISCOVERABLE_AUTHENTICATION.to_string()))
