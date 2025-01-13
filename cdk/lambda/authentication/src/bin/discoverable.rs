@@ -1,7 +1,10 @@
 //! Discoverable credential authentication.
 //!
+//! This application is intended to run as an AWS Lambda function.
+//!
 //! You have to configure the following environment variables:
-//! - `BASE_PATH`: base path to provide the service; e.g, `/auth/credentials/discoverable/`
+//! - `BASE_PATH`: base path to provide the service, which must end with a
+//!   trailing slash (/); e.g, `/auth/credentials/discoverable/`
 //! - `SESSION_TABLE_NAME`: name of the DynamoDB table that manages sessions
 //! - `RP_ORIGIN_PARAMETER_PATH`: path to the parameter that stores the origin
 //!   (URL) of the relying party in the Parameter Store on AWS Systems Manager
@@ -14,7 +17,8 @@
 //!
 //! Starts authentication of a client-side discoverable credential.
 //! No request body is required.
-//! The response body is [`RequestChallengeResponse`] as `application/json`.
+//! The response body is [`RequestChallengeResponse`](https://docs.rs/webauthn-rs/latest/webauthn_rs/prelude/struct.RequestChallengeResponse.html)
+//! as `application/json`.
 //!
 //! There is no endpoint to finish the authentication, because subsequent steps
 //! are processed by Cognito triggers.

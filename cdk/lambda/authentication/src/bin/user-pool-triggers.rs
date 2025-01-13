@@ -403,8 +403,12 @@ where
                         .is_some_and(|b| b)
                     {
                         info!("updating credential: {}", credential_id);
-                        // TODO: we should make sure that the counter is
-                        //       greater than or equal to the recorded one
+                        // As per https://www.w3.org/TR/webauthn-3/#sctn-sign-counter,
+                        // we must make sure that the counter is greater than
+                        // the stored one unless it is zero. this check has
+                        // already been done in
+                        // `finish_discoverable_authentication`:
+                        // https://github.com/kanidm/webauthn-rs/blob/8c2d2bdff441f5eea885371cff81e73c97f490a8/webauthn-rs-core/src/core.rs#L1158-L1177
                         shared_state.dynamodb
                             .update_item()
                             .table_name(
@@ -482,6 +486,11 @@ where
                     .or(Err("malformed credential in the database"))?;
                 if passkey.update_credential(&auth_result).is_some_and(|b| b) {
                     info!("updating credential: {:?}", auth_result.cred_id());
+                    // As per https://www.w3.org/TR/webauthn-3/#sctn-sign-counter,
+                    // we must make sure that the counter is greater than
+                    // the stored one unless it is zero. this check has already
+                    // been done in `finish_passkey_authentication`:
+                    // https://github.com/kanidm/webauthn-rs/blob/8c2d2bdff441f5eea885371cff81e73c97f490a8/webauthn-rs-core/src/core.rs#L1158-L1177
                     let updated_at = DateTime::from(SystemTime::now())
                         .fmt(DateTimeFormat::DateTime)?;
                     shared_state.dynamodb
@@ -514,6 +523,7 @@ where
                         .return_values(ReturnValue::None)
                         .send()
                         .await?;
+                    // TODO: should we tolerate the failure to update?
                 }
                 event.accept();
             }

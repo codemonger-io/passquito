@@ -1,7 +1,10 @@
 //! Registration.
 //!
+//! This application is intended to run as an AWS Lambda function.
+//!
 //! You have to configure the following environment variables:
-//! - `BASE_PATH`: base path to provide the service; e.g., `/auth/credentials/registration/`
+//! - `BASE_PATH`: base path to provide the service, which must end with a
+//!   trailing slash (/); e.g., `/auth/credentials/registration/`
 //! - `SESSION_TABLE_NAME`: name of the DynamoDB table to store sessions
 //! - `USER_POOL_ID`: ID of the Cognito user pool
 //! - `CREDENTIAL_TABLE_NAME`: name of the DynamoDB table to store credentials
@@ -122,12 +125,18 @@ pub struct NewUserInfo {
     ///
     /// When you register a new user, specify a preferred username which may
     /// identify a person.
+    /// The username is not necessarily unique.
+    /// It is provided for the user to locate the passkey in user's device.
     ///
     /// When you register a new credential for an existing user, specify the
-    /// unique ID of the user.
+    /// unique ID of the user, which was generated when the user signed up.
     pub username: String,
 
     /// Display name.
+    ///
+    /// The display name is not necessarily unique.
+    /// It is provided for the user to locate the passkey in user's device.
+    /// (As far as I tested, macOS did not show the display name.)
     pub display_name: String,
 }
 
@@ -408,6 +417,7 @@ where
             getrandom::getrandom(&mut password)?;
             let password = base64url.encode(&password);
             // creates the Cognito user if not exists
+            // TODO: what if the user exists?
             let cognito_user = shared_state.cognito
                 .admin_create_user()
                 .user_pool_id(shared_state.user_pool_id.clone())
@@ -447,7 +457,6 @@ where
                 .send()
                 .await?;
             // stores `key` in the credential table
-            // TODO: delete the Cognito user upon failure
             let credential_id = base64url.encode(key.cred_id());
             let created_at = DateTime::from(SystemTime::now())
                 .fmt(DateTimeFormat::DateTime)?;
