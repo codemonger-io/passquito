@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { BButton, BField, BInput } from 'buefy';
 import { Base64 } from 'js-base64';
 import { onMounted, ref } from 'vue';
 
@@ -196,17 +197,15 @@ const onSubmit = async () => {
 </script>
 
 <template>
-  <main>
+  <main class="container">
     <form v-if="isPasskeySupported" @submit.prevent="onSubmit">
-      <label>
-        Username:
-        <input name="username" v-model="username" pattern="[A-Za-z0-9_:;-]+">
-      </label>
-      <label>
-        Display name:
-        <input name="display-name" v-model="displayName">
-      </label>
-      <input type="submit" value="Sign Up">
+      <b-field label="Username">
+        <b-input v-model="username" pattern="[A-Za-z0-9_:;-]+" expanded></b-input>
+      </b-field>
+      <b-field label="Display name">
+        <b-input v-model="displayName" expanded></b-input>
+      </b-field>
+      <b-button type="is-primary" @click="onSubmit">Sign Up</b-button>
     </form>
     <p v-else>
       Passkeys are not supported on this device.
