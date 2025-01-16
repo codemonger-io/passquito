@@ -40,7 +40,7 @@ const onSubmit = async () => {
       <b-field label="Display name">
         <b-input v-model="displayName"></b-input>
       </b-field>
-      <b-button type="is-primary" @click="onSubmit">Sign Up</b-button>
+      <input type="submit" class="button is-primary" value="Sign Up">
     </form>
     <p v-else>
       Passkeys are not supported on this device.
