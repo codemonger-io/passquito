@@ -4,6 +4,7 @@ import {
   InitiateAuthCommand,
   RespondToAuthChallengeCommand,
 } from '@aws-sdk/client-cognito-identity-provider';
+import { BField, BInput } from 'buefy';
 import { Base64 } from 'js-base64';
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
 
@@ -291,15 +292,15 @@ const onSubmit = async () => {
 <template>
   <main>
     <form v-if="isPasskeySupported" @submit.prevent="onSubmit">
-      <label>
-        Username:
-        <input
+      <b-field label="Username">
+        <b-input
           name="username"
           v-model="username"
           autocomplete="username webauthn"
         >
-      </label>
-      <input type="submit" value="Sign In">
+        </b-input>
+      </b-field>
+      <input type="submit" class="button is-primary" value="Sign In">
     </form>
     <p v-else-if="isPasskeySupported === undefined">
       Checking if passkeys are supported on this device...
