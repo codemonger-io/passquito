@@ -1,6 +1,15 @@
+import {
+  CognitoIdentityProviderClient,
+  InitiateAuthCommand,
+  RespondToAuthChallengeCommand,
+} from '@aws-sdk/client-cognito-identity-provider';
 import { Base64 } from 'js-base64';
 
-import { credentialsApiUrl } from '../auth-config';
+import { credentialsApiUrl, isCognito, userPoolClientId } from '../auth-config';
+
+const cognitoClient = new CognitoIdentityProviderClient({
+  region: 'ap-northeast-1',
+});
 
 /**
  * User information for registration.
@@ -29,7 +38,7 @@ interface CredentialCreationOptions {
 }
 
 /**
- * Checks if passkey registration is supported in the current context.
+ * Checks if passkey registration is supported on the current device.
  *
  * @remarks
  *
@@ -73,6 +82,37 @@ export async function checkPasskeyRegistrationSupported(): Promise<boolean> {
 }
 
 /**
+ * Checks if passkey authentication is supported on the current device.
+ *
+ * @remarks
+ *
+ * References:
+ * - <https://web.dev/articles/passkey-form-autofill>
+ * - <https://www.w3.org/TR/webauthn-3/>
+ */
+export async function checkPasskeyAuthenticationSupported(): Promise<boolean> {
+  if (!window.PublicKeyCredential) {
+    console.error('no PublicKeyCredential');
+    return false;
+  }
+  if (typeof window.PublicKeyCredential.isConditionalMediationAvailable !== 'function') {
+    console.error('no PublicKeyCredential.isConditionalMediationAvailable');
+    return false;
+  }
+  try {
+    const isConditionalMediationAvailable = await window.PublicKeyCredential.isConditionalMediationAvailable();
+    if (!isConditionalMediationAvailable) {
+      console.error('not isConditionalMediationAvailable');
+      return false;
+    }
+  } catch (err) {
+    console.error(err);
+    return false;
+  }
+  return true;
+}
+
+/**
  * Conducts a registration ceremony.
  *
  * @remarks
@@ -92,6 +132,32 @@ export async function doRegistrationCeremony(userInfo: UserInfo) {
     }
     console.log('registering new credential:', credential);
     await registerPublicKeyCredential(sessionId, credential as PublicKeyCredential);
+}
+
+/**
+ * Conducts an authentication ceremony.
+ *
+ * @remarks
+ *
+ * Reference:
+ * - <https://www.w3.org/TR/webauthn-3/#sctn-verifying-assertion>
+ *
+ * @beta
+ */
+export function doAuthenticationCeremony() {
+  let abortController: AbortController | undefined = new AbortController();
+  const tokens = doAbortableAuthenticationCeremony(abortController).finally(() => {
+    abortController = undefined;
+  });
+  return {
+    abort: () => {
+      if (abortController != null) {
+        abortController.abort();
+        abortController = undefined;
+      }
+    },
+    tokens,
+  };
 }
 
 // obtains the public key credential creation options
@@ -121,7 +187,7 @@ async function registerPublicKeyCredential(
   credential: PublicKeyCredential,
 ) {
   const endpoint = `${credentialsApiUrl.replace(/\/$/, '')}/registration/finish`;
-  const encodedCredential = encodePublicKeyCredential(credential);
+  const encodedCredential = encodePublicKeyCredentialForCreation(credential);
   console.log('encoded credential:', encodedCredential);
   const res = await fetch(endpoint, {
     method: 'POST',
@@ -180,7 +246,7 @@ function decodePublicKeyCredentialUserEntity(user: any) {
   } as PublicKeyCredentialUserEntity;
 }
 
-// decodes `PublicKeyCredentialDescriptor` in a registration start API response.
+// decodes `PublicKeyCredentialDescriptor`.
 //
 // converts "base64url"-encoded `id` into `Uint8Array`.
 function decodePublicKeyCredentialDescriptor(descriptor: any) {
@@ -190,10 +256,10 @@ function decodePublicKeyCredentialDescriptor(descriptor: any) {
   } as PublicKeyCredentialDescriptor;
 }
 
-// encodes `PublicKeyCrendential` for a registration finish API request body.
+// encodes `PublicKeyCrendential` for a registration API request body.
 //
 // "base64url"-encodes `ArrayBuffer`s.
-function encodePublicKeyCredential(publicKey: PublicKeyCredential) {
+function encodePublicKeyCredentialForCreation(publicKey: PublicKeyCredential) {
   return {
     id: publicKey.id,
     type: publicKey.type,
@@ -222,5 +288,161 @@ function encodeAuthenticatorAttestationResponse(
       true,
     ),
     transports: response.getTransports(),
+  };
+}
+
+// conducts an authentication ceremony with a give AbortController.
+async function doAbortableAuthenticationCeremony(abortController: AbortController) {
+  const options = await getCredentialRequestOptions();
+  console.log('credential request options:', options);
+  const credential = await navigator.credentials.get({
+    ...options,
+    mediation: 'conditional',
+    signal: abortController.signal,
+  });
+  console.log('assertion:', credential);
+  return await authenticatePublicKeyCredential(
+    credential as PublicKeyCredential,
+  );
+}
+
+// obtains the public key credential request options
+//
+// throws if an error occurs.
+async function getCredentialRequestOptions(username?: string) {
+  let res;
+  if (username != null) {
+    // TODO: ask Cognito for sign-in of a specific user
+    throw new Error("not implemented yet");
+  } else {
+    const endpoint =
+      `${credentialsApiUrl.replace(/\/$/, '')}/discoverable/start`;
+    res = await fetch(endpoint, {
+      method: 'POST',
+    });
+  }
+  return decodeCredentialRequestOptions(await res.json());
+}
+
+// decodes `CredentialRequestOptions`.
+//
+// converts "base64url"-encoded values into `Uint8Array`s.
+function decodeCredentialRequestOptions(options: any) {
+  return {
+    publicKey: decodePublicKeyCredentialRequestOptions(options.publicKey),
+  };
+}
+
+// decodes `PublicKeyCredentialRequestOptions`.
+//
+// converts "base64url"-encoded values into `Uint8Array`s.
+function decodePublicKeyCredentialRequestOptions(publicKey: any) {
+  return {
+    ...publicKey,
+    challenge: Base64.toUint8Array(publicKey.challenge),
+    ...(
+      publicKey.allowCredentials
+        ? {
+          allowCredentials: publicKey
+            .allowCredentials
+            .map(decodePublicKeyCredentialDescriptor)
+        }
+        : {}
+    ),
+  } as PublicKeyCredentialRequestOptions;
+}
+
+// authenticates a given public key credential.
+async function authenticatePublicKeyCredential(credential: PublicKeyCredential) {
+  const encodedCredential = encodePublicKeyCredentialForAuthentication(credential);
+  console.log('encoded credential:', encodedCredential);
+  if (isCognito) {
+    const userHandle = encodedCredential.response.userHandle;
+    if (userHandle == null) {
+      throw new Error("authenticator must return userHandle");
+    }
+    const challenge = await cognitoClient.send(new InitiateAuthCommand({
+      ClientId: userPoolClientId,
+      AuthFlow: 'CUSTOM_AUTH',
+      AuthParameters: {
+        USERNAME: userHandle,
+      }
+    }));
+    if (challenge.ChallengeName !== 'CUSTOM_CHALLENGE') {
+      throw new Error(`unexpected challenge name: ${challenge.ChallengeName}`);
+    }
+    // ignores challenge parameters for discoverable credentials
+    const res = await cognitoClient.send(new RespondToAuthChallengeCommand({
+      ClientId: userPoolClientId,
+      ChallengeName: 'CUSTOM_CHALLENGE',
+      Session: challenge.Session,
+      ChallengeResponses: {
+        USERNAME: userHandle,
+        ANSWER: JSON.stringify(encodedCredential),
+      },
+    }));
+    if (res.AuthenticationResult == null) {
+      throw new Error('failed to authenticate');
+    }
+    return res.AuthenticationResult;
+  } else {
+    const endpoint =
+      `${credentialsApiUrl.replace(/\/$/, '')}/discoverable/finish`;
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(encodedCredential),
+    });
+    return await res.json();
+  }
+}
+
+// encodes `PublicKeyCredential` for an authentication API request body.
+//
+// "base64url"-encodes `ArrayBuffer`s.
+function encodePublicKeyCredentialForAuthentication(publicKey: PublicKeyCredential) {
+  return {
+    id: publicKey.id,
+    type: publicKey.type,
+    rawId: Base64.fromUint8Array(new Uint8Array(publicKey.rawId), true),
+    response: encodeAuthenticatorAssertionResponse(
+      publicKey.response as AuthenticatorAssertionResponse,
+    ),
+    extensions: publicKey.getClientExtensionResults(),
+  };
+}
+
+// encodes `AuthenticatorAssertionResponse` for an API request body.
+//
+// "base64url"-encodes:
+// - `clientDataJSON`
+// - `authenticatorData`
+// - `signature`
+// - `userHandle`
+function encodeAuthenticatorAssertionResponse(
+  response: AuthenticatorAssertionResponse,
+) {
+  return {
+    clientDataJSON: Base64.fromUint8Array(
+      new Uint8Array(response.clientDataJSON),
+      true,
+    ),
+    authenticatorData: Base64.fromUint8Array(
+      new Uint8Array(response.authenticatorData),
+      true,
+    ),
+    signature: Base64.fromUint8Array(new Uint8Array(response.signature), true),
+    ...(
+      response.userHandle != null
+        ? {
+          userHandle: Base64.fromUint8Array(
+            new Uint8Array(response.userHandle),
+            true,
+          ),
+        }
+        : {}
+    ),
   };
 }
