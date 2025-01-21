@@ -446,3 +446,15 @@ function encodeAuthenticatorAssertionResponse(
     ),
   };
 }
+
+/**
+ * Returns if a given error object is an `AbortError`.
+ *
+ * @beta
+ */
+export function isAbortError(err: unknown): boolean {
+  if (err == null || (typeof err !== 'object' && typeof err !== 'function')) {
+    return false;
+  }
+  return (err as { name: string }).name === 'AbortError';
+}

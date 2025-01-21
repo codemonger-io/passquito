@@ -7,7 +7,10 @@ const router = createRouter({
     {
       path: '/',
       name: 'home',
-      component: SignUp
+      component: SignUp,
+      props: (route) => ({
+        message: route.query.message
+      })
     },
     {
       path: '/signin',
