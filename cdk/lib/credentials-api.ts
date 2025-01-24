@@ -1,7 +1,10 @@
 import * as path from 'node:path';
-import { CorsHttpMethod, HttpApi, HttpMethod } from '@aws-cdk/aws-apigatewayv2-alpha';
-import { HttpLambdaIntegration } from '@aws-cdk/aws-apigatewayv2-integrations-alpha';
-import { Duration, aws_lambda as lambda } from 'aws-cdk-lib';
+import {
+  Duration,
+  aws_apigatewayv2 as apigw2,
+  aws_apigatewayv2_integrations as apigw2_integrations,
+  aws_lambda as lambda,
+} from 'aws-cdk-lib';
 import { RustFunction } from 'cargo-lambda-cdk';
 import { Construct } from 'constructs';
 
@@ -36,7 +39,7 @@ export class CredentialsApi extends Construct {
     readonly discoverableLambda: lambda.IFunction;
 
     /** Credentials API. */
-    readonly credentialsApi: HttpApi;
+    readonly credentialsApi: apigw2.HttpApi;
 
     constructor(scope: Construct, id: string, readonly props: CredentialsApiProps) {
         super(scope, id);
@@ -91,25 +94,25 @@ export class CredentialsApi extends Construct {
         parameters.rpOriginParameter.grantRead(this.discoverableLambda);
         sessionStore.sessionTable.grantReadWriteData(this.discoverableLambda);
 
-        this.credentialsApi = new HttpApi(this, 'CredentialsApi', {
+        this.credentialsApi = new apigw2.HttpApi(this, 'CredentialsApi', {
             description: 'API to manage credentials',
             createDefaultStage: true,
             corsPreflight: {
                 allowHeaders: ['Content-Type'],
-                allowMethods: [CorsHttpMethod.POST],
+                allowMethods: [apigw2.CorsHttpMethod.POST],
                 allowOrigins,
                 maxAge: Duration.days(1),
             },
         });
         this.credentialsApi.addRoutes({
             path: `${registrationBasePath}{proxy+}`,
-            methods: [HttpMethod.POST],
-            integration: new HttpLambdaIntegration('Registration', this.registrationLambda),
+            methods: [apigw2.HttpMethod.POST],
+            integration: new apigw2_integrations.HttpLambdaIntegration('Registration', this.registrationLambda),
         });
         this.credentialsApi.addRoutes({
             path: `${discoverableBasePath}{proxy+}`,
-            methods: [HttpMethod.POST],
-            integration: new HttpLambdaIntegration('Discoverable', this.discoverableLambda),
+            methods: [apigw2.HttpMethod.POST],
+            integration: new apigw2_integrations.HttpLambdaIntegration('Discoverable', this.discoverableLambda),
         });
     }
 
