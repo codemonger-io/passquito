@@ -21,6 +21,11 @@ const router = createRouter({
       path: '/signin-dummy',
       name: 'signin-dummy',
       component: () => import('../views/SignInDummy.vue')
+    },
+    {
+      path: '/secured',
+      name: 'secured',
+      component: () => import('../views/Secured.vue')
     }
   ]
 })

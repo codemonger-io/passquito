@@ -23,7 +23,11 @@ onMounted(async () => {
   isPasskeySupported.value = await checkPasskeyAuthenticationSupported();
 });
 
-// requests conditional mediation if passkeys are supported
+// performs an authentication ceremony if passkeys are supported.
+//
+// if authenticated, saves the tokens in the local storage and navigates to
+// the secured page.
+// otherwise, navigates to the sign-up page unless it has been aborted.
 const abortAuthentication = ref<(message: string) => void>(() => {});
 watch(
   isPasskeySupported,
@@ -40,10 +44,14 @@ watch(
     abortAuthentication.value = abort;
     try {
       const tokens = await futureTokens;
+      if (!isTokens(tokens)) {
+        console.error('invalid tokens', tokens);
+        throw new Error('invalid tokens');
+      }
       console.log('authenticated:', tokens);
-      alert('authenticated!');
+      saveTokens(tokens);
+      router.push({ name: 'secured' });
     } catch (err) {
-      // navigates to the sign-up page unless it is aborted
       if (!isAbortError(err)) {
         console.error(err);
         router.push({
@@ -59,6 +67,34 @@ watch(
   },
   { immediate: true },
 );
+
+interface Tokens {
+  IdToken: string;
+  AccessToken: string;
+  RefreshToken: string;
+}
+
+function isTokens(value: unknown): value is Tokens {
+  if (value == null || typeof value !== 'object') {
+    return false;
+  }
+  const maybeTokens = value as Tokens;
+  if (
+    typeof maybeTokens.IdToken !== 'string' ||
+    typeof maybeTokens.AccessToken !== 'string' ||
+    typeof maybeTokens.RefreshToken !== 'string'
+  ) {
+    return false;
+  }
+  return true;
+}
+
+// saves the tokens in the local storage.
+const saveTokens = (tokens: Tokens) => {
+  localStorage.setItem('passquitoIdToken', tokens.IdToken);
+  localStorage.setItem('passquitoAccessToken', tokens.AccessToken);
+  localStorage.setItem('passquitoRefreshToken', tokens.RefreshToken);
+};
 
 onBeforeUnmount(() => {
   abortAuthentication.value('leaving page');
