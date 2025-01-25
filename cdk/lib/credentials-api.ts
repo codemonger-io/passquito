@@ -2,6 +2,7 @@ import * as path from 'node:path';
 import {
   Duration,
   aws_apigatewayv2 as apigw2,
+  aws_apigatewayv2_authorizers as apigw2_authorizers,
   aws_apigatewayv2_integrations as apigw2_integrations,
   aws_lambda as lambda,
 } from 'aws-cdk-lib';
@@ -38,6 +39,9 @@ export class CredentialsApi extends Construct {
     /** Lambda function for discoverable credentials. */
     readonly discoverableLambda: lambda.IFunction;
 
+    /** Lambda function that serves secured contents. */
+    readonly securedLambda: lambda.IFunction;
+
     /** Credentials API. */
     readonly credentialsApi: apigw2.HttpApi;
 
@@ -54,6 +58,7 @@ export class CredentialsApi extends Construct {
         const manifestPath = path.join('lambda', 'authentication', 'Cargo.toml');
         const registrationBasePath = `${basePath.replace(/\/$/, '')}/registration/`;
         const discoverableBasePath = `${basePath.replace(/\/$/, '')}/discoverable/`;
+        const securedBasePath = `${basePath.replace(/\/$/, '')}/secured`;
 
         this.registrationLambda = new RustFunction(this, 'RegistrationLambda', {
             manifestPath,
@@ -94,12 +99,23 @@ export class CredentialsApi extends Construct {
         parameters.rpOriginParameter.grantRead(this.discoverableLambda);
         sessionStore.sessionTable.grantReadWriteData(this.discoverableLambda);
 
+        this.securedLambda = new RustFunction(this, 'SecuredLambda', {
+          manifestPath,
+          binaryName: 'secured',
+          architecture: lambda.Architecture.ARM_64,
+          environment: {
+            BASE_PATH: securedBasePath
+          },
+          memorySize: 128,
+          timeout: Duration.seconds(5),
+        });
+
         this.credentialsApi = new apigw2.HttpApi(this, 'CredentialsApi', {
             description: 'API to manage credentials',
             createDefaultStage: true,
             corsPreflight: {
-                allowHeaders: ['Content-Type'],
-                allowMethods: [apigw2.CorsHttpMethod.POST],
+                allowHeaders: ['Authorization', 'Content-Type'],
+                allowMethods: [apigw2.CorsHttpMethod.GET, apigw2.CorsHttpMethod.POST],
                 allowOrigins,
                 maxAge: Duration.days(1),
             },
@@ -113,6 +129,18 @@ export class CredentialsApi extends Construct {
             path: `${discoverableBasePath}{proxy+}`,
             methods: [apigw2.HttpMethod.POST],
             integration: new apigw2_integrations.HttpLambdaIntegration('Discoverable', this.discoverableLambda),
+        });
+        this.credentialsApi.addRoutes({
+            path: securedBasePath,
+            methods: [apigw2.HttpMethod.GET],
+            integration: new apigw2_integrations.HttpLambdaIntegration('Secured', this.securedLambda),
+            authorizer: new apigw2_authorizers.HttpUserPoolAuthorizer(
+              'UserPoolAuthorizer',
+              props.userPool.userPool,
+              {
+                  userPoolClients: [props.userPool.userPoolClient],
+              },
+            ),
         });
     }
 
