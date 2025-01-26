@@ -1,6 +1,7 @@
 //! Error response.
 
 use lambda_http::{Body, Error, Response, http::StatusCode};
+use lambda_runtime::diagnostic::Diagnostic;
 
 /// Error response.
 ///
@@ -92,5 +93,27 @@ impl TryInto<Response<Body>> for ErrorResponse {
                 .body(msg.into())?),
             ErrorResponse::Unhandled(e) => Err(e),
         }
+    }
+}
+
+impl From<ErrorResponse> for Diagnostic {
+    fn from(e: ErrorResponse) -> Self {
+        match e {
+            ErrorResponse::BadRequest(msg) => make_diagnostic("BadRequest", &msg),
+            ErrorResponse::Unauthorized(msg) => make_diagnostic("Unauthorized", &msg),
+            ErrorResponse::Unavailable(msg) => make_diagnostic("ServiceUnavailable", &msg),
+            ErrorResponse::Unhandled(e) => e.into(),
+        }
+    }
+}
+
+// Creates a `Diagnostic` of a given error type and message.
+//
+// The error message is prefixed with the error type so that selection patterns
+// in integration response options can be specific.
+fn make_diagnostic(error_type: &str, error_message: &str) -> Diagnostic {
+    Diagnostic {
+        error_type: error_type.to_string(),
+        error_message: format!("[{error_type}] {error_message}"),
     }
 }
