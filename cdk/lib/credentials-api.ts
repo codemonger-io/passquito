@@ -147,32 +147,48 @@ export class CredentialsApi extends Construct {
 
     // registration endpoints
     const registration = root.addResource('registration');
-    const registrationProxy = registration.addProxy({
-      anyMethod: false,
-      defaultIntegration: new apigw.LambdaIntegration(
-        this.registrationLambda,
-        {
-          integrationResponses: makeIntegrationResponsesAllowCors([]),
-        },
-      ),
-      defaultMethodOptions: {
+    // /registration/start
+    const registrationStart = registration.addResource('start');
+    // - POST
+    registrationStart.addMethod(
+      'POST',
+      new apigw.LambdaIntegration(this.registrationLambda, {
+        proxy: true,
+        integrationResponses: makeIntegrationResponsesAllowCors([]),
+      }),
+      {
         methodResponses: makeMethodResponsesAllowCors([]),
       },
-    });
-    registrationProxy.addMethod('POST');
+    );
+    // /registration/finish
+    const registrationFinish = registration.addResource('finish');
+    // - POST
+    registrationFinish.addMethod(
+      'POST',
+      new apigw.LambdaIntegration(this.registrationLambda, {
+        proxy: true,
+        integrationResponses: makeIntegrationResponsesAllowCors([]),
+      }),
+      {
+        methodResponses: makeMethodResponsesAllowCors([]),
+      },
+    );
 
     // discoverable endpoints
     const discoverable = root.addResource('discoverable');
-    const discoverableProxy = discoverable.addProxy({
-      anyMethod: false,
-      defaultIntegration: new apigw.LambdaIntegration(this.discoverableLambda, {
+    // /discoverable/start
+    const discoverableStart = discoverable.addResource('start');
+    // - POST
+    discoverableStart.addMethod(
+      'POST',
+      new apigw.LambdaIntegration(this.discoverableLambda, {
+        proxy: true,
         integrationResponses: makeIntegrationResponsesAllowCors([]),
       }),
-      defaultMethodOptions: {
+      {
         methodResponses: makeMethodResponsesAllowCors([]),
       },
-    });
-    discoverableProxy.addMethod('POST');
+    );
 
     // secured endpoints
     const authorizer = augmentAuthorizer(
