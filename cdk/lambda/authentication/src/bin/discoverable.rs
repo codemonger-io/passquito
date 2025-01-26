@@ -143,6 +143,8 @@ async fn start_authentication(
     Ok(Response::builder()
         .status(StatusCode::OK)
         .header("Content-Type", "application/json")
+        // TODO: no need for this after giving up the proxy integration
+        .header("Access-Control-Allow-Origin", "*")
         .body(res.into())?)
 }
 

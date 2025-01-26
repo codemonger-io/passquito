@@ -1,12 +1,15 @@
 import * as path from 'node:path';
 import {
   Duration,
-  aws_apigatewayv2 as apigw2,
-  aws_apigatewayv2_authorizers as apigw2_authorizers,
-  aws_apigatewayv2_integrations as apigw2_integrations,
+  aws_apigateway as apigw,
   aws_lambda as lambda,
 } from 'aws-cdk-lib';
 import { RustFunction } from 'cargo-lambda-cdk';
+import {
+  makeIntegrationResponsesAllowCors,
+  makeMethodResponsesAllowCors,
+} from 'cdk2-cors-utils';
+import { RestApiWithSpec, augmentAuthorizer } from 'cdk-rest-api-with-spec';
 import { Construct } from 'constructs';
 
 import type { Parameters } from './parameters';
@@ -43,7 +46,7 @@ export class CredentialsApi extends Construct {
   readonly securedLambda: lambda.IFunction;
 
   /** Credentials API. */
-  readonly credentialsApi: apigw2.HttpApi;
+  readonly credentialsApi: RestApiWithSpec;
 
   constructor(scope: Construct, id: string, readonly props: CredentialsApiProps) {
     super(scope, id);
@@ -110,38 +113,95 @@ export class CredentialsApi extends Construct {
       timeout: Duration.seconds(5),
     });
 
-    this.credentialsApi = new apigw2.HttpApi(this, 'CredentialsApi', {
+    this.credentialsApi = new RestApiWithSpec(this, 'CredentialsRestApi', {
       description: 'API to manage credentials',
-      createDefaultStage: true,
-      corsPreflight: {
+      openApiInfo: {
+        version: '0.0.1',
+      },
+      openApiOutputPath: path.join('openapi', 'credentials-api.json'),
+      defaultCorsPreflightOptions: {
         allowHeaders: ['Authorization', 'Content-Type'],
-        allowMethods: [apigw2.CorsHttpMethod.GET, apigw2.CorsHttpMethod.POST],
+        allowMethods: ['GET', 'POST'],
         allowOrigins,
         maxAge: Duration.days(1),
       },
+      deploy: true,
+      deployOptions: {
+        description: 'Default deployment',
+        stageName: 'default',
+        loggingLevel: apigw.MethodLoggingLevel.INFO,
+        throttlingRateLimit: 100,
+        throttlingBurstLimit: 100,
+        tracingEnabled: true,
+      },
     });
-    this.credentialsApi.addRoutes({
-      path: `${registrationBasePath}{proxy+}`,
-      methods: [apigw2.HttpMethod.POST],
-      integration: new apigw2_integrations.HttpLambdaIntegration('Registration', this.registrationLambda),
-    });
-    this.credentialsApi.addRoutes({
-      path: `${discoverableBasePath}{proxy+}`,
-      methods: [apigw2.HttpMethod.POST],
-      integration: new apigw2_integrations.HttpLambdaIntegration('Discoverable', this.discoverableLambda),
-    });
-    this.credentialsApi.addRoutes({
-      path: securedBasePath,
-      methods: [apigw2.HttpMethod.GET],
-      integration: new apigw2_integrations.HttpLambdaIntegration('Secured', this.securedLambda),
-      authorizer: new apigw2_authorizers.HttpUserPoolAuthorizer(
-        'UserPoolAuthorizer',
-        props.userPool.userPool,
+
+    // gets to the base path
+    const root = props.basePath
+      .split('/')
+      .filter((p) => p.length > 0)
+      .reduce(
+        (resource, part) => resource.addResource(part),
+        this.credentialsApi.root,
+      );
+
+    // registration endpoints
+    const registration = root.addResource('registration');
+    const registrationProxy = registration.addProxy({
+      anyMethod: false,
+      defaultIntegration: new apigw.LambdaIntegration(
+        this.registrationLambda,
         {
-            userPoolClients: [props.userPool.userPoolClient],
+          integrationResponses: makeIntegrationResponsesAllowCors([]),
         },
       ),
+      defaultMethodOptions: {
+        methodResponses: makeMethodResponsesAllowCors([]),
+      },
     });
+    registrationProxy.addMethod('POST');
+
+    // discoverable endpoints
+    const discoverable = root.addResource('discoverable');
+    const discoverableProxy = discoverable.addProxy({
+      anyMethod: false,
+      defaultIntegration: new apigw.LambdaIntegration(this.discoverableLambda, {
+        integrationResponses: makeIntegrationResponsesAllowCors([]),
+      }),
+      defaultMethodOptions: {
+        methodResponses: makeMethodResponsesAllowCors([]),
+      },
+    });
+    discoverableProxy.addMethod('POST');
+
+    // secured endpoints
+    const authorizer = augmentAuthorizer(
+      new apigw.CognitoUserPoolsAuthorizer(this, 'UserPoolAuthorizer', {
+        cognitoUserPools: [props.userPool.userPool],
+      }),
+      {
+        type: 'apiKey',
+        in: 'header',
+        name: 'Authorization',
+      },
+    );
+    const secured = root.addResource('secured');
+    secured.addMethod(
+      'GET',
+      new apigw.LambdaIntegration(this.securedLambda, {
+        proxy: true,
+        integrationResponses: makeIntegrationResponsesAllowCors([]),
+      }),
+      {
+        authorizer,
+        authorizationType: apigw.AuthorizationType.COGNITO,
+        methodResponses: makeMethodResponsesAllowCors([
+          {
+            statusCode: '200',
+          },
+        ]),
+      },
+    );
   }
 
   /** Base path of the Credentials API not including the trailing slash. */
@@ -151,6 +211,6 @@ export class CredentialsApi extends Construct {
 
   /** Internal URL of the Credentials API. */
   get internalUrl(): string {
-    return `${this.credentialsApi.defaultStage!.url}${this.props.basePath.replace(/^\//, '')}`;
+    return this.credentialsApi.deploymentStage.urlForPath(this.props.basePath);
   }
 }

@@ -50,7 +50,7 @@ export class Distribution extends Construct {
       additionalBehaviors: {
         [`${credentialsApi.basePath}/*`]: {
           origin: new origins.HttpOrigin(
-            Fn.parseDomainName(credentialsApi.credentialsApi.apiEndpoint),
+            Fn.parseDomainName(credentialsApi.credentialsApi.url),
           ),
           allowedMethods: cloudfront.AllowedMethods.ALLOW_ALL,
           // deals with only POST requests

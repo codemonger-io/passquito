@@ -56,6 +56,8 @@ async fn function_handler(
         Ok(Response::builder()
             .status(200)
             .header("Content-Type", "application/json")
+            // proxy integration needs this
+            .header("Access-Control-Allow-Origin", "*")
             .body(Body::from(SECRET_MESSAGE))
             .expect("failed to render response"))
     } else {
