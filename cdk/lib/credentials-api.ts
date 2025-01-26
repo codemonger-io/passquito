@@ -15,142 +15,142 @@ import type { UserPool } from './user-pool';
 
 /** Props for `CredentialsApi`. */
 export interface CredentialsApiProps {
-    /** Base path where tht API is to be served. */
-    readonly basePath: string;
+  /** Base path where tht API is to be served. */
+  readonly basePath: string;
 
-    /** Parameters in Parameter Store on AWS Systems Manager. */
-    readonly parameters: Parameters;
+  /** Parameters in Parameter Store on AWS Systems Manager. */
+  readonly parameters: Parameters;
 
-    /** Session store. */
-    readonly sessionStore: SessionStore;
+  /** Session store. */
+  readonly sessionStore: SessionStore;
 
-    /** User pool. */
-    readonly userPool: UserPool;
+  /** User pool. */
+  readonly userPool: UserPool;
 
-    /** Origins allowed to access the API. */
-    readonly allowOrigins: string[];
+  /** Origins allowed to access the API. */
+  readonly allowOrigins: string[];
 }
 
 /** CDK construct that provisions the Credentials API. */
 export class CredentialsApi extends Construct {
-    /** Lambda function for registration. */
-    readonly registrationLambda: lambda.IFunction;
+  /** Lambda function for registration. */
+  readonly registrationLambda: lambda.IFunction;
 
-    /** Lambda function for discoverable credentials. */
-    readonly discoverableLambda: lambda.IFunction;
+  /** Lambda function for discoverable credentials. */
+  readonly discoverableLambda: lambda.IFunction;
 
-    /** Lambda function that serves secured contents. */
-    readonly securedLambda: lambda.IFunction;
+  /** Lambda function that serves secured contents. */
+  readonly securedLambda: lambda.IFunction;
 
-    /** Credentials API. */
-    readonly credentialsApi: apigw2.HttpApi;
+  /** Credentials API. */
+  readonly credentialsApi: apigw2.HttpApi;
 
-    constructor(scope: Construct, id: string, readonly props: CredentialsApiProps) {
-        super(scope, id);
+  constructor(scope: Construct, id: string, readonly props: CredentialsApiProps) {
+    super(scope, id);
 
-        const {
-          allowOrigins,
-          basePath,
-          parameters,
-          sessionStore,
-          userPool,
-        } = props;
-        const manifestPath = path.join('lambda', 'authentication', 'Cargo.toml');
-        const registrationBasePath = `${basePath.replace(/\/$/, '')}/registration/`;
-        const discoverableBasePath = `${basePath.replace(/\/$/, '')}/discoverable/`;
-        const securedBasePath = `${basePath.replace(/\/$/, '')}/secured`;
+    const {
+      allowOrigins,
+      basePath,
+      parameters,
+      sessionStore,
+      userPool,
+    } = props;
+    const manifestPath = path.join('lambda', 'authentication', 'Cargo.toml');
+    const registrationBasePath = `${basePath.replace(/\/$/, '')}/registration/`;
+    const discoverableBasePath = `${basePath.replace(/\/$/, '')}/discoverable/`;
+    const securedBasePath = `${basePath.replace(/\/$/, '')}/secured`;
 
-        this.registrationLambda = new RustFunction(this, 'RegistrationLambda', {
-            manifestPath,
-            binaryName: 'registration',
-            architecture: lambda.Architecture.ARM_64,
-            environment: {
-                BASE_PATH: registrationBasePath,
-                SESSION_TABLE_NAME: sessionStore.sessionTable.tableName,
-                USER_POOL_ID: userPool.userPool.userPoolId,
-                CREDENTIAL_TABLE_NAME: userPool.credentialTable.tableName,
-                RP_ORIGIN_PARAMETER_PATH: parameters.rpOriginParameter.parameterName,
-            },
-            memorySize: 128,
-            timeout: Duration.seconds(5),
-        });
-        parameters.rpOriginParameter.grantRead(this.registrationLambda);
-        sessionStore.sessionTable.grantReadWriteData(this.registrationLambda);
-        userPool.credentialTable.grantReadWriteData(this.registrationLambda);
-        userPool.userPool.grant(
-            this.registrationLambda,
-            'cognito-idp:AdminCreateUser',
-            'cognito-idp:AdminSetUserPassword',
-            'cognito-idp:ListUsers',
-        );
+    this.registrationLambda = new RustFunction(this, 'RegistrationLambda', {
+      manifestPath,
+      binaryName: 'registration',
+      architecture: lambda.Architecture.ARM_64,
+      environment: {
+        BASE_PATH: registrationBasePath,
+        SESSION_TABLE_NAME: sessionStore.sessionTable.tableName,
+        USER_POOL_ID: userPool.userPool.userPoolId,
+        CREDENTIAL_TABLE_NAME: userPool.credentialTable.tableName,
+        RP_ORIGIN_PARAMETER_PATH: parameters.rpOriginParameter.parameterName,
+      },
+      memorySize: 128,
+      timeout: Duration.seconds(5),
+    });
+    parameters.rpOriginParameter.grantRead(this.registrationLambda);
+    sessionStore.sessionTable.grantReadWriteData(this.registrationLambda);
+    userPool.credentialTable.grantReadWriteData(this.registrationLambda);
+    userPool.userPool.grant(
+      this.registrationLambda,
+      'cognito-idp:AdminCreateUser',
+      'cognito-idp:AdminSetUserPassword',
+      'cognito-idp:ListUsers',
+    );
 
-        this.discoverableLambda = new RustFunction(this, 'DiscoverableLambda', {
-            manifestPath,
-            binaryName: 'discoverable',
-            architecture: lambda.Architecture.ARM_64,
-            environment: {
-                BASE_PATH: discoverableBasePath,
-                SESSION_TABLE_NAME: sessionStore.sessionTable.tableName,
-                RP_ORIGIN_PARAMETER_PATH: parameters.rpOriginParameter.parameterName,
-            },
-            memorySize: 128,
-            timeout: Duration.seconds(5),
-        });
-        parameters.rpOriginParameter.grantRead(this.discoverableLambda);
-        sessionStore.sessionTable.grantReadWriteData(this.discoverableLambda);
+    this.discoverableLambda = new RustFunction(this, 'DiscoverableLambda', {
+      manifestPath,
+      binaryName: 'discoverable',
+      architecture: lambda.Architecture.ARM_64,
+      environment: {
+        BASE_PATH: discoverableBasePath,
+        SESSION_TABLE_NAME: sessionStore.sessionTable.tableName,
+        RP_ORIGIN_PARAMETER_PATH: parameters.rpOriginParameter.parameterName,
+      },
+      memorySize: 128,
+      timeout: Duration.seconds(5),
+    });
+    parameters.rpOriginParameter.grantRead(this.discoverableLambda);
+    sessionStore.sessionTable.grantReadWriteData(this.discoverableLambda);
 
-        this.securedLambda = new RustFunction(this, 'SecuredLambda', {
-          manifestPath,
-          binaryName: 'secured',
-          architecture: lambda.Architecture.ARM_64,
-          environment: {
-            BASE_PATH: securedBasePath
-          },
-          memorySize: 128,
-          timeout: Duration.seconds(5),
-        });
+    this.securedLambda = new RustFunction(this, 'SecuredLambda', {
+      manifestPath,
+      binaryName: 'secured',
+      architecture: lambda.Architecture.ARM_64,
+      environment: {
+        BASE_PATH: securedBasePath
+      },
+      memorySize: 128,
+      timeout: Duration.seconds(5),
+    });
 
-        this.credentialsApi = new apigw2.HttpApi(this, 'CredentialsApi', {
-            description: 'API to manage credentials',
-            createDefaultStage: true,
-            corsPreflight: {
-                allowHeaders: ['Authorization', 'Content-Type'],
-                allowMethods: [apigw2.CorsHttpMethod.GET, apigw2.CorsHttpMethod.POST],
-                allowOrigins,
-                maxAge: Duration.days(1),
-            },
-        });
-        this.credentialsApi.addRoutes({
-            path: `${registrationBasePath}{proxy+}`,
-            methods: [apigw2.HttpMethod.POST],
-            integration: new apigw2_integrations.HttpLambdaIntegration('Registration', this.registrationLambda),
-        });
-        this.credentialsApi.addRoutes({
-            path: `${discoverableBasePath}{proxy+}`,
-            methods: [apigw2.HttpMethod.POST],
-            integration: new apigw2_integrations.HttpLambdaIntegration('Discoverable', this.discoverableLambda),
-        });
-        this.credentialsApi.addRoutes({
-            path: securedBasePath,
-            methods: [apigw2.HttpMethod.GET],
-            integration: new apigw2_integrations.HttpLambdaIntegration('Secured', this.securedLambda),
-            authorizer: new apigw2_authorizers.HttpUserPoolAuthorizer(
-              'UserPoolAuthorizer',
-              props.userPool.userPool,
-              {
-                  userPoolClients: [props.userPool.userPoolClient],
-              },
-            ),
-        });
-    }
+    this.credentialsApi = new apigw2.HttpApi(this, 'CredentialsApi', {
+      description: 'API to manage credentials',
+      createDefaultStage: true,
+      corsPreflight: {
+        allowHeaders: ['Authorization', 'Content-Type'],
+        allowMethods: [apigw2.CorsHttpMethod.GET, apigw2.CorsHttpMethod.POST],
+        allowOrigins,
+        maxAge: Duration.days(1),
+      },
+    });
+    this.credentialsApi.addRoutes({
+      path: `${registrationBasePath}{proxy+}`,
+      methods: [apigw2.HttpMethod.POST],
+      integration: new apigw2_integrations.HttpLambdaIntegration('Registration', this.registrationLambda),
+    });
+    this.credentialsApi.addRoutes({
+      path: `${discoverableBasePath}{proxy+}`,
+      methods: [apigw2.HttpMethod.POST],
+      integration: new apigw2_integrations.HttpLambdaIntegration('Discoverable', this.discoverableLambda),
+    });
+    this.credentialsApi.addRoutes({
+      path: securedBasePath,
+      methods: [apigw2.HttpMethod.GET],
+      integration: new apigw2_integrations.HttpLambdaIntegration('Secured', this.securedLambda),
+      authorizer: new apigw2_authorizers.HttpUserPoolAuthorizer(
+        'UserPoolAuthorizer',
+        props.userPool.userPool,
+        {
+            userPoolClients: [props.userPool.userPoolClient],
+        },
+      ),
+    });
+  }
 
-    /** Base path of the Credentials API not including the trailing slash. */
-    get basePath(): string {
-      return this.props.basePath.replace(/\/$/, '');
-    }
+  /** Base path of the Credentials API not including the trailing slash. */
+  get basePath(): string {
+    return this.props.basePath.replace(/\/$/, '');
+  }
 
-    /** Internal URL of the Credentials API. */
-    get internalUrl(): string {
-        return `${this.credentialsApi.defaultStage!.url}${this.props.basePath.replace(/^\//, '')}`;
-    }
+  /** Internal URL of the Credentials API. */
+  get internalUrl(): string {
+    return `${this.credentialsApi.defaultStage!.url}${this.props.basePath.replace(/^\//, '')}`;
+  }
 }
