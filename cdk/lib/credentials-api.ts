@@ -92,7 +92,6 @@ export class CredentialsApi extends Construct {
       binaryName: 'discoverable',
       architecture: lambda.Architecture.ARM_64,
       environment: {
-        BASE_PATH: discoverableBasePath,
         SESSION_TABLE_NAME: sessionStore.sessionTable.tableName,
         RP_ORIGIN_PARAMETER_PATH: parameters.rpOriginParameter.parameterName,
       },
@@ -133,6 +132,17 @@ export class CredentialsApi extends Construct {
         throttlingRateLimit: 100,
         throttlingBurstLimit: 100,
         tracingEnabled: true,
+      },
+    });
+
+    // defines models
+    const emptyModel = this.credentialsApi.addModel('EmptyModel', {
+      description: 'Empty object',
+      contentType: 'application/json',
+      schema: {
+        schema: apigw.JsonSchemaVersion.DRAFT4,
+        title: 'emptyResponse',
+        type: apigw.JsonSchemaType.OBJECT,
       },
     });
 
@@ -182,11 +192,35 @@ export class CredentialsApi extends Construct {
     discoverableStart.addMethod(
       'POST',
       new apigw.LambdaIntegration(this.discoverableLambda, {
-        proxy: true,
-        integrationResponses: makeIntegrationResponsesAllowCors([]),
+        proxy: false,
+        passthroughBehavior: apigw.PassthroughBehavior.NEVER,
+        requestTemplates: {
+          'application/json': '{}',
+        },
+        integrationResponses: makeIntegrationResponsesAllowCors([
+          {
+            statusCode: '503',
+            selectionPattern: makeSelectionPattern('ServiceUnavailable'),
+          },
+          {
+            statusCode: '200',
+          },
+        ]),
       }),
       {
-        methodResponses: makeMethodResponsesAllowCors([]),
+        requestModels: {
+          'application/json': emptyModel,
+        },
+        methodResponses: makeMethodResponsesAllowCors([
+          {
+            statusCode: '200',
+            description: 'Discoverable credentials session has been successfully started.',
+          },
+          {
+            statusCode: '503',
+            description: 'Service is not temporarily available. Try again later.',
+          },
+        ]),
       },
     );
 
@@ -229,4 +263,10 @@ export class CredentialsApi extends Construct {
   get internalUrl(): string {
     return this.credentialsApi.deploymentStage.urlForPath(this.props.basePath);
   }
+}
+
+// Makes a selection pattern for a given erro type.
+function makeSelectionPattern(errorType: string): string {
+  // NOTE: "." may not match line endings
+  return `^\\[${errorType}\\](\\n|.)+`;
 }

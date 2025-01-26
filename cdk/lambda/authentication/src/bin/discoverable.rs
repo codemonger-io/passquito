@@ -3,8 +3,6 @@
 //! This application is intended to run as an AWS Lambda function.
 //!
 //! You have to configure the following environment variables:
-//! - `BASE_PATH`: base path to provide the service, which must end with a
-//!   trailing slash (/); e.g, `/auth/credentials/discoverable/`
 //! - `SESSION_TABLE_NAME`: name of the DynamoDB table that manages sessions
 //! - `RP_ORIGIN_PARAMETER_PATH`: path to the parameter that stores the origin
 //!   (URL) of the relying party in the Parameter Store on AWS Systems Manager
@@ -31,21 +29,13 @@ use base64::{
     Engine as _,
     engine::general_purpose::{URL_SAFE_NO_PAD as base64url},
 };
-use lambda_http::{
-    Body,
-    Error,
-    Request,
-    RequestExt,
-    Response,
-    http::StatusCode,
-    run,
-    service_fn,
-};
+use lambda_runtime::{Error, LambdaEvent, run, service_fn};
+use serde_json::Value;
 use std::env;
 use std::sync::Arc;
 use std::time::SystemTime;
-use tracing::{error, info};
-use webauthn_rs::{Webauthn, WebauthnBuilder};
+use tracing::info;
+use webauthn_rs::{Webauthn, WebauthnBuilder, prelude::RequestChallengeResponse};
 
 use authentication::error_response::ErrorResponse;
 use authentication::parameters::load_relying_party_origin;
@@ -55,7 +45,6 @@ use authentication::sdk_error_ext::SdkErrorExt as _;
 struct SharedState {
     webauthn: Webauthn,
     dynamodb: aws_sdk_dynamodb::Client,
-    base_path: String,
     session_table_name: String,
 }
 
@@ -67,12 +56,9 @@ impl SharedState {
         let webauthn = WebauthnBuilder::new(&rp_id, &rp_origin)?
             .rp_name("Passkey Test")
             .build()?;
-        let base_path = env::var("BASE_PATH")
-            .or(Err("BASE_PATH env must be set"))?;
         Ok(Self {
             webauthn,
             dynamodb: aws_sdk_dynamodb::Client::new(&config),
-            base_path: base_path.trim_end_matches('/').into(),
             session_table_name: env::var("SESSION_TABLE_NAME")
                 .or(Err("SESSION_TABLE_NAME env must be set"))?,
         })
@@ -81,71 +67,40 @@ impl SharedState {
 
 async fn function_handler(
     shared_state: Arc<SharedState>,
-    event: Request,
-) -> Result<Response<Body>, Error> {
-    let job_path = event
-        .raw_http_path()
-        .strip_prefix(&shared_state.base_path)
-        .ok_or_else(|| {
-            error!("path must start with \"{}\"", shared_state.base_path);
-            ErrorResponse::bad_request("bad request")
-        });
-    let res = match job_path {
-        Ok(p) if p == "/start" => start_authentication(shared_state).await,
-        Ok(p) => {
-            error!("unsupported job path: {}", p);
-            Err(ErrorResponse::bad_request("bad request"))
-        }
-        Err(e) => Err(e),
-    };
-    match res {
-        Ok(res) => Ok(res),
-        Err(e) => e.try_into(),
-    }
+    _event: LambdaEvent<Value>,
+) -> Result<RequestChallengeResponse, ErrorResponse> {
+    start_authentication(shared_state).await
 }
 
 async fn start_authentication(
     shared_state: Arc<SharedState>,
-) -> Result<Response<Body>, ErrorResponse> {
+) -> Result<RequestChallengeResponse, ErrorResponse> {
     info!("start_authentication");
-    let res = match shared_state.webauthn.start_discoverable_authentication() {
-        Ok((rcr, auth_state)) => {
-            let ttl = DateTime::from(SystemTime::now()).secs() + 60;
-            info!("putting authentication session: {}", base64url.encode(&rcr.public_key.challenge));
-            shared_state.dynamodb
-                .put_item()
-                .table_name(shared_state.session_table_name.clone())
-                .item(
-                    "pk",
-                    AttributeValue::S(
-                        format!("discoverable#{}", base64url.encode(&rcr.public_key.challenge)),
-                    ),
-                )
-                .item("ttl", AttributeValue::N(ttl.to_string()))
-                .item(
-                    "state",
-                    AttributeValue::S(serde_json::to_string(&auth_state)?),
-                )
-                .send()
-                .await
-                .map_err(|e| if e.is_retryable() {
-                    ErrorResponse::unavailable("service temporarily unavailable")
-                } else {
-                    e.into()
-                })?;
-            serde_json::to_string(&rcr)?
-        }
-        Err(e) => {
-            error!("failed to start authentication: {}", e);
-            return Err("failed to start authentication".into());
-        }
-    };
-    Ok(Response::builder()
-        .status(StatusCode::OK)
-        .header("Content-Type", "application/json")
-        // TODO: no need for this after giving up the proxy integration
-        .header("Access-Control-Allow-Origin", "*")
-        .body(res.into())?)
+    let (rcr, auth_state) = shared_state.webauthn.start_discoverable_authentication()?;
+    let ttl = DateTime::from(SystemTime::now()).secs() + 60;
+    info!("putting authentication session: {}", base64url.encode(&rcr.public_key.challenge));
+    shared_state.dynamodb
+        .put_item()
+        .table_name(shared_state.session_table_name.clone())
+        .item(
+            "pk",
+            AttributeValue::S(
+                format!("discoverable#{}", base64url.encode(&rcr.public_key.challenge)),
+            ),
+        )
+        .item("ttl", AttributeValue::N(ttl.to_string()))
+        .item(
+            "state",
+            AttributeValue::S(serde_json::to_string(&auth_state)?),
+        )
+        .send()
+        .await
+        .map_err(|e| if e.is_retryable() {
+            ErrorResponse::unavailable("service temporarily unavailable")
+        } else {
+            e.into()
+        })?;
+    Ok(rcr)
 }
 
 #[tokio::main]
@@ -173,7 +128,7 @@ mod tests {
     use aws_smithy_runtime_api::client::orchestrator::HttpResponse;
     use aws_smithy_runtime_api::http::StatusCode as SmithyStatusCode;
     use aws_smithy_types::body::SdkBody;
-    use webauthn_rs::prelude::{RequestChallengeResponse, Url};
+    use webauthn_rs::prelude::Url;
 
     impl SharedState {
         fn with_dynamodb_and_session_table_name(
@@ -190,14 +145,13 @@ mod tests {
                     .build()
                     .unwrap(),
                 dynamodb,
-                base_path: "/discoverable".to_string(),
                 session_table_name,
             }
         }
+    }
 
-        fn with_base_path(base_path: impl Into<String>) -> Self {
-            let base_path = base_path.into();
-
+    impl Default for SharedState {
+        fn default() -> Self {
             let rp_id = "localhost".to_string();
             let rp_origin = Url::parse("http://localhost:5173").unwrap();
 
@@ -221,24 +175,15 @@ mod tests {
                     .build()
                     .unwrap(),
                 dynamodb,
-                base_path,
                 session_table_name: "sessions".to_string(),
             }
-        }
-    }
-
-    impl Default for SharedState {
-        fn default() -> Self {
-            SharedState::with_base_path("/discoverable")
         }
     }
 
     #[tokio::test]
     async fn start_authentication_with_put_item_ok() {
         let state = Arc::new(SharedState::default());
-        let res = start_authentication(state).await.unwrap();
-        assert_eq!(res.status(), StatusCode::OK);
-        assert!(serde_json::from_slice::<RequestChallengeResponse>(res.body()).is_ok());
+        assert!(start_authentication(state).await.is_ok());
     }
 
     const RESOURCE_NOT_FOUND_EXCEPTION: &str = r#"{"__type": "com.amazonaws.dynamodb.v20120810#ResourceNotFoundException", "message": "Requested resource not found: Table: sessions not found"}"#;
@@ -362,36 +307,5 @@ mod tests {
         ));
         let res = start_authentication(state).await.err().unwrap();
         assert!(matches!(res, ErrorResponse::Unavailable(_)));
-    }
-
-    #[tokio::test]
-    async fn function_handler_with_valid_path() {
-        let state = Arc::new(SharedState::with_base_path("/discoverable"));
-
-        let req = Request::default().with_raw_http_path("/discoverable/start");
-
-        let res = function_handler(state, req).await.unwrap();
-        assert_eq!(res.status(), StatusCode::OK);
-        assert!(serde_json::from_slice::<RequestChallengeResponse>(res.body()).is_ok());
-    }
-
-    #[tokio::test]
-    async fn function_handler_with_invalid_path_prefix() {
-        let state = Arc::new(SharedState::with_base_path("/discoverable"));
-
-        let req = Request::default().with_raw_http_path("/start-discovery");
-
-        let res = function_handler(state, req).await.unwrap();
-        assert_eq!(res.status(), StatusCode::BAD_REQUEST);
-    }
-
-    #[tokio::test]
-    async fn function_handler_with_invalid_job_path() {
-        let state = Arc::new(SharedState::with_base_path("/discoverable"));
-
-        let req = Request::default().with_raw_http_path("/discoverable/finish");
-
-        let res = function_handler(state, req).await.unwrap();
-        assert_eq!(res.status(), StatusCode::BAD_REQUEST);
     }
 }
