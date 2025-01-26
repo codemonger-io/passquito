@@ -27,6 +27,8 @@
     "@aws-sdk/client-ssm": "3.734.0",
     "@types/yargs": "^17.0.32",
     "aws-cdk-lib": "2.176.0",
+    "cdk-rest-api-with-spec": "github:codemonger-io/cdk-rest-api-with-spec#v0.2.3",
+    "cdk2-cors-utils": "github:codemonger-io/cdk-cors-utils#v0.3.0",
     "constructs": "10.4.2",
     "source-map-support": "^0.5.21",
     "tsx": "^4.19.2",

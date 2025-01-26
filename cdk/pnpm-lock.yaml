@@ -20,6 +20,12 @@ importers:
       aws-cdk-lib:
         specifier: 2.176.0
         version: 2.176.0(constructs@10.4.2)
+      cdk-rest-api-with-spec:
+        specifier: github:codemonger-io/cdk-rest-api-with-spec#v0.2.3
+        version: https://codeload.github.com/codemonger-io/cdk-rest-api-with-spec/tar.gz/45bf3dd6de66664f8b9c134690f61a8944b4cebc
+      cdk2-cors-utils:
+        specifier: github:codemonger-io/cdk-cors-utils#v0.3.0
+        version: https://codeload.github.com/codemonger-io/cdk-cors-utils/tar.gz/a21eb69a74043042d10a8499cc123577d9ac8c1b(aws-cdk-lib@2.176.0(constructs@10.4.2))
       constructs:
         specifier: 10.4.2
         version: 10.4.2
@@ -982,6 +988,18 @@ packages:
       aws-cdk-lib: ^2.0
       constructs: ^10.0
 
+  cdk-rest-api-with-spec@https://codeload.github.com/codemonger-io/cdk-rest-api-with-spec/tar.gz/45bf3dd6de66664f8b9c134690f61a8944b4cebc:
+    resolution: {tarball: https://codeload.github.com/codemonger-io/cdk-rest-api-with-spec/tar.gz/45bf3dd6de66664f8b9c134690f61a8944b4cebc}
+    version: 0.2.3
+    engines: {node: '>=12.0'}
+
+  cdk2-cors-utils@https://codeload.github.com/codemonger-io/cdk-cors-utils/tar.gz/a21eb69a74043042d10a8499cc123577d9ac8c1b:
+    resolution: {tarball: https://codeload.github.com/codemonger-io/cdk-cors-utils/tar.gz/a21eb69a74043042d10a8499cc123577d9ac8c1b}
+    version: 0.3.0
+    engines: {node: '>=12.0.0'}
+    peerDependencies:
+      aws-cdk-lib: '>=2.0.0'
+
   chalk@2.4.2:
     resolution: {integrity: sha512-Mti+f9lpJNcwF4tWV8/OrTTtF1gZi+f8FqlyAdouralcFWFQWF2+NgCHShjkCb+IFBLq9buZwE1xckQU4peSuQ==}
     engines: {node: '>=4'}
@@ -1497,6 +1515,9 @@ packages:
     resolution: {integrity: sha512-kbpaSSGJTWdAY5KPVeMOKXSrPtr8C8C7wodJbcsd51jRnmD+GZu8Y0VoU6Dm5Z4vWr0Ig/1NKuWRKf7j5aaYSg==}
     engines: {node: '>=6'}
 
+  openapi3-ts@2.0.2:
+    resolution: {integrity: sha512-TxhYBMoqx9frXyOgnRHufjQfPXomTIHYKhSKJ6jHfj13kS8OEIhvmE8CTuQyKtjjWttAjX5DPxM1vmalEpo8Qw==}
+
   p-limit@2.3.0:
     resolution: {integrity: sha512-//88mFWSJx8lxCzwdAABTJL2MyWB12+eIY7MDL2SqLmAkeKU9qxRvWuSyTjm3FUmpBEMuFfckAIqEaVGUDxb6w==}
     engines: {node: '>=6'}
@@ -1787,6 +1808,10 @@ packages:
 
   yallist@4.0.0:
     resolution: {integrity: sha512-3wdGidZyq5PB084XLES5TpOSRA3wjXAlIWMhum2kRcv/41Sn2emQ0dycQW4uZXLejwKvg6EsvbdlVL+FYEct7A==}
+
+  yaml@1.10.2:
+    resolution: {integrity: sha512-r3vXyErRCYJ7wg28yvBY5VSoAF8ZvlcW9/BwUzEtUsjvX/DKs24dIkuwjtuprwJJHsbyUbLApepYTR1BN4uHrg==}
+    engines: {node: '>= 6'}
 
   yargs-parser@21.1.1:
     resolution: {integrity: sha512-tVpsJW7DdjecAiFpbIB1e3qxIQsE6NoPc5/eTdrbbIC4h0LVsWhnoa3g+m2HclBIujHzsxZ4VJVA+GUuc2/LBw==}
@@ -3164,6 +3189,14 @@ snapshots:
       aws-cdk-lib: 2.176.0(constructs@10.4.2)
       constructs: 10.4.2
 
+  cdk-rest-api-with-spec@https://codeload.github.com/codemonger-io/cdk-rest-api-with-spec/tar.gz/45bf3dd6de66664f8b9c134690f61a8944b4cebc:
+    dependencies:
+      openapi3-ts: 2.0.2
+
+  cdk2-cors-utils@https://codeload.github.com/codemonger-io/cdk-cors-utils/tar.gz/a21eb69a74043042d10a8499cc123577d9ac8c1b(aws-cdk-lib@2.176.0(constructs@10.4.2)):
+    dependencies:
+      aws-cdk-lib: 2.176.0(constructs@10.4.2)
+
   chalk@2.4.2:
     dependencies:
       ansi-styles: 3.2.1
@@ -3837,6 +3870,10 @@ snapshots:
     dependencies:
       mimic-fn: 2.1.0
 
+  openapi3-ts@2.0.2:
+    dependencies:
+      yaml: 1.10.2
+
   p-limit@2.3.0:
     dependencies:
       p-try: 2.2.0
@@ -4088,6 +4125,8 @@ snapshots:
   yallist@3.1.1: {}
 
   yallist@4.0.0: {}
+
+  yaml@1.10.2: {}
 
   yargs-parser@21.1.1: {}
 
