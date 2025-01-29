@@ -7,11 +7,14 @@ import { credentialsApiUrl } from '../auth-config';
 // router
 const router = useRouter();
 
-// loads the access token from the local storage
-const accessToken = ref<string | null>(null);
+// loads the ID token from the local storage
+//
+// NOTE: AWS APIGateway REST API can not verify access tokens but can verify
+// only ID tokens.
+const idToken = ref<string | null>(null);
 onMounted(() => {
   try {
-    accessToken.value = localStorage.getItem('passquitoAccessToken');
+    idToken.value = localStorage.getItem('passquitoIdToken');
   } catch (err) {
     console.error(err);
   }
@@ -20,10 +23,10 @@ onMounted(() => {
 const STATUS_CODES = ['OK', 'Unauthorized', 'Error'];
 type StatusCode = typeof STATUS_CODES[number];
 
-// obtains the secured message when the access token is ready.
+// obtains the secured message when the ID token is ready.
 const securedMessage = ref<string | undefined>();
 const lastStatus = ref<StatusCode>('OK');
-watch(accessToken, async (token) => {
+watch(idToken, async (token) => {
   if (token == null) {
     return;
   }
@@ -68,7 +71,7 @@ const readSecuredMessage = (contents: unknown): string => {
 
 <template>
   <main class="container">
-    <template v-if="accessToken">
+    <template v-if="idToken">
       <div>
         <p v-if="securedMessage">{{ securedMessage }}</p>
         <p v-else-if="lastStatus === 'Unauthorized'">
