@@ -11,6 +11,7 @@ import {
 } from 'cdk2-cors-utils';
 import { RestApiWithSpec, augmentAuthorizer } from 'cdk-rest-api-with-spec';
 import { Construct } from 'constructs';
+import { composeMappingTemplate } from 'mapping-template-compose';
 
 import type { Parameters } from './parameters';
 import type { SessionStore } from './session-store';
@@ -68,7 +69,6 @@ export class CredentialsApi extends Construct {
       binaryName: 'registration',
       architecture: lambda.Architecture.ARM_64,
       environment: {
-        BASE_PATH: registrationBasePath,
         SESSION_TABLE_NAME: sessionStore.sessionTable.tableName,
         USER_POOL_ID: userPool.userPool.userPoolId,
         CREDENTIAL_TABLE_NAME: userPool.credentialTable.tableName,
@@ -136,15 +136,83 @@ export class CredentialsApi extends Construct {
     });
 
     // defines models
-    const emptyModel = this.credentialsApi.addModel('EmptyModel', {
-      description: 'Empty object',
+    // - new user information
+    const newUserInfoModel = this.credentialsApi.addModel('NewUserInfoModel', {
+      description: 'New user information',
       contentType: 'application/json',
       schema: {
         schema: apigw.JsonSchemaVersion.DRAFT4,
-        title: 'emptyResponse',
+        title: 'newUserInfo',
+        description: 'New user information',
         type: apigw.JsonSchemaType.OBJECT,
+        properties: {
+          username: {
+            description: 'Username. This is not necessary to be unique.',
+            type: apigw.JsonSchemaType.STRING,
+            example: 'monaka',
+          },
+          displayName: {
+            description: 'Display name.',
+            type: apigw.JsonSchemaType.STRING,
+            example: 'Emoto, Monaka',
+          },
+        },
+        required: ['username', 'displayName'],
       },
     });
+    // - start registration session
+    const startRegistrationSessionModel = this.credentialsApi.addModel(
+      'StartRegistrationSessionModel',
+      {
+        description: 'Credential creation options associated with a registration session.',
+        contentType: 'application/json',
+        schema: {
+          schema: apigw.JsonSchemaVersion.DRAFT4,
+          title: 'startRegistrationSession',
+          description: 'Credential creation options associated with a registration session.',
+          type: apigw.JsonSchemaType.OBJECT,
+          properties: {
+            sessionId: {
+              description: 'Registration session ID.',
+              type: apigw.JsonSchemaType.STRING,
+              example: '0123456789abcdef',
+            },
+            credentialCreationOptions: {
+              description: 'Credential creation options. See https://www.w3.org/TR/webauthn-3/#sctn-credentialcreationoptions-extension',
+              type: apigw.JsonSchemaType.OBJECT,
+              // TODO: add the schema
+            },
+          },
+          required: ['sessionId', 'credentialCreationOptions'],
+        },
+      },
+    );
+    // - finish registration session
+    const finishRegistrationSessionModel = this.credentialsApi.addModel(
+      'FinishRegistrationSessionModel',
+      {
+        description: 'Public key credential for registration associated with a registration session.',
+        contentType: 'application/json',
+        schema: {
+          schema: apigw.JsonSchemaVersion.DRAFT4,
+          title: 'finishRegistrationSession',
+          description: 'Public key credential for registration associated with a registration session.',
+          type: apigw.JsonSchemaType.OBJECT,
+          properties: {
+            sessionId: {
+              description: 'Registration session ID.',
+              type: apigw.JsonSchemaType.STRING,
+              example: '0123456789abcdef',
+            },
+            publicKeyCredential: {
+              description: 'Public key credential for registration. See https://www.w3.org/TR/webauthn-3/#iface-pkcredential',
+              type: apigw.JsonSchemaType.OBJECT,
+              // TODO: add the schema
+            },
+          },
+        },
+      },
+    );
 
     // gets to the base path
     const root = props.basePath
@@ -163,11 +231,49 @@ export class CredentialsApi extends Construct {
     registrationStart.addMethod(
       'POST',
       new apigw.LambdaIntegration(this.registrationLambda, {
-        proxy: true,
-        integrationResponses: makeIntegrationResponsesAllowCors([]),
+        proxy: false,
+        passthroughBehavior: apigw.PassthroughBehavior.NEVER,
+        requestTemplates: {
+          'application/json': composeMappingTemplate([
+            ['start', '$input.json("$")'],
+          ]),
+        },
+        integrationResponses: makeIntegrationResponsesAllowCors([
+          {
+            statusCode: '400',
+            selectionPattern: makeSelectionPattern('BadRequest'),
+          },
+          {
+            statusCode: '503',
+            selectionPattern: makeSelectionPattern('ServiceUnavailable'),
+          },
+          {
+            statusCode: '200',
+          },
+        ]),
       }),
       {
-        methodResponses: makeMethodResponsesAllowCors([]),
+        description: 'Start a registration session for a new user.',
+        requestModels: {
+          'application/json': newUserInfoModel,
+        },
+        methodResponses: makeMethodResponsesAllowCors([
+          {
+            statusCode: '200',
+            description: 'Registration session has been successfully started.',
+            responseModels: {
+              'application/json': startRegistrationSessionModel,
+            },
+          },
+          {
+            statusCode: '400',
+            description: 'Request payload is invalid.',
+          },
+          {
+            statusCode: '503',
+            description: 'Service is temporarily unavailable. Try again later.',
+          },
+        ]),
       },
     );
     // /registration/finish
@@ -176,11 +282,55 @@ export class CredentialsApi extends Construct {
     registrationFinish.addMethod(
       'POST',
       new apigw.LambdaIntegration(this.registrationLambda, {
-        proxy: true,
-        integrationResponses: makeIntegrationResponsesAllowCors([]),
+        proxy: false,
+        passthroughBehavior: apigw.PassthroughBehavior.NEVER,
+        requestTemplates: {
+          'application/json': composeMappingTemplate([
+            ['finish', '$input.json("$")'],
+          ]),
+        },
+        integrationResponses: makeIntegrationResponsesAllowCors([
+          {
+            statusCode: '400',
+            selectionPattern: makeSelectionPattern('BadRequest'),
+          },
+          {
+            statusCode: '401',
+            selectionPattern: makeSelectionPattern('Unauthorized'),
+          },
+          {
+            statusCode: '503',
+            selectionPattern: makeSelectionPattern('ServiceUnavailable'),
+          },
+          {
+            statusCode: '200',
+          },
+        ]),
       }),
       {
-        methodResponses: makeMethodResponsesAllowCors([]),
+        description: 'Finish a registration session for a user. The public key credential of the user is verified and stored.',
+        requestModels: {
+          'application/json': finishRegistrationSessionModel,
+        },
+        methodResponses: makeMethodResponsesAllowCors([
+          {
+            statusCode: '200',
+            description: 'Registration has been successfully finished.',
+            // empty response
+          },
+          {
+            statusCode: '400',
+            description: 'Request payload is invalid.',
+          },
+          {
+            statusCode: '401',
+            description: 'Registration session is invalid or expired.',
+          },
+          {
+            statusCode: '503',
+            description: 'Service is temporarily unavailable. Try again later.',
+          },
+        ]),
       },
     );
 
@@ -208,9 +358,7 @@ export class CredentialsApi extends Construct {
         ]),
       }),
       {
-        requestModels: {
-          'application/json': emptyModel,
-        },
+        // no request model (shoud be empty but ignored)
         methodResponses: makeMethodResponsesAllowCors([
           {
             statusCode: '200',
@@ -218,7 +366,7 @@ export class CredentialsApi extends Construct {
           },
           {
             statusCode: '503',
-            description: 'Service is not temporarily available. Try again later.',
+            description: 'Service is temporarily unavailable. Try again later.',
           },
         ]),
       },
@@ -230,6 +378,7 @@ export class CredentialsApi extends Construct {
         cognitoUserPools: [props.userPool.userPool],
       }),
       {
+        description: 'Authorizer that authenticates users by ID tokens issued by the Cognito user pool.',
         type: 'apiKey',
         in: 'header',
         name: 'Authorization',

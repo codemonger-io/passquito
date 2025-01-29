@@ -3,29 +3,53 @@
 //! This application is intended to run as an AWS Lambda function.
 //!
 //! You have to configure the following environment variables:
-//! - `BASE_PATH`: base path to provide the service, which must end with a
-//!   trailing slash (/); e.g., `/auth/credentials/registration/`
 //! - `SESSION_TABLE_NAME`: name of the DynamoDB table to store sessions
 //! - `USER_POOL_ID`: ID of the Cognito user pool
 //! - `CREDENTIAL_TABLE_NAME`: name of the DynamoDB table to store credentials
 //! - `RP_ORIGIN_PARAMETER_PATH`: path to the parameter that stores the origin
 //!   (URL) of the relying party in the Parameter Store on AWS Systems Manager
 //!
-//! ## Endpoints
+//! ## Actions
 //!
-//! Provides the following endpoints under the base path.
+//! Provides the following actions depending on the request payload.
 //!
-//! ### `POST ${BASE_PATH}start`
+//! ### Start registration
 //!
-//! Starts registration of a new user.
-//! The request body must be [`NewUserInfo`] as `application/json`.
+//! Starts a registration session for a new user.
+//!
+//! To start registration of a new user, the request body must be in the form
+//! of the following JSON:
+//!
+//! ```json
+//! {
+//!   "start": {
+//!     "username": "test",
+//!     "displayName": "Test User"
+//!   }
+//! }
+//! ```
+//!
 //! The response body is [`StartRegistrationSession`] as `application/json`.
 //!
-//! ### `POST ${BASE_PATH}finish`
+//! ### Finish registration
 //!
-//! Verifies the new user and finishes registration.
-//! The request body must be [`FinishRegistrationSession`] as
-//! `application/json`.
+//! Verifies the public key credential of a new user and finishes the
+//! registration.
+//!
+//! To finish the registration of a new user, the request body must be in the
+//! form of the following JSON:
+//!
+//! ```json
+//! {
+//!   "finish": {
+//!     "sesssionId": "0123456789abcdef",
+//!     "publicKeyCredential": {
+//!       // see RegisterPublicKeyCredential
+//!     }
+//!   }
+//! }
+//! ```
+//!
 //! The response body is an empty text.
 
 use aws_sdk_cognitoidentityprovider::types::{
@@ -40,17 +64,7 @@ use base64::{
     Engine as _,
     engine::general_purpose::{URL_SAFE_NO_PAD as base64url},
 };
-use lambda_http::{
-    Body,
-    Error,
-    Request,
-    RequestExt,
-    RequestPayloadExt,
-    Response,
-    http::StatusCode,
-    run,
-    service_fn,
-};
+use lambda_runtime::{Error, LambdaEvent, run, service_fn};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::env;
@@ -82,8 +96,6 @@ struct SharedState<Webauthn> {
     webauthn: Webauthn,
     cognito: aws_sdk_cognitoidentityprovider::Client,
     dynamodb: aws_sdk_dynamodb::Client,
-    #[cfg_attr(test, builder(default = "\"/auth/credentials/registration\".to_string()"))]
-    base_path: String,
     #[cfg_attr(test, builder(default = "\"ap-northeast-1_123456789\".to_string()"))]
     user_pool_id: String,
     #[cfg_attr(test, builder(default = "\"sessions\".to_string()"))]
@@ -100,13 +112,10 @@ impl SharedState<Webauthn> {
         let webauthn = WebauthnBuilder::new(&rp_id, &rp_origin)?
             .rp_name("Passkey Test")
             .build()?;
-        let base_path = env::var("BASE_PATH")
-            .or(Err("BASE_PATH env must be set"))?;
         Ok(Self {
             webauthn,
             cognito: aws_sdk_cognitoidentityprovider::Client::new(&config),
             dynamodb: aws_sdk_dynamodb::Client::new(&config),
-            base_path: base_path.trim_end_matches('/').into(),
             user_pool_id: env::var("USER_POOL_ID")
                 .or(Err("USER_POOL_ID env must be set"))?,
             session_table_name: env::var("SESSION_TABLE_NAME")
@@ -115,6 +124,16 @@ impl SharedState<Webauthn> {
                 .or(Err("CREDENTIAL_TABLE_NAME env must be set"))?,
         })
     }
+}
+
+/// Registration action.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RegistrationAction {
+    /// Start registration.
+    Start(NewUserInfo),
+    /// Finish registration.
+    Finish(FinishRegistrationSession),
 }
 
 /// Information on a new user.
@@ -146,6 +165,8 @@ pub struct NewUserInfo {
 #[serde(rename_all = "camelCase")]
 pub struct StartRegistrationSession {
     /// Session ID.
+    ///
+    /// Pass this session ID when you finish the registration.
     pub session_id: String,
 
     /// Credential creation options.
@@ -157,6 +178,8 @@ pub struct StartRegistrationSession {
 #[serde(rename_all = "camelCase")]
 pub struct FinishRegistrationSession {
     /// Session ID.
+    ///
+    /// The session ID issued when you started the registration.
     pub session_id: String,
 
     /// Public key credential.
@@ -165,63 +188,38 @@ pub struct FinishRegistrationSession {
 
 async fn function_handler<Webauthn>(
     shared_state: Arc<SharedState<Webauthn>>,
-    event: Request,
-) -> Result<Response<Body>, Error>
+    event: LambdaEvent<serde_json::Value>,
+) -> Result<serde_json::Value, ErrorResponse>
 where
     Webauthn: WebauthnStartRegistration + WebauthnFinishRegistration,
 {
-    // common parsing pattern of the payload
-    macro_rules! parse_payload {
-        ($event:expr, $type:ty) => {
-            $event
-                .payload::<$type>()
-                .map_err(|e| {
-                    error!("failed to parse payload: {e}");
-                    ErrorResponse::bad_request("invalid payload")
-                })
-                .and_then(|payload| {
-                    payload.ok_or_else(|| {
-                        ErrorResponse::bad_request("invalid payload")
-                    })
-                })
-        };
-    }
-
-    let job_path = event.raw_http_path()
-        .strip_prefix(&shared_state.base_path)
-        .ok_or_else(|| {
-            error!("path must start with \"{}\"", shared_state.base_path);
-            ErrorResponse::bad_request("bad request")
-        });
-    let res = match job_path {
-        Ok(p) if p == "/start" => {
-            match parse_payload!(event, NewUserInfo) {
-                Ok(user_info) => start_registration(shared_state, user_info).await,
-                Err(e) => Err(e),
-            }
+    // parses the payload as RegistrationAction
+    let (action, _) = event.into_parts();
+    let action: RegistrationAction = serde_json::from_value(action)
+        .map_err(|e| {
+            error!("failed to parse payload: {e}");
+            ErrorResponse::bad_request("invalid payload")
+        })?;
+    match action {
+        RegistrationAction::Start(user_info) => {
+            let res = start_registration(shared_state, user_info).await;
+            res.and_then(|res| serde_json::to_value(res).map_err(Into::into))
         }
-        Ok(p) if p == "/finish" => {
-            match parse_payload!(event, FinishRegistrationSession) {
-                Ok(session) => finish_registration(shared_state, session).await,
-                Err(e) => Err(e),
-            }
+        RegistrationAction::Finish(session) => {
+            let res = finish_registration(shared_state, session).await;
+            res.and_then(|res| serde_json::to_value(res).map_err(Into::into))
         }
-        Ok(p) => {
-            error!("unsupported job path: {}", p);
-            Err(ErrorResponse::bad_request("bad request"))
-        }
-        Err(e) => Err(e),
-    };
-    match res {
-        Ok(res) => Ok(res),
-        Err(res) => res.try_into(),
-    }
+    }.map_err(|e| {
+        // prevents the internal error details from being exposed to the client
+        error!("{e:?}");
+        "internal error".into()
+    })
 }
 
 async fn start_registration<Webauthn>(
     shared_state: Arc<SharedState<Webauthn>>,
     user_info: NewUserInfo,
-) -> Result<Response<Body>, ErrorResponse>
+) -> Result<StartRegistrationSession, ErrorResponse>
 where
     Webauthn: WebauthnStartRegistration,
 {
@@ -289,70 +287,57 @@ where
         None => None,
     };
 
-    let res = match shared_state.webauthn.start_passkey_registration(
+    let (mut ccr, reg_state) = shared_state.webauthn.start_passkey_registration(
         user_unique_id,
         &user_info.username,
         &user_info.display_name,
         exclude_credentials,
-    ) {
-        Ok((mut ccr, reg_state)) => {
-            // caches `reg_state`
-            let user_unique_id = base64url.encode(user_unique_id.into_bytes());
-            let session_id = base64url.encode(Uuid::new_v4().as_bytes());
-            let ttl = DateTime::from(SystemTime::now()).secs() + 60;
-            info!("putting registration session: {}", session_id);
-            shared_state.dynamodb
-                .put_item()
-                .table_name(shared_state.session_table_name.clone())
-                .item(
-                    "pk",
-                    AttributeValue::S(format!("registration#{}", session_id)),
-                )
-                .item("ttl", AttributeValue::N(format!("{}", ttl)))
-                .item("userId", AttributeValue::S(user_unique_id))
-                .item("userInfo", AttributeValue::M(HashMap::from([
-                    (
-                        "username".into(),
-                        AttributeValue::S(user_info.username.into()),
-                    ),
-                    (
-                        "displayName".into(),
-                        AttributeValue::S(user_info.display_name.into()),
-                    ),
-                ])))
-                .item(
-                    "state",
-                    AttributeValue::S(serde_json::to_string(&reg_state)?),
-                )
-                .send()
-                .await?;
-            // requires a resident key
-            if let Some(selection) = ccr.public_key.authenticator_selection.as_mut() {
-                selection.require_resident_key = true;
-            }
-            serde_json::to_string(&StartRegistrationSession {
-                session_id,
-                credential_creation_options: ccr,
-            })?
-        }
-        Err(e) => {
-            error!("failed to start registration: {}", e);
-            return Err("failed to start registration".into());
-        }
-    };
+    )?;
 
-    Ok(Response::builder()
-        .status(StatusCode::OK)
-        .header("Content-Type", "application/json")
-        // TODO: no need for this after giving up the proxy integration
-        .header("Access-Control-Allow-Origin", "*")
-        .body(res.into())?)
+    // caches `reg_state`
+    let user_unique_id = base64url.encode(user_unique_id.into_bytes());
+    let session_id = base64url.encode(Uuid::new_v4().as_bytes());
+    let ttl = DateTime::from(SystemTime::now()).secs() + 60;
+    info!("putting registration session: {}", session_id);
+    shared_state.dynamodb
+        .put_item()
+        .table_name(shared_state.session_table_name.clone())
+        .item(
+            "pk",
+            AttributeValue::S(format!("registration#{}", session_id)),
+        )
+        .item("ttl", AttributeValue::N(format!("{}", ttl)))
+        .item("userId", AttributeValue::S(user_unique_id))
+        .item("userInfo", AttributeValue::M(HashMap::from([
+            (
+                "username".into(),
+                AttributeValue::S(user_info.username.into()),
+            ),
+            (
+                "displayName".into(),
+                AttributeValue::S(user_info.display_name.into()),
+            ),
+        ])))
+        .item(
+            "state",
+            AttributeValue::S(serde_json::to_string(&reg_state)?),
+        )
+        .send()
+        .await?;
+    // requires a resident key
+    if let Some(selection) = ccr.public_key.authenticator_selection.as_mut() {
+        selection.require_resident_key = true;
+    }
+    Ok(StartRegistrationSession {
+        session_id,
+        credential_creation_options: ccr,
+    })
 }
 
 async fn finish_registration<Webauthn>(
     shared_state: Arc<SharedState<Webauthn>>,
     session: FinishRegistrationSession,
-) -> Result<Response<Body>, ErrorResponse>
+) -> Result<(), ErrorResponse>
 where
     Webauthn: WebauthnFinishRegistration,
 {
@@ -391,128 +376,116 @@ where
     )?;
 
     // verifies the request
-    match shared_state.webauthn.finish_passkey_registration(
+    let key = shared_state.webauthn.finish_passkey_registration(
         &session.public_key_credential,
         &reg_state,
-    ) {
-        Ok(key) => {
-            info!("verified key: {:?}", key);
-            // extracts the user information
-            let user_unique_id = item.get("userId")
-                .ok_or("missing userId in session")?
-                .as_s()
-                .or(Err("malformed userId in session"))?;
-            let user_info = item.get("userInfo")
-                .ok_or("missing userInfo in session")?
-                .as_m()
-                .or(Err("malformed userInfo in session"))?;
-            let username = user_info.get("username")
-                .ok_or("missing username in session")?
-                .as_s()
-                .or(Err("malformed username in session"))?;
-            let display_name = user_info.get("displayName")
-                .ok_or("missing displayName in session")?
-                .as_s()
-                .or(Err("malformed displayName in session"))?;
-            // generates a random password that is never used
-            let mut password = [0u8; 24];
-            getrandom::getrandom(&mut password)?;
-            let password = base64url.encode(&password);
-            // creates the Cognito user if not exists
-            // TODO: what if the user exists?
-            let cognito_user = shared_state.cognito
-                .admin_create_user()
-                .user_pool_id(shared_state.user_pool_id.clone())
-                .username(user_unique_id.clone())
-                .user_attributes(UserAttributeType::builder()
-                    .name("preferred_username")
-                    .value(username.clone())
-                    .build()
-                    .unwrap())
-                .user_attributes(UserAttributeType::builder()
-                    .name("name")
-                    .value(display_name.clone())
-                    .build()
-                    .unwrap())
-                .message_action(MessageActionType::Suppress)
-                .temporary_password(password.clone())
-                .send()
-                .await?
-                .user
-                .ok_or("failed to create a new user")?;
-            let sub = cognito_user.attributes
-                .ok_or("missing Cognito user attributes")?
-                .into_iter()
-                .find_map(|a| a.value
-                    .map(|v| (a.name, v))
-                    .filter(|(name, _)| *name == "sub")
-                    .map(|(_, value)| value))
-                .ok_or("missing Cognito user sub attribute")?;
-            info!("created Cognito user: {}", sub);
-            // force-confirms the password
-            shared_state.cognito
-                .admin_set_user_password()
-                .user_pool_id(shared_state.user_pool_id.clone())
-                .username(user_unique_id.clone())
-                .password(password)
-                .permanent(true)
-                .send()
-                .await?;
-            // stores `key` in the credential table
-            let credential_id = base64url.encode(key.cred_id());
-            let created_at = DateTime::from(SystemTime::now())
-                .fmt(DateTimeFormat::DateTime)?;
-            info!("storing credential: {}", credential_id);
-            let res = shared_state.dynamodb
-                .put_item()
-                .table_name(shared_state.credential_table_name.clone())
-                .item(
-                    "pk",
-                    AttributeValue::S(format!("user#{}", user_unique_id)),
-                )
-                .item(
-                    "sk",
-                    AttributeValue::S(format!("credential#{}", credential_id)),
-                )
-                .item("credentialId", AttributeValue::S(credential_id))
-                .item(
-                    "credential",
-                    AttributeValue::S(serde_json::to_string(&key)?),
-                )
-                .item("cognitoSub", AttributeValue::S(sub))
-                .item("createdAt", AttributeValue::S(created_at.clone()))
-                .item("updatedAt", AttributeValue::S(created_at))
-                .send()
-                .await
-                .map_err(|e| if e.is_retryable() {
-                    ErrorResponse::unavailable("too many requests")
-                } else {
-                    e.into()
-                });
-            if let Err(e) = res {
-                error!("failed to store credential: {e:?}");
-                shared_state.cognito
-                    .admin_delete_user()
-                    .user_pool_id(shared_state.user_pool_id.clone())
-                    .username(user_unique_id)
-                    .send()
-                    .await?;
-                // TODO: what if deleting the user fails?
-                return Err(e);
-            }
-        }
-        Err(e) => {
-            error!("failed to finish registration: {}", e);
-            return Err("failed to finish registration".into());
-        }
-    };
+    )?;
+    info!("verified key: {:?}", key);
 
-    Ok(Response::builder()
-        .status(StatusCode::OK)
-        .header("Content-Type", "text/plain")
-        // TODO: no need for this after giving up the proxy integration
-        .header("Access-Control-Allow-Origin", "*")
-        .body(().into())?)
+    // extracts the user information
+    let user_unique_id = item.get("userId")
+        .ok_or("missing userId in session")?
+        .as_s()
+        .or(Err("malformed userId in session"))?;
+    let user_info = item.get("userInfo")
+        .ok_or("missing userInfo in session")?
+        .as_m()
+        .or(Err("malformed userInfo in session"))?;
+    let username = user_info.get("username")
+        .ok_or("missing username in session")?
+        .as_s()
+        .or(Err("malformed username in session"))?;
+    let display_name = user_info.get("displayName")
+        .ok_or("missing displayName in session")?
+        .as_s()
+        .or(Err("malformed displayName in session"))?;
+    // generates a random password that is never used
+    let mut password = [0u8; 24];
+    getrandom::getrandom(&mut password)?;
+    let password = base64url.encode(&password);
+    // creates the Cognito user if not exists
+    // TODO: what if the user exists?
+    let cognito_user = shared_state.cognito
+        .admin_create_user()
+        .user_pool_id(shared_state.user_pool_id.clone())
+        .username(user_unique_id.clone())
+        .user_attributes(UserAttributeType::builder()
+            .name("preferred_username")
+            .value(username.clone())
+            .build()
+            .unwrap())
+        .user_attributes(UserAttributeType::builder()
+            .name("name")
+            .value(display_name.clone())
+            .build()
+            .unwrap())
+        .message_action(MessageActionType::Suppress)
+        .temporary_password(password.clone())
+        .send()
+        .await?
+        .user
+        .ok_or("failed to create a new user")?;
+    let sub = cognito_user.attributes
+        .ok_or("missing Cognito user attributes")?
+        .into_iter()
+        .find_map(|a| a.value
+            .map(|v| (a.name, v))
+            .filter(|(name, _)| *name == "sub")
+            .map(|(_, value)| value))
+        .ok_or("missing Cognito user sub attribute")?;
+    info!("created Cognito user: {}", sub);
+    // force-confirms the password
+    shared_state.cognito
+        .admin_set_user_password()
+        .user_pool_id(shared_state.user_pool_id.clone())
+        .username(user_unique_id.clone())
+        .password(password)
+        .permanent(true)
+        .send()
+        .await?;
+    // stores `key` in the credential table
+    let credential_id = base64url.encode(key.cred_id());
+    let created_at = DateTime::from(SystemTime::now())
+        .fmt(DateTimeFormat::DateTime)?;
+    info!("storing credential: {}", credential_id);
+    let res = shared_state.dynamodb
+        .put_item()
+        .table_name(shared_state.credential_table_name.clone())
+        .item(
+            "pk",
+            AttributeValue::S(format!("user#{}", user_unique_id)),
+        )
+        .item(
+            "sk",
+            AttributeValue::S(format!("credential#{}", credential_id)),
+        )
+        .item("credentialId", AttributeValue::S(credential_id))
+        .item(
+            "credential",
+            AttributeValue::S(serde_json::to_string(&key)?),
+        )
+        .item("cognitoSub", AttributeValue::S(sub))
+        .item("createdAt", AttributeValue::S(created_at.clone()))
+        .item("updatedAt", AttributeValue::S(created_at))
+        .send()
+        .await
+        .map_err(|e| if e.is_retryable() {
+            ErrorResponse::unavailable("too many requests")
+        } else {
+            e.into()
+        });
+    if let Err(e) = res {
+        error!("failed to store credential: {e:?}");
+        shared_state.cognito
+            .admin_delete_user()
+            .user_pool_id(shared_state.user_pool_id.clone())
+            .username(user_unique_id)
+            .send()
+            .await?;
+        // TODO: what if deleting the user fails?
+        return Err(e);
+    }
+    Ok(())
 }
 
 #[tokio::main]
@@ -587,13 +560,84 @@ mod tests {
     use super::*;
 
     use aws_smithy_mocks_experimental::{mock, MockResponseInterceptor, Rule, RuleMode};
-    use lambda_http::http;
 
     use self::mocks::webauthn::{
         ConstantWebauthn,
         ConstantWebauthnStartRegistration,
         ConstantWebauthnFinishRegistration,
     };
+
+    #[tokio::test]
+    async fn function_handler_start_registration() {
+        let cognito = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::cognito::list_users_empty());
+        let dynamodb = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::dynamodb::put_item_ok());
+
+        let shared_state: SharedState<ConstantWebauthn> = SharedStateBuilder::default()
+            .webauthn(ConstantWebauthn::new(
+                self::mocks::webauthn::OK_CREATION_CHALLENGE_RESPONSE,
+                self::mocks::webauthn::OK_PASSKEY_REGISTRATION,
+                self::mocks::webauthn::OK_PASSKEY,
+            ))
+            .cognito(self::mocks::cognito::new_client(cognito))
+            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .build()
+            .unwrap();
+        let shared_state = Arc::new(shared_state);
+
+        let event = LambdaEvent::new(
+            serde_json::json!({
+                "start": {
+                    "username": "test",
+                    "displayName": "Test User",
+                },
+            }),
+            lambda_runtime::Context::default(),
+        );
+        assert!(function_handler(shared_state, event).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn function_handler_finish_registration() {
+        let cognito = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::cognito::admin_create_user_ok())
+            .with_rule(&self::mocks::cognito::admin_set_user_password_ok());
+        let dynamodb = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::dynamodb::delete_item_session())
+            .with_rule(&self::mocks::dynamodb::put_item_ok());
+
+        let shared_state: SharedState<ConstantWebauthn> = SharedStateBuilder::default()
+            .webauthn(ConstantWebauthn::new(
+                self::mocks::webauthn::OK_CREATION_CHALLENGE_RESPONSE,
+                self::mocks::webauthn::OK_PASSKEY_REGISTRATION,
+                self::mocks::webauthn::OK_PASSKEY,
+            ))
+            .cognito(self::mocks::cognito::new_client(cognito))
+            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .build()
+            .unwrap();
+        let shared_state = Arc::new(shared_state);
+
+        let payload = format!(
+            r#"{{
+                "finish": {{
+                    "sessionId": "dummy-session-id",
+                    "publicKeyCredential": {}
+                }}
+            }}"#,
+            self::mocks::webauthn::OK_REGISTER_PUBLIC_KEY_CREDENTIAL,
+        );
+        let event = LambdaEvent::new(
+            serde_json::from_str(&payload).unwrap(),
+            lambda_runtime::Context::default(),
+        );
+        assert!(function_handler(shared_state, event).await.is_ok());
+    }
 
     #[tokio::test]
     async fn function_handler_with_invalid_payload() {
@@ -612,103 +656,35 @@ mod tests {
             .unwrap();
         let shared_state = Arc::new(shared_state);
 
-        // "/start" action
-        // - no payload
-        let mut request = Request::default()
-            .with_raw_http_path("/auth/credentials/registration/start");
-        *request.method_mut() = http::Method::POST;
-        request.headers_mut().insert(http::header::CONTENT_TYPE, "application/json".parse().unwrap());
-        let res = function_handler(shared_state.clone(), request).await.unwrap();
-        assert_eq!(res.status(), StatusCode::BAD_REQUEST);
-        // - invalid JSON payload
-        let mut request = Request::default()
-            .with_raw_http_path("/auth/credentials/registration/start");
-        *request.method_mut() = http::Method::POST;
-        *request.body_mut() = r#"{"invalidField":null}"#.into();
-        request.headers_mut().insert(http::header::CONTENT_TYPE, "application/json".parse().unwrap());
-        let res = function_handler(shared_state.clone(), request).await.unwrap();
-        assert_eq!(res.status(), StatusCode::BAD_REQUEST);
-        // - bad Content-Type
-        let mut request = Request::default()
-            .with_raw_http_path("/auth/credentials/registration/start");
-        *request.method_mut() = http::Method::POST;
-        *request.body_mut() = r#"{"username":"test","displayName":"Test User"}"#.into();
-        request.headers_mut().insert(http::header::CONTENT_TYPE, "text/plain".parse().unwrap());
-        let res = function_handler(shared_state.clone(), request).await.unwrap();
-        assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+        // "start" action: invalid JSON payload
+        let event = LambdaEvent::new(
+            serde_json::json!({
+                "start": {}
+            }),
+            lambda_runtime::Context::default(),
+        );
+        let res = function_handler(shared_state.clone(), event).await.err().unwrap();
+        assert!(matches!(res, ErrorResponse::BadRequest(_)));
 
-        // "/finish" action
-        // - no payload
-        let mut request = Request::default()
-            .with_raw_http_path("/auth/credentials/registration/finish");
-        *request.method_mut() = http::Method::POST;
-        request.headers_mut().insert(http::header::CONTENT_TYPE, "application/json".parse().unwrap());
-        let res = function_handler(shared_state.clone(), request).await.unwrap();
-        assert_eq!(res.status(), StatusCode::BAD_REQUEST);
-        // - invalid JSON payload
-        let mut request = Request::default()
-            .with_raw_http_path("/auth/credentials/registration/finish");
-        *request.method_mut() = http::Method::POST;
-        *request.body_mut() = r#"{"invalidField":null}"#.into();
-        request.headers_mut().insert(http::header::CONTENT_TYPE, "application/json".parse().unwrap());
-        let res = function_handler(shared_state.clone(), request).await.unwrap();
-        assert_eq!(res.status(), StatusCode::BAD_REQUEST);
-        // - bad Content-Type
-        let mut request = Request::default()
-            .with_raw_http_path("/auth/credentials/registration/finish");
-        *request.method_mut() = http::Method::POST;
-        *request.body_mut() = r#"{
-            "sessionId": "dummy-session-id",
-            "publicKeyCredential": {
-                "id": "zVgCuXz99SsFmTTo",
-                "rawId": "zVgCuXz99SsFmTTo",
-                "response": {
-                    "attestationObject": "",
-                    "clientDataJSON": ""
-                },
-                "type": "public-key",
-                "extensions": {}
-            }
-        }"#.into();
-        request.headers_mut().insert(http::header::CONTENT_TYPE, "text/plain".parse().unwrap());
-        let res = function_handler(shared_state.clone(), request).await.unwrap();
-        assert_eq!(res.status(), StatusCode::BAD_REQUEST);
-    }
+        // "finish" action: invalid JSON payload
+        let event = LambdaEvent::new(
+            serde_json::json!({
+                "finish": {}
+            }),
+            lambda_runtime::Context::default(),
+        );
+        let res = function_handler(shared_state.clone(), event).await.err().unwrap();
+        assert!(matches!(res, ErrorResponse::BadRequest(_)));
 
-    #[tokio::test]
-    async fn function_handler_with_invalid_path() {
-        let cognito = MockResponseInterceptor::new();
-        let dynamodb = MockResponseInterceptor::new();
-
-        let shared_state: SharedState<ConstantWebauthn> = SharedStateBuilder::default()
-            .webauthn(ConstantWebauthn::new(
-                self::mocks::webauthn::OK_CREATION_CHALLENGE_RESPONSE,
-                self::mocks::webauthn::OK_PASSKEY_REGISTRATION,
-                self::mocks::webauthn::OK_PASSKEY,
-            ))
-            .cognito(self::mocks::cognito::new_client(cognito))
-            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
-            .build()
-            .unwrap();
-        let shared_state = Arc::new(shared_state);
-
-        // not starting with the prefix
-        let mut request = Request::default()
-            .with_raw_http_path("/passkey/registration/start");
-        *request.method_mut() = http::Method::POST;
-        *request.body_mut() = r#"{"username":"test","displayName":"Test User"}"#.into();
-        request.headers_mut().insert(http::header::CONTENT_TYPE, "application/json".parse().unwrap());
-        let res = function_handler(shared_state.clone(), request).await.unwrap();
-        assert_eq!(res.status(), StatusCode::BAD_REQUEST);
-
-        // unsupported action
-        let mut request = Request::default()
-            .with_raw_http_path("/auth/credentials/registration/cancel");
-        *request.method_mut() = http::Method::POST;
-        *request.body_mut() = r#"{"username":"test","displayName":"Test User"}"#.into();
-        request.headers_mut().insert(http::header::CONTENT_TYPE, "application/json".parse().unwrap());
-        let res = function_handler(shared_state.clone(), request).await.unwrap();
-        assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+        // "unsupported" action
+        let event = LambdaEvent::new(
+            serde_json::json!({
+                "unsupported": {}
+            }),
+            lambda_runtime::Context::default(),
+        );
+        let res = function_handler(shared_state.clone(), event).await.err().unwrap();
+        assert!(matches!(res, ErrorResponse::BadRequest(_)));
     }
 
     #[tokio::test]
@@ -731,15 +707,15 @@ mod tests {
             .unwrap();
         let shared_state = Arc::new(shared_state);
 
-        let res = start_registration(
-            shared_state,
-            NewUserInfo {
-                username: "test".into(),
-                display_name: "Test User".into(),
-            },
-        ).await.unwrap();
-        assert_eq!(res.status(), StatusCode::OK);
-        assert!(serde_json::from_slice::<StartRegistrationSession>(res.body()).is_ok());
+        assert!(
+            start_registration(
+                shared_state,
+                NewUserInfo {
+                    username: "test".into(),
+                    display_name: "Test User".into(),
+                },
+            ).await.is_ok(),
+        );
     }
 
     #[tokio::test]
@@ -763,16 +739,17 @@ mod tests {
             .unwrap();
         let shared_state = Arc::new(shared_state);
 
-        let res = finish_registration(
-            shared_state,
-            FinishRegistrationSession {
-                session_id: "dummy-session-id".to_string(),
-                public_key_credential: serde_json::from_str(
-                    self::mocks::webauthn::OK_REGISTER_PUBLIC_KEY_CREDENTIAL,
-                ).unwrap(),
-            },
-        ).await.unwrap();
-        assert_eq!(res.status(), StatusCode::OK);
+        assert!(
+            finish_registration(
+                shared_state,
+                FinishRegistrationSession {
+                    session_id: "dummy-session-id".to_string(),
+                    public_key_credential: serde_json::from_str(
+                        self::mocks::webauthn::OK_REGISTER_PUBLIC_KEY_CREDENTIAL,
+                    ).unwrap(),
+                },
+            ).await.is_ok(),
+        );
     }
 
     #[tokio::test]
