@@ -29,6 +29,9 @@ importers:
       constructs:
         specifier: 10.4.2
         version: 10.4.2
+      mapping-template-compose:
+        specifier: github:codemonger-io/mapping-template-compose#v0.1.1
+        version: https://codeload.github.com/codemonger-io/mapping-template-compose/tar.gz/cf37f9a7251db631f788f450d637c79a5562f488
       source-map-support:
         specifier: ^0.5.21
         version: 0.5.21
@@ -1473,6 +1476,11 @@ packages:
 
   makeerror@1.0.12:
     resolution: {integrity: sha512-JmqCvUhmt43madlpFzG4BQzG2Z3m6tvQDNKdClZnO3VbIudJYmxsT0FNJMeiB2+JTSlTQTSbU8QdesVmwJcmLg==}
+
+  mapping-template-compose@https://codeload.github.com/codemonger-io/mapping-template-compose/tar.gz/cf37f9a7251db631f788f450d637c79a5562f488:
+    resolution: {tarball: https://codeload.github.com/codemonger-io/mapping-template-compose/tar.gz/cf37f9a7251db631f788f450d637c79a5562f488}
+    version: 0.1.1
+    engines: {node: '>=12.0.0'}
 
   merge-stream@2.0.0:
     resolution: {integrity: sha512-abv/qOcuPfk3URPfDzmZU1LKmuw8kT+0nIHvKrKgFrwifol/doWcdA4ZqsWQ8ENrFKkd67Mfpo/LovbIUsbt3w==}
@@ -3834,6 +3842,8 @@ snapshots:
   makeerror@1.0.12:
     dependencies:
       tmpl: 1.0.5
+
+  mapping-template-compose@https://codeload.github.com/codemonger-io/mapping-template-compose/tar.gz/cf37f9a7251db631f788f450d637c79a5562f488: {}
 
   merge-stream@2.0.0: {}
 
