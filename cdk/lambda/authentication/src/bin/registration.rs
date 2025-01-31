@@ -13,12 +13,13 @@
 //!
 //! Provides the following actions depending on the request payload.
 //!
-//! ### Start registration
+//! ### Start registration of a new user
 //!
 //! Starts a registration session for a new user.
 //!
 //! To start registration of a new user, the request body must be in the form
-//! of the following JSON:
+//! of the following JSON which is a serialized form of
+//! [`RegistrationAction::Start`]:
 //!
 //! ```json
 //! {
@@ -29,7 +30,8 @@
 //! }
 //! ```
 //!
-//! The response body is [`StartRegistrationSession`] as `application/json`.
+//! The response body is [`StartRegistrationSession`] serialized as
+//! `application/json`.
 //!
 //! ### Finish registration
 //!
@@ -37,7 +39,8 @@
 //! registration.
 //!
 //! To finish the registration of a new user, the request body must be in the
-//! form of the following JSON:
+//! form of the following JSON which is a serialized form of
+//! [`RegistrationAction::Finish`]:
 //!
 //! ```json
 //! {
@@ -130,7 +133,7 @@ impl SharedState<Webauthn> {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum RegistrationAction {
-    /// Start registration.
+    /// Start registration of a new user.
     Start(NewUserInfo),
     /// Finish registration.
     Finish(FinishRegistrationSession),
@@ -140,18 +143,15 @@ pub enum RegistrationAction {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NewUserInfo {
-    /// Username.
+    /// Username of the new user.
     ///
-    /// When you register a new user, specify a preferred username which may
-    /// identify a person.
     /// The username is not necessarily unique.
     /// It is provided for the user to locate the passkey in user's device.
     ///
-    /// When you register a new credential for an existing user, specify the
-    /// unique ID of the user, which was generated when the user signed up.
+    /// The username is stored as the preferred username in Cognito.
     pub username: String,
 
-    /// Display name.
+    /// Display name of the new user.
     ///
     /// The display name is not necessarily unique.
     /// It is provided for the user to locate the passkey in user's device.
@@ -202,7 +202,7 @@ where
         })?;
     match action {
         RegistrationAction::Start(user_info) => {
-            let res = start_registration(shared_state, user_info).await;
+            let res = start_user_registration(shared_state, user_info).await;
             res.and_then(|res| serde_json::to_value(res).map_err(Into::into))
         }
         RegistrationAction::Finish(session) => {
@@ -216,15 +216,16 @@ where
     })
 }
 
-async fn start_registration<Webauthn>(
+async fn start_user_registration<Webauthn>(
     shared_state: Arc<SharedState<Webauthn>>,
     user_info: NewUserInfo,
 ) -> Result<StartRegistrationSession, ErrorResponse>
 where
     Webauthn: WebauthnStartRegistration,
 {
-    info!("start_registration: {:?}", user_info);
+    info!("start_user_registration: {:?}", user_info);
 
+    // TODO: move to another function `start_device_registration`
     // resolves the existing user
     let existing_user = shared_state.cognito
         .list_users()
@@ -688,7 +689,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn start_registration_of_new_user() {
+    async fn start_user_registration_of_new_user() {
         let cognito = MockResponseInterceptor::new()
             .rule_mode(RuleMode::MatchAny)
             .with_rule(&self::mocks::cognito::list_users_empty());
@@ -708,7 +709,7 @@ mod tests {
         let shared_state = Arc::new(shared_state);
 
         assert!(
-            start_registration(
+            start_user_registration(
                 shared_state,
                 NewUserInfo {
                     username: "test".into(),
