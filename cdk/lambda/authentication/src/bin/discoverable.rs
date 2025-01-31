@@ -7,16 +7,12 @@
 //! - `RP_ORIGIN_PARAMETER_PATH`: path to the parameter that stores the origin
 //!   (URL) of the relying party in the Parameter Store on AWS Systems Manager
 //!
-//! ## Endpoint
-//!
-//! Provides the following endpoint under the base path.
-//!
-//! ### `POST ${BASE_PATH}start`
+//! ## Action
 //!
 //! Starts authentication of a client-side discoverable credential.
 //! No request body is required.
-//! The response body is [`RequestChallengeResponse`](https://docs.rs/webauthn-rs/latest/webauthn_rs/prelude/struct.RequestChallengeResponse.html)
-//! as `application/json`.
+//! The response body is a JSON representation of
+//! [`RequestChallengeResponse`](https://docs.rs/webauthn-rs/latest/webauthn_rs/prelude/struct.RequestChallengeResponse.html).
 //!
 //! There is no endpoint to finish the authentication, because subsequent steps
 //! are processed by Cognito triggers.
