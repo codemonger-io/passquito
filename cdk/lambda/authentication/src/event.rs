@@ -282,7 +282,8 @@ impl_from_for_universal_trigger_source! {
     VerifyAuthChallenge
 }
 
-/// Operations on [`CognitoEventUserPoolsDefineAuthChallengeResponse`].
+/// Operations on
+/// [`CognitoEventUserPoolsDefineAuthChallengeResponse`](https://docs.rs/aws_lambda_events/latest/aws_lambda_events/event/cognito/struct.CognitoEventUserPoolsDefineAuthChallengeResponse.html).
 pub trait CognitoEventUserPoolsDefineAuthChallengeOps {
     /// Returns whether the user exists.
     fn user_exists(&self) -> bool;
@@ -328,7 +329,8 @@ impl CognitoEventUserPoolsDefineAuthChallengeOps
     }
 }
 
-/// Operations on [`CognitoEventUserPoolsCreateAuthChallenge`].
+/// Operations on
+/// [`CognitoEventUserPoolsCreateAuthChallenge`](https://docs.rs/aws_lambda_events/latest/aws_lambda_events/event/cognito/struct.CognitoEventUserPoolsCreateAuthChallenge.html).
 pub trait CognitoEventUserPoolsCreateAuthChallengeOps {
     /// Returns whether the user exists.
     fn user_exists(&self) -> bool;
@@ -396,7 +398,8 @@ impl CognitoEventUserPoolsCreateAuthChallengeOps
     }
 }
 
-/// Operations on [`CognitoEventUserPoolsVerifyAuthChallenge`].
+/// Operations on
+/// [`CognitoEventUserPoolsVerifyAuthChallenge`](https://docs.rs/aws_lambda_events/latest/aws_lambda_events/event/cognito/struct.CognitoEventUserPoolsVerifyAuthChallenge.html).
 pub trait CognitoEventUserPoolsVerifyAuthChallengeOps {
     /// Returns whether the user exists.
     fn user_exists(&self) -> bool;
@@ -784,13 +787,13 @@ impl From<CognitoEventUserPoolsVerifyAuthChallengeResponse>
 /// Enumerates specific types of [`CognitoChallengeEvent`].
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CognitoChallengeEventCase {
-    /// [`CognitoUserPoolsDefineAuthChallenge`].
+    /// [`CognitoEventUserPoolsDefineAuthChallenge`](https://docs.rs/aws_lambda_events/latest/aws_lambda_events/event/cognito/struct.CognitoEventUserPoolsDefineAuthChallenge.html).
     Define(CognitoEventUserPoolsDefineAuthChallenge),
 
-    /// [`CognitoUserPoolsCreateAuthChallenge`].
+    /// [`CognitoEventUserPoolsCreateAuthChallenge`](https://docs.rs/aws_lambda_events/latest/aws_lambda_events/event/cognito/struct.CognitoEventUserPoolsCreateAuthChallenge.html).
     Create(CognitoEventUserPoolsCreateAuthChallenge),
 
-    /// [`CognitoUserPoolsVerifyAuthChallenge`].
+    /// [`CognitoEventUserPoolsVerifyAuthChallenge`](https://docs.rs/aws_lambda_events/latest/aws_lambda_events/event/cognito/struct.CognitoEventUserPoolsVerifyAuthChallenge.html).
     Verify(CognitoEventUserPoolsVerifyAuthChallenge),
 }
 
