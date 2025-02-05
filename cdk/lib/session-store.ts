@@ -18,9 +18,15 @@ export class SessionStore extends Construct {
    * - `ttl`: 60 seconds after the session was created
    * - `userId`: unique user ID
    * - `userInfo`:
-   *   - `username`: unique username
+   *   - `username`: preferred username (unnecessary to be unique)
    *   - `displayName`: display name
    * - `state`: serialized internal state
+   *
+   * ### Device invitation session
+   *
+   * - `pk`: "invitation#<session ID>"
+   * - `ttl`: 300 seconds after the session was created
+   * - `userId`: unique user ID
    *
    * ### User authentication session with a user-side discoverable credential
    *
