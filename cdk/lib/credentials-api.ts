@@ -84,6 +84,7 @@ export class CredentialsApi extends Construct {
     userPool.userPool.grant(
       this.registrationLambda,
       'cognito-idp:AdminCreateUser',
+      'cognito-idp:AdminDeleteUser',
       'cognito-idp:AdminSetUserPassword',
       'cognito-idp:ListUsers',
     );
@@ -231,6 +232,19 @@ export class CredentialsApi extends Construct {
       },
     );
 
+    // user pool authorizer
+    const authorizer = augmentAuthorizer(
+      new apigw.CognitoUserPoolsAuthorizer(this, 'UserPoolAuthorizer', {
+        cognitoUserPools: [props.userPool.userPool],
+      }),
+      {
+        description: 'Authorizer that authenticates users by ID tokens issued by the Cognito user pool.',
+        type: 'apiKey',
+        in: 'header',
+        name: 'Authorization',
+      },
+    );
+
     // gets to the base path
     const root = props.basePath
       .split('/')
@@ -350,6 +364,57 @@ export class CredentialsApi extends Construct {
         ]),
       },
     );
+    // /registration/invite
+    const registrationInvite = registration.addResource('invite');
+    // - POST
+    registrationInvite.addMethod(
+      'POST',
+      new apigw.LambdaIntegration(this.registrationLambda, {
+        proxy: false,
+        passthroughBehavior: apigw.PassthroughBehavior.NEVER,
+        requestTemplates: {
+          'application/json': composeMappingTemplate([
+            ['invite', composeMappingTemplate([
+              ['cognitoSub', `"$util.escapeJavaScript($context.authorizer.claims.sub).replaceAll("\\'", "'")"`],
+              ['userId', `"$util.escapeJavaScript($context.authorizer.claims["cognito:username"]).replaceAll("\\'", "'")"`],
+            ])],
+          ]),
+        },
+        integrationResponses: makeIntegrationResponsesAllowCors([
+          {
+            // BadRequest should not happen,
+            // because this endpoint does not accept any user input
+            statusCode: '500',
+            selectionPattern: makeSelectionPattern('BadRequest'),
+            reseponseTemplates: {
+              'application/json': `{
+                "errorType": "InternalServerError",
+                "errorMessage": "internal error"
+              }`
+            },
+          },
+          {
+            statusCode: '200',
+          },
+        ]),
+      }),
+      {
+        description: 'Generate an invitation URL for the user to register a new credential on a new device',
+        authorizer,
+        authorizationType: apigw.AuthorizationType.COGNITO,
+        methodResponses: makeMethodResponsesAllowCors([
+          {
+            statusCode: '200',
+            description: 'Invitation URL has been successfully generated.',
+            // TODO: response model
+          },
+          {
+            statusCode: '500',
+            description: 'Internal server error',
+          },
+        ]),
+      },
+    );
 
     // discoverable endpoints
     const discoverable = root.addResource('discoverable');
@@ -390,17 +455,6 @@ export class CredentialsApi extends Construct {
     );
 
     // secured endpoints
-    const authorizer = augmentAuthorizer(
-      new apigw.CognitoUserPoolsAuthorizer(this, 'UserPoolAuthorizer', {
-        cognitoUserPools: [props.userPool.userPool],
-      }),
-      {
-        description: 'Authorizer that authenticates users by ID tokens issued by the Cognito user pool.',
-        type: 'apiKey',
-        in: 'header',
-        name: 'Authorization',
-      },
-    );
     const secured = root.addResource('secured');
     secured.addMethod(
       'GET',
