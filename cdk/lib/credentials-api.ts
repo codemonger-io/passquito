@@ -64,6 +64,7 @@ export class CredentialsApi extends Construct {
     const discoverableBasePath = `${basePath.replace(/\/$/, '')}/discoverable/`;
     const securedBasePath = `${basePath.replace(/\/$/, '')}/secured`;
 
+    // Lambda functions
     this.registrationLambda = new RustFunction(this, 'RegistrationLambda', {
       manifestPath,
       binaryName: 'registration',
@@ -112,6 +113,7 @@ export class CredentialsApi extends Construct {
       timeout: Duration.seconds(5),
     });
 
+    // REST API
     this.credentialsApi = new RestApiWithSpec(this, 'CredentialsRestApi', {
       description: 'API to manage credentials',
       openApiInfo: {
@@ -132,6 +134,21 @@ export class CredentialsApi extends Construct {
         throttlingRateLimit: 100,
         throttlingBurstLimit: 100,
         tracingEnabled: true,
+      },
+    });
+
+    // suppresses CORS errors caused when the gateway responds with errors
+    // before reaching the integrations
+    this.credentialsApi.addGatewayResponse('Unauthorized', {
+      type: apigw.ResponseType.DEFAULT_4XX,
+      responseHeaders: {
+        'Access-Control-Allow-Origin': "'*'",
+      },
+    });
+    this.credentialsApi.addGatewayResponse('InternalServerError', {
+      type: apigw.ResponseType.DEFAULT_5XX,
+      responseHeaders: {
+        'Access-Control-Allow-Origin': "'*'",
       },
     });
 
