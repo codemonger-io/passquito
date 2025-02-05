@@ -30,8 +30,7 @@
 //! }
 //! ```
 //!
-//! The response body is [`StartRegistrationSession`] serialized as
-//! `application/json`.
+//! The response body is [`StartRegistrationSession`] in the JSON format.
 //!
 //! ### Finish registration
 //!
@@ -54,6 +53,25 @@
 //! ```
 //!
 //! The response body is an empty text.
+//!
+//! ### Invite a new device
+//!
+//! Makes an invitation to register a new credential for an existing user.
+//!
+//! To invite a new device of an existing user, the request body must be in the
+//! form of the following JSON which is a serialized form of
+//! [`RegistrationAction::Invite`]:
+//!
+//! ```json
+//! {
+//!   "invite": {
+//!     "cognitoSub": "sub-issued-by-cognito",
+//!     "userId": "unique-user-id"
+//!   }
+//! }
+//! ```
+//!
+//! The response body is [`DeviceInvitationSession`] in the JSON format.
 
 use aws_sdk_cognitoidentityprovider::types::{
     AttributeType as UserAttributeType,
@@ -137,6 +155,8 @@ pub enum RegistrationAction {
     Start(NewUserInfo),
     /// Finish registration.
     Finish(FinishRegistrationSession),
+    /// Invite a new device.
+    Invite(CognitoUserInfo),
 }
 
 /// Information on a new user.
@@ -157,6 +177,17 @@ pub struct NewUserInfo {
     /// It is provided for the user to locate the passkey in user's device.
     /// (As far as I tested, macOS did not show the display name.)
     pub display_name: String,
+}
+
+/// Information on a user registered in Cognito.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CognitoUserInfo {
+    /// Cognito-issued sub of the user.
+    pub cognito_sub: String,
+
+    /// Unique user ID issued by Passquito.
+    pub user_id: String,
 }
 
 /// Beginning of a session to register a new user.
@@ -186,6 +217,27 @@ pub struct FinishRegistrationSession {
     pub public_key_credential: RegisterPublicKeyCredential,
 }
 
+/// Device invitation session.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeviceInvitationSession {
+    /// Session ID.
+    ///
+    /// Guaranteed to be URL-safe.
+    ///
+    /// Pass this session ID when you start the registration of a new device.
+    pub session_id: String,
+
+    /// Expiration time.
+    ///
+    /// Represented as the number of seconds elapsed since the Unix epoch;
+    /// i.e., 00:00:00 UTC on January 1, 1970.
+    pub expires_at: i64,
+}
+
+/// Duration of an invitation session.
+pub const INVITATION_SESSION_DURATION: i64 = 5 * 60;
+
 async fn function_handler<Webauthn>(
     shared_state: Arc<SharedState<Webauthn>>,
     event: LambdaEvent<serde_json::Value>,
@@ -207,6 +259,10 @@ where
         }
         RegistrationAction::Finish(session) => {
             let res = finish_registration(shared_state, session).await;
+            res.and_then(|res| serde_json::to_value(res).map_err(Into::into))
+        }
+        RegistrationAction::Invite(user_info) => {
+            let res = start_device_invitation(shared_state, user_info).await;
             res.and_then(|res| serde_json::to_value(res).map_err(Into::into))
         }
     }.map_err(|e| {
@@ -487,6 +543,73 @@ where
         return Err(e);
     }
     Ok(())
+}
+
+async fn start_device_invitation<Webauthn>(
+    shared_state: Arc<SharedState<Webauthn>>,
+    user_info: CognitoUserInfo,
+) -> Result<DeviceInvitationSession, ErrorResponse> {
+    info!("start_device_invitation: {:?}", user_info);
+
+    // finds the user associated with the user ID,
+    // who has the exact Cognito sub
+    shared_state.dynamodb
+        .query()
+        .table_name(shared_state.credential_table_name.clone())
+        .key_condition_expression("pk = :pk")
+        .filter_expression("cognitoSub = :cognitoSub")
+        .expression_attribute_values(
+            ":pk",
+            AttributeValue::S(format!("user#{}", user_info.user_id)),
+        )
+        .expression_attribute_values(
+            ":cognitoSub",
+            AttributeValue::S(user_info.cognito_sub.clone()),
+        )
+        .send()
+        .await?
+        .items
+        .ok_or_else(|| "missing user in the credentials table")?
+        .pop()
+        .ok_or_else(|| "missing user in the credentials table")?;
+
+    // checks if the user exists in the Cognito user pool
+    let cognito_user = shared_state.cognito
+        .list_users()
+        .user_pool_id(shared_state.user_pool_id.clone())
+        .filter(format!("sub = \"{}\"", user_info.cognito_sub)) // TODO: what if the sub contains a double quote?
+        .limit(1)
+        .send()
+        .await?
+        .users
+        .ok_or_else(|| "missing user in the Cognito user pool")?
+        .pop()
+        .ok_or_else(|| "missing user in the Cognito user pool")?;
+    // TODO: check if the username matches the user ID
+    // TODO: check if the user is enabled
+    // TODO: check if the user status is confirmed
+
+    // generates a new session
+    let session_id = base64url.encode(Uuid::new_v4().as_bytes());
+    let expires_at = DateTime::from(SystemTime::now()).secs() + INVITATION_SESSION_DURATION;
+
+    // stores the session
+    shared_state.dynamodb
+        .put_item()
+        .table_name(shared_state.session_table_name.clone())
+        .item(
+            "pk",
+            AttributeValue::S(format!("invitation#{}", session_id)),
+        )
+        .item("ttl", AttributeValue::N(format!("{}", expires_at)))
+        .item("userId", AttributeValue::S(user_info.user_id.clone()))
+        .send()
+        .await?;
+
+    Ok(DeviceInvitationSession {
+        session_id,
+        expires_at,
+    })
 }
 
 #[tokio::main]
