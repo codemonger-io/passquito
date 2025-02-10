@@ -56,10 +56,11 @@
 //!
 //! ### Invite a new device
 //!
-//! Makes an invitation to register a new credential for an existing user.
+//! Makes an invitation to register a new device (credential) for an existing
+//! user.
 //!
-//! To invite a new device of an existing user, the request body must be in the
-//! form of the following JSON which is a serialized form of
+//! To invite a new credential of an existing user, the request body must be in
+//! the form of the following JSON which is a serialized form of
 //! [`RegistrationAction::Invite`]:
 //!
 //! ```json
@@ -71,7 +72,9 @@
 //! }
 //! ```
 //!
-//! The response body is [`DeviceInvitationSession`] in the JSON format.
+//! The response body is [`InvitationSession`] in the JSON format.
+//!
+//! The invitation is supposed to be sent to the user itself.
 
 use aws_sdk_cognitoidentityprovider::types::{
     AttributeType as UserAttributeType,
@@ -155,7 +158,7 @@ pub enum RegistrationAction {
     Start(NewUserInfo),
     /// Finish registration.
     Finish(FinishRegistrationSession),
-    /// Invite a new device.
+    /// Invite a new credential.
     Invite(CognitoUserInfo),
 }
 
@@ -168,7 +171,8 @@ pub struct NewUserInfo {
     /// The username is not necessarily unique.
     /// It is provided for the user to locate the passkey in user's device.
     ///
-    /// The username is stored as the preferred username in Cognito.
+    /// The username is stored as the preferred username in the Cognito user
+    /// pool.
     pub username: String,
 
     /// Display name of the new user.
@@ -217,10 +221,10 @@ pub struct FinishRegistrationSession {
     pub public_key_credential: RegisterPublicKeyCredential,
 }
 
-/// Device invitation session.
+/// Invitation session.
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct DeviceInvitationSession {
+pub struct InvitationSession {
     /// Session ID.
     ///
     /// Guaranteed to be URL-safe.
@@ -262,7 +266,7 @@ where
             res.and_then(|res| serde_json::to_value(res).map_err(Into::into))
         }
         RegistrationAction::Invite(user_info) => {
-            let res = start_device_invitation(shared_state, user_info).await;
+            let res = start_invitation(shared_state, user_info).await;
             res.and_then(|res| serde_json::to_value(res).map_err(Into::into))
         }
     }.map_err(|e| {
@@ -545,11 +549,11 @@ where
     Ok(())
 }
 
-async fn start_device_invitation<Webauthn>(
+async fn start_invitation<Webauthn>(
     shared_state: Arc<SharedState<Webauthn>>,
     user_info: CognitoUserInfo,
-) -> Result<DeviceInvitationSession, ErrorResponse> {
-    info!("start_device_invitation: {:?}", user_info);
+) -> Result<InvitationSession, ErrorResponse> {
+    info!("start_invitation: {:?}", user_info);
 
     // finds the user associated with the user ID,
     // who has the exact Cognito sub
@@ -589,11 +593,21 @@ async fn start_device_invitation<Webauthn>(
     // TODO: check if the user is enabled
     // TODO: check if the user status is confirmed
 
+    // memoizes the preferred username which should match the username for the
+    // new credential
+    let username = cognito_user.attributes.as_ref()
+        .ok_or_else(|| "missing user attributes in the Cognito user pool")?
+        .iter()
+        .find(|attr| attr.name == "preferred_username")
+        .and_then(|attr| attr.value.as_ref())
+        .ok_or_else(|| "missing preferred_username in the Cognito user pool")?;
+
     // generates a new session
     let session_id = base64url.encode(Uuid::new_v4().as_bytes());
     let expires_at = DateTime::from(SystemTime::now()).secs() + INVITATION_SESSION_DURATION;
 
     // stores the session
+    info!("putting invitation session: {}", session_id);
     shared_state.dynamodb
         .put_item()
         .table_name(shared_state.session_table_name.clone())
@@ -606,7 +620,7 @@ async fn start_device_invitation<Webauthn>(
         .send()
         .await?;
 
-    Ok(DeviceInvitationSession {
+    Ok(InvitationSession {
         session_id,
         expires_at,
     })
