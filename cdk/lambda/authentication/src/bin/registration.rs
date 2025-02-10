@@ -254,7 +254,7 @@ where
         })?;
     match action {
         RegistrationAction::Start(user_info) => {
-            let res = start_user_registration(shared_state, user_info).await;
+            let res = start_registration(shared_state, user_info).await;
             res.and_then(|res| serde_json::to_value(res).map_err(Into::into))
         }
         RegistrationAction::Finish(session) => {
@@ -272,16 +272,16 @@ where
     })
 }
 
-async fn start_user_registration<Webauthn>(
+async fn start_registration<Webauthn>(
     shared_state: Arc<SharedState<Webauthn>>,
     user_info: NewUserInfo,
 ) -> Result<StartRegistrationSession, ErrorResponse>
 where
     Webauthn: WebauthnStartRegistration,
 {
-    info!("start_user_registration: {:?}", user_info);
+    info!("start_registration: {:?}", user_info);
 
-    // TODO: move to another function `start_device_registration`
+    // TODO: move to another function `start_invited_registration`
     // resolves the existing user
     let existing_user = shared_state.cognito
         .list_users()
@@ -832,7 +832,7 @@ mod tests {
         let shared_state = Arc::new(shared_state);
 
         assert!(
-            start_user_registration(
+            start_registration(
                 shared_state,
                 NewUserInfo {
                     username: "test".into(),
