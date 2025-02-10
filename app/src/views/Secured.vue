@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { BButton } from 'buefy';
 import { onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 
@@ -67,13 +68,30 @@ const readSecuredMessage = (contents: unknown): string => {
   }
   return message;
 };
+
+const registerNewDevice = () => {
+  // generates an invitation first
+  router.push({ name: 'invite-device' });
+};
 </script>
 
 <template>
   <main class="container">
     <template v-if="idToken">
       <div>
-        <p v-if="securedMessage">{{ securedMessage }}</p>
+        <div v-if="securedMessage">
+          <div class="has-text-centered">
+            <p>{{ securedMessage }}</p>
+          </div>
+          <section class="section">
+            <b-button
+              type="is-primary"
+              @click="registerNewDevice"
+            >
+              Register a new device
+            </b-button>
+          </section>
+        </div>
         <p v-else-if="lastStatus === 'Unauthorized'">
           Unauthorized!
           Please <a :href="router.resolve({ name: 'signin' }).href">sign in</a> again.

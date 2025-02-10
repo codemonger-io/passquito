@@ -24,6 +24,16 @@ export interface UserInfo {
   displayName: string;
 }
 
+/**
+ * User information for invited registration.
+ *
+ * @beta
+ */
+export interface InvitedUserInfo extends UserInfo {
+  /** Invitation session ID. */
+  invitationSessionId: string;
+}
+
 // passkey registration session.
 interface RegistrationSession {
   sessionId: string;
@@ -135,6 +145,26 @@ export async function doRegistrationCeremony(userInfo: UserInfo) {
 }
 
 /**
+ * Conducts a registration ceremony as per a given invitation.
+ *
+ * @remarks
+ *
+ * References:
+ * - <https://web.dev/articles/passkey-registration>
+ * - <https://www.w3.org/TR/webauthn-3/#sctn-registering-a-new-credential>
+ */
+export async function doInvitedRegistrationCeremony(userInfo: InvitedUserInfo) {
+  const { sessionId, options } = await startInvitedRegistration(userInfo);
+  console.log('CredentialCreationOptions:', options);
+  const credential = await navigator.credentials.create(options);
+  if (credential == null) {
+    throw new Error('failed to create a new credential');
+  }
+  console.log('registering new credential:', credential);
+  await registerPublicKeyCredential(sessionId, credential as PublicKeyCredential);
+}
+
+/**
  * Conducts an authentication ceremony.
  *
  * @remarks
@@ -165,6 +195,25 @@ export function doAuthenticationCeremony() {
 // throws if an error occurs.
 async function startRegistration(userInfo: UserInfo): Promise<RegistrationSession> {
   const endpoint = `${credentialsApiUrl.replace(/\/$/, '')}/registration/start`;
+  const res = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(userInfo),
+  });
+  const session = await res.json();
+  return {
+    sessionId: session.sessionId as string,
+    options: decodeCredentialCreationOptions(session.credentialCreationOptions),
+  };
+}
+
+// obtains the public key credential creation options as per a given invitation
+//
+// throws if an error occurs.
+async function startInvitedRegistration(userInfo: InvitedUserInfo): Promise<RegistrationSession> {
+  const endpoint = `${credentialsApiUrl.replace(/\/$/, '')}/registration/start-invited`;
   const res = await fetch(endpoint, {
     method: 'POST',
     headers: {

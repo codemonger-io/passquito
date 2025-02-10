@@ -26,6 +26,17 @@ const router = createRouter({
       path: '/secured',
       name: 'secured',
       component: () => import('../views/Secured.vue')
+    },
+    {
+      path: '/invite-device',
+      name: 'invite-device',
+      component: () => import('../views/InviteDevice.vue')
+    },
+    {
+      path: '/register-device/:sessionId',
+      name: 'register-device',
+      component: () => import('../views/RegisterDevice.vue'),
+      props: true
     }
   ]
 })
