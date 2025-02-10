@@ -75,6 +75,27 @@
 //! The response body is [`InvitationSession`] in the JSON format.
 //!
 //! The invitation is supposed to be sent to the user itself.
+//!
+//! ### Start registration of a new device of an existing user
+//!
+//! Starts a registration session for a new device (credential) of an existing
+//! user.
+//!
+//! To start registration of a new credential of an existing user, the request
+//! body must be in the form of the following JSON which is a serialized form
+//! of [`RegistrationAction::StartInvited`]:
+//!
+//! ```json
+//! {
+//!   "startInvited": {
+//!     "username": "test",
+//!     "displayName": "Test User",
+//!     "invitationSessionId": "0123456789abcdef"
+//!   }
+//! }
+//! ```
+//!
+//! The response body is [`StartRegistrationSession`] in the JSON format.
 
 use aws_sdk_cognitoidentityprovider::types::{
     AttributeType as UserAttributeType,
@@ -152,7 +173,7 @@ impl SharedState<Webauthn> {
 
 /// Registration action.
 #[derive(Clone, Debug, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "camelCase")]
 pub enum RegistrationAction {
     /// Start registration of a new user.
     Start(NewUserInfo),
@@ -160,6 +181,8 @@ pub enum RegistrationAction {
     Finish(FinishRegistrationSession),
     /// Invite a new credential.
     Invite(CognitoUserInfo),
+    /// Start registration initiated by an invitation.
+    StartInvited(InvitedUserInfo),
 }
 
 /// Information on a new user.
@@ -181,6 +204,28 @@ pub struct NewUserInfo {
     /// It is provided for the user to locate the passkey in user's device.
     /// (As far as I tested, macOS did not show the display name.)
     pub display_name: String,
+}
+
+/// Information on an invited user.
+///
+/// Extension of [`NewUserInfo`].
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InvitedUserInfo {
+    /// User information.
+    #[serde(flatten)]
+    pub user_info: NewUserInfo,
+
+    /// Invitation session ID.
+    pub invitation_session_id: String,
+}
+
+impl std::ops::Deref for InvitedUserInfo {
+    type Target = NewUserInfo;
+
+    fn deref(&self) -> &Self::Target {
+        &self.user_info
+    }
 }
 
 /// Information on a user registered in Cognito.
@@ -267,6 +312,10 @@ where
         }
         RegistrationAction::Invite(user_info) => {
             let res = start_invitation(shared_state, user_info).await;
+            res.and_then(|res| serde_json::to_value(res).map_err(Into::into))
+        }
+        RegistrationAction::StartInvited(user_info) => {
+            let res = start_invited_registration(shared_state, user_info).await;
             res.and_then(|res| serde_json::to_value(res).map_err(Into::into))
         }
     }.map_err(|e| {
@@ -404,6 +453,16 @@ where
 {
     info!("finish_registration: {}", session.session_id);
 
+    // TODO: this function MUST not fail, because it may become out of sync
+    //       with the passkey in the user's device. but how?
+    // - include an optional user ID in `FinishRegistrationSession` so that we
+    //   can trace which user tried to register a new credential.
+    // - back up the credential in an S3 bucket with a lifecycle policy so that
+    //   it is deleted after a certain period of time.
+    // - or, just log the user ID in CloudWatch Logs. if we know the user ID,
+    //   the administrator can manually initiate the registration process again.
+    //   (the problem is that the user ID is not obvious for the user.)
+
     // pops the session
     let item = shared_state.dynamodb
         .delete_item()
@@ -465,7 +524,8 @@ where
     getrandom::getrandom(&mut password)?;
     let password = base64url.encode(&password);
     // creates the Cognito user if not exists
-    // TODO: what if the user exists?
+    // TODO: what if the user exists? → of course, it fails.
+    info!("creating Cognito user: {user_unique_id}");
     let cognito_user = shared_state.cognito
         .admin_create_user()
         .user_pool_id(shared_state.user_pool_id.clone())
@@ -617,12 +677,131 @@ async fn start_invitation<Webauthn>(
         )
         .item("ttl", AttributeValue::N(format!("{}", expires_at)))
         .item("userId", AttributeValue::S(user_info.user_id.clone()))
+        .item("cognitoSub", AttributeValue::S(user_info.cognito_sub.clone()))
+        .item("username", AttributeValue::S(username.clone()))
         .send()
         .await?;
 
     Ok(InvitationSession {
         session_id,
         expires_at,
+    })
+}
+
+async fn start_invited_registration<Webauthn>(
+    shared_state: Arc<SharedState<Webauthn>>,
+    user_info: InvitedUserInfo,
+) -> Result<StartRegistrationSession, ErrorResponse>
+where
+    Webauthn: WebauthnStartRegistration,
+{
+    info!("start_invited_registration: {:?}", user_info);
+
+    // pops the invitation session
+    let session = shared_state.dynamodb
+        .delete_item()
+        .table_name(shared_state.session_table_name.clone())
+        .key(
+            "pk",
+            AttributeValue::S(format!("invitation#{}", user_info.invitation_session_id)),
+        )
+        .return_values(ReturnValue::AllOld)
+        .send()
+        .await?
+        .attributes
+        .ok_or("no active invitation session")?;
+    // TODO: make sure the session is not expired
+    let ttl = session.get("ttl")
+        .ok_or("missing ttl in the session")?;
+    let user_id = session.get("userId")
+        .ok_or("missing userId in the session")
+        .and_then(|user_id| user_id.as_s()
+            .map_err(|_| "malformed userId in the session"))?;
+    let username = session.get("username")
+        .ok_or("missing username in the session")
+        .and_then(|username| username.as_s()
+            .map_err(|_| "malformed username in the session"))?;
+
+    // TODO: check if the username matches the preferred username
+
+    // decodes the user_id as a UUID
+    let user_uuid = base64url.decode(user_id)
+        .map_err(|_| "malformed user ID in the session")
+        .and_then(|user_id| Uuid::from_slice(&user_id)
+            .map_err(|_| "user ID must be a UUID"))?;
+
+    // lists existing credentials for the user to be excluded
+    info!("listing credentials for {}", user_id);
+    let exclude_credentials = shared_state.dynamodb
+        .query()
+        .table_name(shared_state.credential_table_name.clone())
+        .key_condition_expression("pk = :pk")
+        .expression_attribute_values(":pk", AttributeValue::S(
+            format!("user#{}", username),
+        ))
+        .send()
+        .await?
+        .items
+        // TODO: is there any normal situation where the user has no
+        // credentials?
+        .ok_or("missing credentials for the user")?;
+    let exclude_credentials: Vec<CredentialID> = exclude_credentials.into_iter()
+        .map(|c| {
+            let id = c.get("credentialId")
+                .ok_or("missing credentialId in the database")?
+                .as_s()
+                .or(Err("malformed credentialId in the database"))?
+                .as_str();
+            // as far as I know, we have to use serde::Deserialize
+            // to build HumanBinaryData from a base64-encoded string
+            serde_json::from_value(serde_json::Value::String(id.into()))
+                .or(Err("malformed credentialId in the database"))
+        })
+        .collect::<Result<_, _>>()?;
+
+    let (mut ccr, reg_state) = shared_state.webauthn.start_passkey_registration(
+        user_uuid,
+        &user_info.username,
+        &user_info.display_name,
+        Some(exclude_credentials),
+    )?;
+
+    // caches `reg_state`
+    let session_id = base64url.encode(Uuid::new_v4().as_bytes());
+    let ttl = DateTime::from(SystemTime::now()).secs() + 60;
+    info!("putting registration session: {}", session_id);
+    shared_state.dynamodb
+        .put_item()
+        .table_name(shared_state.session_table_name.clone())
+        .item(
+            "pk",
+            AttributeValue::S(format!("registration#{}", session_id)),
+        )
+        .item("ttl", AttributeValue::N(format!("{}", ttl)))
+        .item("userId", AttributeValue::S(user_id.clone()))
+        .item("userInfo", AttributeValue::M(HashMap::from([
+            (
+                "username".into(),
+                AttributeValue::S(user_info.user_info.username),
+            ),
+            (
+                "displayName".into(),
+                AttributeValue::S(user_info.user_info.display_name),
+            ),
+        ])))
+        .item(
+            "state",
+            AttributeValue::S(serde_json::to_string(&reg_state)?),
+        )
+        .send()
+        .await?;
+    // requires a resident key
+    if let Some(selection) = ccr.public_key.authenticator_selection.as_mut() {
+        selection.require_resident_key = true;
+    }
+    Ok(StartRegistrationSession {
+        session_id,
+        credential_creation_options: ccr,
     })
 }
 
