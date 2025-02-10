@@ -415,6 +415,37 @@ export class CredentialsApi extends Construct {
         ]),
       },
     );
+    // /registration/start-invited
+    const registrationStartInvited = registration.addResource('start-invited');
+    // - POST
+    registrationStartInvited.addMethod(
+      'POST',
+      new apigw.LambdaIntegration(this.registrationLambda, {
+        proxy: false,
+        passthroughBehavior: apigw.PassthroughBehavior.NEVER,
+        requestTemplates: {
+          'application/json': composeMappingTemplate([
+            ['startInvited', '$input.json("$")'],
+          ]),
+        },
+        integrationResponses: makeIntegrationResponsesAllowCors([
+          {
+            statusCode: '200',
+          },
+        ]),
+      }),
+      {
+        description: 'Start a registration session initiated by an invitation',
+        // TODO: request model
+        methodResponses: makeMethodResponsesAllowCors([
+          {
+            statusCode: '200',
+            description: 'Registration session has been successfully started.',
+            // TODO: response model
+          },
+        ]),
+      },
+    );
 
     // discoverable endpoints
     const discoverable = root.addResource('discoverable');
