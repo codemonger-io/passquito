@@ -511,7 +511,7 @@ where
         .ok_or("missing userInfo in session")?
         .as_m()
         .or(Err("malformed userInfo in session"))?;
-    let username = user_info.get("username")
+    let preferred_username = user_info.get("username")
         .ok_or("missing username in session")?
         .as_s()
         .or(Err("malformed username in session"))?;
@@ -523,29 +523,52 @@ where
     let mut password = [0u8; 24];
     getrandom::getrandom(&mut password)?;
     let password = base64url.encode(&password);
-    // creates the Cognito user if not exists
-    // TODO: what if the user exists? → of course, it fails.
-    info!("creating Cognito user: {user_unique_id}");
-    let cognito_user = shared_state.cognito
-        .admin_create_user()
+    // finds the Cognito user, or creates a new Cognito user
+    let cognito_user = match shared_state.cognito
+        .list_users()
         .user_pool_id(shared_state.user_pool_id.clone())
-        .username(user_unique_id.clone())
-        .user_attributes(UserAttributeType::builder()
-            .name("preferred_username")
-            .value(username.clone())
-            .build()
-            .unwrap())
-        .user_attributes(UserAttributeType::builder()
-            .name("name")
-            .value(display_name.clone())
-            .build()
-            .unwrap())
-        .message_action(MessageActionType::Suppress)
-        .temporary_password(password.clone())
+        .filter(format!("username = \"{user_unique_id}\""))
+        .limit(1)
         .send()
         .await?
-        .user
-        .ok_or("failed to create a new user")?;
+        .users
+        .and_then(|mut users| users.pop())
+    {
+        Some(user) => user,
+        None => {
+            let user = shared_state.cognito
+                .admin_create_user()
+                .user_pool_id(shared_state.user_pool_id.clone())
+                .username(user_unique_id.clone())
+                .user_attributes(UserAttributeType::builder()
+                    .name("preferred_username")
+                    .value(preferred_username.clone())
+                    .build()
+                    .unwrap())
+                .user_attributes(UserAttributeType::builder()
+                    .name("name")
+                    .value(display_name.clone())
+                    .build()
+                    .unwrap())
+                .message_action(MessageActionType::Suppress)
+                .temporary_password(password.clone())
+                .send()
+                .await?
+                .user
+                .ok_or("failed to create a new user")?;
+            info!("created a new Cognito user: {:?}", user);
+            // force confirms the password
+            shared_state.cognito
+                .admin_set_user_password()
+                .user_pool_id(shared_state.user_pool_id.clone())
+                .username(user_unique_id.clone())
+                .password(password)
+                .permanent(true)
+                .send()
+                .await?;
+            user
+        }
+    };
     let sub = cognito_user.attributes
         .ok_or("missing Cognito user attributes")?
         .into_iter()
@@ -554,16 +577,7 @@ where
             .filter(|(name, _)| *name == "sub")
             .map(|(_, value)| value))
         .ok_or("missing Cognito user sub attribute")?;
-    info!("created Cognito user: {}", sub);
-    // force-confirms the password
-    shared_state.cognito
-        .admin_set_user_password()
-        .user_pool_id(shared_state.user_pool_id.clone())
-        .username(user_unique_id.clone())
-        .password(password)
-        .permanent(true)
-        .send()
-        .await?;
+    info!("Cognito sub: {}", sub);
     // stores `key` in the credential table
     let credential_id = base64url.encode(key.cred_id());
     let created_at = DateTime::from(SystemTime::now())
@@ -921,6 +935,7 @@ mod tests {
     async fn function_handler_finish_registration() {
         let cognito = MockResponseInterceptor::new()
             .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::cognito::list_users_empty())
             .with_rule(&self::mocks::cognito::admin_create_user_ok())
             .with_rule(&self::mocks::cognito::admin_set_user_password_ok());
         let dynamodb = MockResponseInterceptor::new()
@@ -1036,11 +1051,45 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn finish_registration_of_legitimate_user() {
+    async fn finish_registration_of_legitimate_new_user() {
         let cognito = MockResponseInterceptor::new()
             .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::cognito::list_users_empty())
             .with_rule(&self::mocks::cognito::admin_create_user_ok())
             .with_rule(&self::mocks::cognito::admin_set_user_password_ok());
+        let dynamodb = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::dynamodb::delete_item_session())
+            .with_rule(&self::mocks::dynamodb::put_item_ok());
+
+        let shared_state: SharedState<ConstantWebauthnFinishRegistration> = SharedStateBuilder::default()
+            .webauthn(ConstantWebauthnFinishRegistration::new(
+                self::mocks::webauthn::OK_PASSKEY,
+            ))
+            .cognito(self::mocks::cognito::new_client(cognito))
+            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .build()
+            .unwrap();
+        let shared_state = Arc::new(shared_state);
+
+        assert!(
+            finish_registration(
+                shared_state,
+                FinishRegistrationSession {
+                    session_id: "dummy-session-id".to_string(),
+                    public_key_credential: serde_json::from_str(
+                        self::mocks::webauthn::OK_REGISTER_PUBLIC_KEY_CREDENTIAL,
+                    ).unwrap(),
+                },
+            ).await.is_ok(),
+        );
+    }
+
+    #[tokio::test]
+    async fn finish_registration_of_existing_user() {
+        let cognito = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::cognito::list_users_one());
         let dynamodb = MockResponseInterceptor::new()
             .rule_mode(RuleMode::MatchAny)
             .with_rule(&self::mocks::dynamodb::delete_item_session())
@@ -1134,6 +1183,7 @@ mod tests {
         let admin_delete_user = self::mocks::cognito::admin_delete_user_ok();
         let cognito = MockResponseInterceptor::new()
             .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::cognito::list_users_empty())
             .with_rule(&self::mocks::cognito::admin_create_user_ok())
             .with_rule(&self::mocks::cognito::admin_set_user_password_ok())
             .with_rule(&admin_delete_user);
@@ -1170,6 +1220,7 @@ mod tests {
         let admin_delete_user = self::mocks::cognito::admin_delete_user_ok();
         let cognito = MockResponseInterceptor::new()
             .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::cognito::list_users_empty())
             .with_rule(&self::mocks::cognito::admin_create_user_ok())
             .with_rule(&self::mocks::cognito::admin_set_user_password_ok())
             .with_rule(&admin_delete_user);
@@ -1206,6 +1257,7 @@ mod tests {
         let admin_delete_user = self::mocks::cognito::admin_delete_user_ok();
         let cognito = MockResponseInterceptor::new()
             .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::cognito::list_users_empty())
             .with_rule(&self::mocks::cognito::admin_create_user_ok())
             .with_rule(&self::mocks::cognito::admin_set_user_password_ok())
             .with_rule(&admin_delete_user);
@@ -1242,6 +1294,7 @@ mod tests {
         let admin_delete_user = self::mocks::cognito::admin_delete_user_ok();
         let cognito = MockResponseInterceptor::new()
             .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::cognito::list_users_empty())
             .with_rule(&self::mocks::cognito::admin_create_user_ok())
             .with_rule(&self::mocks::cognito::admin_set_user_password_ok())
             .with_rule(&admin_delete_user);
@@ -1488,6 +1541,29 @@ mod tests {
             pub(crate) fn list_users_empty() -> Rule {
                 mock!(Client::list_users)
                     .then_output(|| ListUsersOutput::builder().build())
+            }
+
+            pub(crate) fn list_users_one() -> Rule {
+                mock!(Client::list_users)
+                    .then_output(|| ListUsersOutput::builder()
+                        .users(UserType::builder()
+                            .attributes(AttributeType::builder()
+                                .name("sub")
+                                .value("dummy-sub-123")
+                                .build()
+                                .unwrap())
+                            .attributes(AttributeType::builder()
+                                .name("username")
+                                .value("8TZ_kg_dp_pr0t7SDvGJiw")
+                                .build()
+                                .unwrap())
+                            .attributes(AttributeType::builder()
+                                .name("preferred_username")
+                                .value("test")
+                                .build()
+                                .unwrap())
+                            .build())
+                        .build())
             }
 
             pub(crate) fn admin_create_user_ok() -> Rule {
