@@ -2,7 +2,12 @@ import { createRouter, createWebHistory } from 'vue-router'
 import SignUp from '../views/SignUp.vue'
 
 const router = createRouter({
-  history: createWebHistory(import.meta.env.BASE_URL),
+  history: createWebHistory(
+    // as BASE_URL may be a full URL, we extracts only the path part of it.
+    // the second argument of the URL constructor is provided so that non-URL
+    // BASE_URL can be correctly parsed.
+    new URL(import.meta.env.BASE_URL, 'https://codemonger.io').pathname
+  ),
   routes: [
     {
       path: '/',
