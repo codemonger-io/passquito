@@ -14,8 +14,13 @@ import {
 // router
 const router = useRouter();
 
-// passkey input field
+// passkey input field which gets focused when mounted.
 const passkeyInput = ref<InstanceType<typeof BInput>>();
+watch(passkeyInput, (input) => {
+  if (input) {
+    input.focus();
+  }
+});
 
 // checks if passkeys are supported. stays `undefined` while checking.
 const isPasskeySupported = ref<boolean | undefined>();
