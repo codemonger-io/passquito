@@ -22,15 +22,6 @@ export class SessionStore extends Construct {
    *   - `displayName`: display name
    * - `state`: serialized internal state
    *
-   * ### Device invitation session
-   *
-   * - `pk`: "invitation#<session ID>"
-   * - `ttl`: 300 seconds after the session was created
-   * - `userId`: unique user ID
-   * - `cognitoSub`: Cognito sub of the user
-   * - `username`: Username associated with the public key credential, which is
-   *    registered as a preferred username in the Cognito user pool
-   *
    * ### User authentication session with a user-side discoverable credential
    *
    * - `pk`: "discoverable#<challenge>"

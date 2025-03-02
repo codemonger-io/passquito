@@ -307,6 +307,44 @@ export class CredentialsApi extends Construct {
         ]),
       },
     );
+    // /registration/start-verified
+    const registrationStartVerified = registration.addResource('start-verified');
+    // - POST
+    registrationStartVerified.addMethod(
+      'POST',
+      new apigw.LambdaIntegration(this.registrationLambda, {
+        proxy: false,
+        passthroughBehavior: apigw.PassthroughBehavior.NEVER,
+        requestTemplates: {
+          'application/json': composeMappingTemplate([
+            ['startVerified', composeMappingTemplate([
+              ['username', '$input.json("$.username")'],
+              ['displayName', '$input.json("$.displayName")'],
+              ['cognitoSub', `"$util.escapeJavaScript($context.authorizer.claims.sub).replaceAll("\\'", "'")"`],
+              ['userId', `"$util.escapeJavaScript($context.authorizer.claims["cognito:username"]).replaceAll("\\'", "'")"`],
+            ])],
+          ]),
+        },
+        integrationResponses: makeIntegrationResponsesAllowCors([
+          {
+            statusCode: '200',
+          },
+        ]),
+      }),
+      {
+        description: 'Start a registration session for a verified user.',
+        authorizer,
+        authorizationType: apigw.AuthorizationType.COGNITO,
+        // TODO: request model
+        methodResponses: makeMethodResponsesAllowCors([
+          {
+            statusCode: '200',
+            description: 'Registration session has been successfully started.',
+            // TODO: response model
+          },
+        ]),
+      },
+    );
     // /registration/finish
     const registrationFinish = registration.addResource('finish');
     // - POST
@@ -360,88 +398,6 @@ export class CredentialsApi extends Construct {
           {
             statusCode: '503',
             description: 'Service is temporarily unavailable. Try again later.',
-          },
-        ]),
-      },
-    );
-    // /registration/invite
-    const registrationInvite = registration.addResource('invite');
-    // - POST
-    registrationInvite.addMethod(
-      'POST',
-      new apigw.LambdaIntegration(this.registrationLambda, {
-        proxy: false,
-        passthroughBehavior: apigw.PassthroughBehavior.NEVER,
-        requestTemplates: {
-          'application/json': composeMappingTemplate([
-            ['invite', composeMappingTemplate([
-              ['cognitoSub', `"$util.escapeJavaScript($context.authorizer.claims.sub).replaceAll("\\'", "'")"`],
-              ['userId', `"$util.escapeJavaScript($context.authorizer.claims["cognito:username"]).replaceAll("\\'", "'")"`],
-            ])],
-          ]),
-        },
-        integrationResponses: makeIntegrationResponsesAllowCors([
-          {
-            // BadRequest should not happen,
-            // because this endpoint does not accept any user input
-            statusCode: '500',
-            selectionPattern: makeSelectionPattern('BadRequest'),
-            reseponseTemplates: {
-              'application/json': `{
-                "errorType": "InternalServerError",
-                "errorMessage": "internal error"
-              }`
-            },
-          },
-          {
-            statusCode: '200',
-          },
-        ]),
-      }),
-      {
-        description: 'Generate an invitation URL for the user to register a new credential on a new device',
-        authorizer,
-        authorizationType: apigw.AuthorizationType.COGNITO,
-        methodResponses: makeMethodResponsesAllowCors([
-          {
-            statusCode: '200',
-            description: 'Invitation URL has been successfully generated.',
-            // TODO: response model
-          },
-          {
-            statusCode: '500',
-            description: 'Internal server error',
-          },
-        ]),
-      },
-    );
-    // /registration/start-invited
-    const registrationStartInvited = registration.addResource('start-invited');
-    // - POST
-    registrationStartInvited.addMethod(
-      'POST',
-      new apigw.LambdaIntegration(this.registrationLambda, {
-        proxy: false,
-        passthroughBehavior: apigw.PassthroughBehavior.NEVER,
-        requestTemplates: {
-          'application/json': composeMappingTemplate([
-            ['startInvited', '$input.json("$")'],
-          ]),
-        },
-        integrationResponses: makeIntegrationResponsesAllowCors([
-          {
-            statusCode: '200',
-          },
-        ]),
-      }),
-      {
-        description: 'Start a registration session initiated by an invitation',
-        // TODO: request model
-        methodResponses: makeMethodResponsesAllowCors([
-          {
-            statusCode: '200',
-            description: 'Registration session has been successfully started.',
-            // TODO: response model
           },
         ]),
       },
