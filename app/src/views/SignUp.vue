@@ -3,22 +3,26 @@ import { BButton, BField, BInput, BNotification } from 'buefy';
 import { computed, onMounted, ref } from 'vue';
 import { RouterLink, useRouter } from 'vue-router';
 
-import {
-  checkPasskeyRegistrationSupported,
-  doRegistrationCeremony,
-} from '../utils/passquito';
+import { usePasskeyCapabilityStore } from '../stores/passkey-capability';
+import { doRegistrationCeremony } from '../utils/passquito';
 
 defineProps({
   message: String
 });
 
 // router
+//
+// navigation:
+// navigates to the secured page after the user signs up.
+// the user will be required to sign in.
 const router = useRouter();
 
+// passkey capabilities
+const passkeyCapabilityStore = usePasskeyCapabilityStore();
+
 // checks if passkeys are supported 
-const isPasskeySupported = ref(false);
 onMounted(async () => {
-  isPasskeySupported.value = await checkPasskeyRegistrationSupported();
+  passkeyCapabilityStore.askForCapabilities();
 });
 
 const username = ref('');
@@ -33,6 +37,7 @@ const onSubmit = async () => {
       displayName: displayName.value,
     });
     console.log('finished registration!');
+    router.push({ name: 'secured' });
   } catch(err) {
     console.error(err);
   }
@@ -41,7 +46,7 @@ const onSubmit = async () => {
 
 <template>
   <main class="container">
-    <div v-if="isPasskeySupported" class="login-form">
+    <div v-if="passkeyCapabilityStore.isRegistrationSupported" class="login-form">
       <div class="login-form-header" style="font-size: 1rem;">
         <div class="is-flex is-justify-content-end">
           <a :href="router.resolve({ name: 'signin' }).href">Sign in</a>
@@ -63,7 +68,7 @@ const onSubmit = async () => {
       </form>
     </div>
     <p v-else>
-      Passkeys are not supported on this device.
+      Passkey registration is not supported on this device.
     </p>
   </main>
 </template>

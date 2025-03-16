@@ -1,56 +1,117 @@
 <script setup lang="ts">
 import { BField, BInput } from 'buefy';
 import { onMounted, ref, watch } from 'vue';
+import { useRouter } from 'vue-router';
 
+import { useCredentialStore } from '../stores/credential';
+import { usePasskeyCapabilityStore } from '../stores/passkey-capability';
 import {
-  checkPasskeyRegistrationSupported,
-  doInvitedRegistrationCeremony
+  doRegistrationCeremonyForVerifiedUser,
+  getErrorName,
 } from '../utils/passquito';
 
-const props = defineProps<{
-  sessionId: string
-}>();
+// router
+const router = useRouter();
+
+// passeky capabilities
+const passkeyCapabilityStore = usePasskeyCapabilityStore();
 
 // checks if passkeys are supported
-const isPasskeySupported = ref(false);
-onMounted(async () => {
-  isPasskeySupported.value = await checkPasskeyRegistrationSupported();
+onMounted(() => {
+  passkeyCapabilityStore.askForCapabilities();
 });
 
+// credential
+const credentialStore = useCredentialStore();
+
+// requires the credential
+onMounted(() => {
+  credentialStore.askForCredential();
+});
+
+// redirects to the sign-in page if the user is not authenticated
+watch(
+  () => credentialStore.state,
+  (state) => {
+    if (state === 'unauthenticated') {
+      console.log('redirecting to the sign-in page...');
+      window.location.href = router.resolve({ name: 'signin' }).href;
+    }
+  },
+  { immediate: true }
+);
+
+// username and display name which are updated whenever those associated with
+// the credential change
 const username = ref('');
 const displayName = ref('');
 
+watch(() => credentialStore.username, (newUsername) => {
+  newUsername = newUsername ?? '';
+  if (username.value !== newUsername) {
+    username.value = newUsername;
+  }
+});
+watch(() => credentialStore.displayName, (newDisplayName) => {
+  newDisplayName = newDisplayName ?? '';
+  if (displayName.value !== newDisplayName) {
+    displayName.value = newDisplayName
+  }
+});
+
 // registers a new device (credential)
 const onSubmit = async () => {
+  const idToken = credentialStore.idToken;
+  if (idToken == null) {
+    console.error('no ID token is available.');
+    return;
+  }
   try {
     console.log('starting registration...');
-    await doInvitedRegistrationCeremony({
-      username: username.value,
-      displayName: displayName.value,
-      invitationSessionId: props.sessionId
+    // TODO: deal with a token expiration
+    await doRegistrationCeremonyForVerifiedUser({
+      idToken,
+      userInfo: {
+        username: username.value,
+        displayName: displayName.value,
+      }
     });
     console.log('finished registration!');
   } catch (err) {
-    console.error(err);
+    if (getErrorName(err) === 'InvalidStateError') {
+      console.error('you already have a credential on this device.');
+    } else {
+      console.error(err);
+    }
   }
 }
 </script>
 
 <template>
   <main class="container">
-    <div v-if="isPasskeySupported" class="login-form">
-      <form @submit.prevent="onSubmit">
-        <b-field label="Username">
-          <b-input v-model="username" pattern="[A-Za-z0-9_:;-]+"></b-input>
-        </b-field>
-        <b-field label="Display name">
-          <b-input v-model="displayName"></b-input>
-        </b-field>
-        <input type="submit" class="button is-primary" value="Register">
-      </form>
-    </div>
+    <template v-if="credentialStore.state === 'authenticated'">
+      <div v-if="passkeyCapabilityStore.isRegistrationSupported" class="login-form">
+        <form @submit.prevent="onSubmit">
+          <b-field label="Username">
+            <b-input v-model="username" pattern="[A-Za-z0-9_:;-]+"></b-input>
+          </b-field>
+          <b-field label="Display name">
+            <b-input v-model="displayName"></b-input>
+          </b-field>
+          <input type="submit" class="button is-primary" value="Register">
+        </form>
+      </div>
+      <p v-else>
+        Passkeys are not supported on this device.
+      </p>
+    </template>
+    <p v-else-if="credentialStore.state === 'indeterminate'">
+      Checking if authenticated...
+    </p>
     <p v-else>
-      Passkeys are not supported on this device.
+      You have to
+      <a :href="router.resolve({ name: 'signin' }).href">sign in</a>
+      first.
     </p>
   </main>
 </template>

@@ -29,9 +29,12 @@ export interface UserInfo {
  *
  * @beta
  */
-export interface InvitedUserInfo extends UserInfo {
-  /** Invitation session ID. */
-  invitationSessionId: string;
+export interface VerifiedUserInfo {
+  /** ID token of the verified user. */
+  idToken: string;
+
+  /** User information. */
+  userInfo: UserInfo;
 }
 
 // passkey registration session.
@@ -45,6 +48,17 @@ interface RegistrationSession {
 // we are not interested in the fields other than `publicKey`.
 interface CredentialCreationOptions {
   publicKey: PublicKeyCredentialCreationOptions;
+}
+
+/**
+ * Cognito tokens.
+ *
+ * @beta
+ */
+export interface CognitoTokens {
+  IdToken: string;
+  AccessToken: string;
+  RefreshToken: string;
 }
 
 /**
@@ -145,16 +159,19 @@ export async function doRegistrationCeremony(userInfo: UserInfo) {
 }
 
 /**
- * Conducts a registration ceremony as per a given invitation.
+ * Conducts a registration ceremony for a verified user.
  *
  * @remarks
+ *
+ * This ceremony is for a user who has been authenticated through a cross-device
+ * authentication and wants to register a new device (credential).
  *
  * References:
  * - <https://web.dev/articles/passkey-registration>
  * - <https://www.w3.org/TR/webauthn-3/#sctn-registering-a-new-credential>
  */
-export async function doInvitedRegistrationCeremony(userInfo: InvitedUserInfo) {
-  const { sessionId, options } = await startInvitedRegistration(userInfo);
+export async function doRegistrationCeremonyForVerifiedUser(userInfo: VerifiedUserInfo) {
+  const { sessionId, options } = await startRegistrationForVerifiedUser(userInfo);
   console.log('CredentialCreationOptions:', options);
   const credential = await navigator.credentials.create(options);
   if (credential == null) {
@@ -209,17 +226,18 @@ async function startRegistration(userInfo: UserInfo): Promise<RegistrationSessio
   };
 }
 
-// obtains the public key credential creation options as per a given invitation
+// obtains the public key credential creation options for a verified user
 //
 // throws if an error occurs.
-async function startInvitedRegistration(userInfo: InvitedUserInfo): Promise<RegistrationSession> {
-  const endpoint = `${credentialsApiUrl.replace(/\/$/, '')}/registration/start-invited`;
+async function startRegistrationForVerifiedUser(userInfo: VerifiedUserInfo): Promise<RegistrationSession> {
+  const endpoint = `${credentialsApiUrl.replace(/\/$/, '')}/registration/start-verified`;
   const res = await fetch(endpoint, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      'Authorization': userInfo.idToken,
     },
-    body: JSON.stringify(userInfo),
+    body: JSON.stringify(userInfo.userInfo),
   });
   const session = await res.json();
   return {
@@ -402,7 +420,7 @@ function decodePublicKeyCredentialRequestOptions(publicKey: any) {
 }
 
 // authenticates a given public key credential.
-async function authenticatePublicKeyCredential(credential: PublicKeyCredential) {
+async function authenticatePublicKeyCredential(credential: PublicKeyCredential): Promise<CognitoTokens> {
   const encodedCredential = encodePublicKeyCredentialForAuthentication(credential);
   console.log('encoded credential:', encodedCredential);
   if (isCognito) {
@@ -430,10 +448,14 @@ async function authenticatePublicKeyCredential(credential: PublicKeyCredential) 
         ANSWER: JSON.stringify(encodedCredential),
       },
     }));
-    if (res.AuthenticationResult == null) {
+    const tokens = res.AuthenticationResult;
+    if (tokens == null) {
       throw new Error('failed to authenticate');
     }
-    return res.AuthenticationResult;
+    if (!isCognitoTokens(tokens)) {
+      throw new Error('invalid Cognito tokens');
+    }
+    return tokens;
   } else {
     const endpoint =
       `${credentialsApiUrl.replace(/\/$/, '')}/discoverable/finish`;
@@ -497,6 +519,26 @@ function encodeAuthenticatorAssertionResponse(
 }
 
 /**
+ * Returns if a given value is a `CognitoTokens`.
+ *
+ * @beta
+ */
+export function isCognitoTokens(value: unknown): value is CognitoTokens {
+  if (value == null || typeof value !== 'object') {
+    return false;
+  }
+  const maybeTokens = value as CognitoTokens;
+  if (
+    typeof maybeTokens.IdToken !== 'string' ||
+    typeof maybeTokens.AccessToken !== 'string' ||
+    typeof maybeTokens.RefreshToken !== 'string'
+  ) {
+    return false;
+  }
+  return true;
+}
+
+/**
  * Returns if a given error object is an `AbortError`.
  *
  * @beta
@@ -506,4 +548,16 @@ export function isAbortError(err: unknown): boolean {
     return false;
   }
   return (err as { name: string }).name === 'AbortError';
+}
+
+/**
+ * Returns the name of a given error object.
+ *
+ * @beta
+ */
+export function getErrorName(err: unknown): string | undefined {
+  if (err == null || (typeof err !== 'object' && typeof err !== 'function')) {
+    return undefined;
+  }
+  return (err as { name: string }).name;
 }

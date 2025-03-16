@@ -38,10 +38,9 @@ const router = createRouter({
       component: () => import('../views/InviteDevice.vue')
     },
     {
-      path: '/register-device/:sessionId',
+      path: '/register-device',
       name: 'register-device',
-      component: () => import('../views/RegisterDevice.vue'),
-      props: true
+      component: () => import('../views/RegisterDevice.vue')
     }
   ]
 })

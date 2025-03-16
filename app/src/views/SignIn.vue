@@ -5,14 +5,21 @@ import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { RouterLink, useRouter } from 'vue-router';
 
 import { useWebauthn } from '../composables/webauthn';
-import {
-  checkPasskeyAuthenticationSupported,
-  doAuthenticationCeremony,
-  isAbortError,
-} from '../utils/passquito';
+import { useCredentialStore } from '../stores/credential';
+import { usePasskeyCapabilityStore } from '../stores/passkey-capability';
+import { doAuthenticationCeremony, getErrorName } from '../utils/passquito';
 
 // router
+//
+// navigation:
+// goes back to the previous page in the history after the user signs in.
 const router = useRouter();
+
+// passkey capabilities
+const passkeyCapabilityStore = usePasskeyCapabilityStore();
+
+// credential
+const credentialStore = useCredentialStore();
 
 // passkey input field which gets focused when mounted.
 const passkeyInput = ref<InstanceType<typeof BInput>>();
@@ -22,10 +29,9 @@ watch(passkeyInput, (input) => {
   }
 });
 
-// checks if passkeys are supported. stays `undefined` while checking.
-const isPasskeySupported = ref<boolean | undefined>();
-onMounted(async () => {
-  isPasskeySupported.value = await checkPasskeyAuthenticationSupported();
+// checks if passkey authentication is supported.
+onMounted(() => {
+  passkeyCapabilityStore.askForCapabilities();
 });
 
 // performs an authentication ceremony if passkeys are supported.
@@ -35,13 +41,12 @@ onMounted(async () => {
 // otherwise, navigates to the sign-up page unless it has been aborted.
 const abortAuthentication = ref<(message: string) => void>(() => {});
 watch(
-  isPasskeySupported,
+  () => passkeyCapabilityStore.isAuthenticationSupported,
   async (isSupported) => {
-    if (isSupported === undefined) {
-      return; // loading
-    }
     if (!isSupported) {
-      console.error("passkeys are not supported on this device");
+      if (!passkeyCapabilityStore.isIndeterminate) {
+        console.error("passkeys are not supported on this device");
+      }
       return;
     }
     abortAuthentication.value('starting authentication');
@@ -49,57 +54,36 @@ watch(
     abortAuthentication.value = abort;
     try {
       const tokens = await futureTokens;
-      if (!isTokens(tokens)) {
-        console.error('invalid tokens', tokens);
-        throw new Error('invalid tokens');
-      }
       console.log('authenticated:', tokens);
-      saveTokens(tokens);
-      router.push({ name: 'secured' });
+      credentialStore.saveTokens(tokens);
+      router.back();
     } catch (err) {
-      if (!isAbortError(err)) {
-        console.error(err);
-        router.push({
-          name: 'home',
-          query: {
-            message: 'Failed to authenticate. Would like to register a new passkey?',
-          },
-        });
-      } else {
-        console.log('authentication aborted:', err);
+      switch (getErrorName(err)) {
+        case 'AbortError':
+          console.log('authentication aborted:', err);
+          break;
+        case 'NotAllowedError':
+          console.error(err);
+          router.push({
+            name: 'home',
+            query: {
+              message: 'Failed to authenticate. The credential request was denied or sent to a wrong relying party.',
+            },
+          });
+          break;
+        default:
+          console.error(err);
+          router.push({
+            name: 'home',
+            query: {
+              message: 'Failed to authenticate. Would like to register a new passkey?',
+            },
+          });
       }
     }
   },
   { immediate: true },
 );
-
-interface Tokens {
-  IdToken: string;
-  AccessToken: string;
-  RefreshToken: string;
-}
-
-function isTokens(value: unknown): value is Tokens {
-  if (value == null || typeof value !== 'object') {
-    return false;
-  }
-  const maybeTokens = value as Tokens;
-  if (
-    typeof maybeTokens.IdToken !== 'string' ||
-    typeof maybeTokens.AccessToken !== 'string' ||
-    typeof maybeTokens.RefreshToken !== 'string'
-  ) {
-    return false;
-  }
-  return true;
-}
-
-// saves the tokens in the local storage.
-const saveTokens = (tokens: Tokens) => {
-  localStorage.setItem('passquitoIdToken', tokens.IdToken);
-  localStorage.setItem('passquitoAccessToken', tokens.AccessToken);
-  localStorage.setItem('passquitoRefreshToken', tokens.RefreshToken);
-};
 
 onBeforeUnmount(() => {
   abortAuthentication.value('leaving page');
@@ -108,7 +92,7 @@ onBeforeUnmount(() => {
 
 <template>
   <main class="container">
-    <div v-if="isPasskeySupported" class="login-form">
+    <div v-if="passkeyCapabilityStore.isAuthenticationSupported" class="login-form">
       <div class="login-form-header">
         <router-link :to="{ name: 'home' }">Sign up</router-link>
       </div>
@@ -121,11 +105,11 @@ onBeforeUnmount(() => {
         </b-input>
       </b-field>
     </div>
-    <p v-else-if="isPasskeySupported === undefined">
-      Checking if passkeys are supported on this device...
+    <p v-else-if="passkeyCapabilityStore.isIndeterminate">
+      Checking if passkey authentication is supported on this device...
     </p>
     <p v-else>
-      Passkeys are not supported on this device.
+      Passkey authentication is not supported on this device.
     </p>
   </main>
 </template>
