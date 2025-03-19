@@ -81,6 +81,7 @@
 use aws_sdk_cognitoidentityprovider::types::{
     AttributeType as UserAttributeType,
     MessageActionType,
+    UserStatusType,
 };
 use aws_sdk_dynamodb::{
     primitives::{DateTime, DateTimeFormat},
@@ -113,7 +114,7 @@ use webauthn_rs_proto::RegisterPublicKeyCredential;
 
 use authentication::error_response::ErrorResponse;
 use authentication::parameters::load_relying_party_origin;
-use authentication::sdk_error_ext::SdkErrorExt;
+use authentication::sdk_error_ext::SdkErrorExt as _;
 
 // Shared state.
 #[cfg_attr(test, derive(derive_builder::Builder))]
@@ -400,7 +401,13 @@ where
             AttributeValue::S(serde_json::to_string(&reg_state)?),
         )
         .send()
-        .await?;
+        .await
+        .map_err(|e| if e.is_retryable() {
+            error!("{e:?}");
+            ErrorResponse::unavailable("too many requests")
+        } else {
+            e.into()
+        })?;
     // requires a resident key
     if let Some(selection) = ccr.public_key.authenticator_selection.as_mut() {
         selection.require_resident_key = true;
@@ -411,6 +418,7 @@ where
     })
 }
 
+// TODO: describe error responses
 async fn start_registration_for_verified_user<Webauthn>(
     shared_state: Arc<SharedState<Webauthn>>,
     user_info: VerifiedUserInfo,
@@ -436,28 +444,49 @@ where
             AttributeValue::S(user_info.cognito_sub.clone()),
         )
         .send()
-        .await?
+        .await
+        .map_err(|e| if e.is_retryable() {
+            error!("{e:?}");
+            ErrorResponse::unavailable("too many requests")
+        } else {
+            e.into()
+        })?
         .items
-        .ok_or_else(|| "missing user in the credentials table")?
+        .ok_or_else(|| ErrorResponse::bad_request("no credentials associated with user"))?
         .pop()
-        .ok_or_else(|| "missing user in the credentials table")?;
+        .ok_or_else(|| ErrorResponse::bad_request("no credentials associated with user"))?;
 
     // makes sure that the user exists in the Cognito user pool
-    shared_state.cognito
+    // also checks the following:
+    // - the Cognito username matches the user ID
+    // - the user is enabled
+    // - the user status is confirmed
+    let cognito_user = shared_state.cognito
         .list_users()
         .user_pool_id(shared_state.user_pool_id.clone())
         .filter(format!("sub = \"{}\"", user_info.cognito_sub)) // TODO: what if the sub contains a double quote?
         .limit(1)
         .send()
-        .await?
+        .await
+        .map_err(|e| if e.is_retryable() {
+            error!("{e:?}");
+            ErrorResponse::unavailable("too many requests")
+        } else {
+            e.into()
+        })?
         .users
         .ok_or_else(|| "missing user in the Cognito user pool")?
         .pop()
         .ok_or_else(|| "missing user in the Cognito user pool")?;
-    // TODO: check if the username matches the user ID
-    // TODO: check if the user is enabled
-    // TODO: check if the user status is confirmed
-    // TODO: check if the username matches the preferred username
+    if !cognito_user.username.is_some_and(|username| username == user_info.user_id) {
+        return Err("Cognito username does not match user ID".into());
+    }
+    if !cognito_user.enabled {
+        return Err(ErrorResponse::unauthorized("Cognito user is disabled"));
+    }
+    if cognito_user.user_status.is_some_and(|status| status == UserStatusType::Unconfirmed) {
+        return Err("uncofirmed Cognito user".into());
+    }
 
     // decodes the user_id as a UUID
     let user_uuid = base64url.decode(&user_info.user_id)
@@ -466,6 +495,7 @@ where
             .map_err(|_| "user ID must be a UUID"))?;
 
     // lists existing credentials for the user to be excluded
+    // TODO: do this in the first query to save RCUs
     info!("listing credentials for {}", user_info.user_id);
     let exclude_credentials = shared_state.dynamodb
         .query()
@@ -529,7 +559,13 @@ where
             AttributeValue::S(serde_json::to_string(&reg_state)?),
         )
         .send()
-        .await?;
+        .await
+        .map_err(|e| if e.is_retryable() {
+            error!("{e:?}");
+            ErrorResponse::unavailable("too many requests")
+        } else {
+            e.into()
+        })?;
     // requires a resident key
     if let Some(selection) = ccr.public_key.authenticator_selection.as_mut() {
         selection.require_resident_key = true;
@@ -832,6 +868,42 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn function_handler_start_registration_for_verified_user() {
+        let cognito = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::cognito::list_users_one());
+        let dynamodb = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::dynamodb::query_one_credential())
+            .with_rule(&self::mocks::dynamodb::put_item_ok());
+
+        let shared_state: SharedState<ConstantWebauthn> = SharedStateBuilder::default()
+            .webauthn(ConstantWebauthn::new(
+                self::mocks::webauthn::OK_CREATION_CHALLENGE_RESPONSE_WITH_EXCLUDE_CREDENTIALS,
+                self::mocks::webauthn::OK_PASSKEY_REGISTRATION_WITH_EXCLUDE_CREDENTIALS,
+                self::mocks::webauthn::OK_PASSKEY,
+            ))
+            .cognito(self::mocks::cognito::new_client(cognito))
+            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .build()
+            .unwrap();
+        let shared_state = Arc::new(shared_state);
+
+        let event = LambdaEvent::new(
+            serde_json::json!({
+                "startVerified": {
+                    "username": "test",
+                    "displayName": "Test User",
+                    "cognitoSub": "dummy-sub-123",
+                    "userId": "8TZ_kg_dp_pr0t7SDvGJiw",
+                },
+            }),
+            lambda_runtime::Context::default(),
+        );
+        assert!(function_handler(shared_state, event).await.is_ok());
+    }
+
+    #[tokio::test]
     async fn function_handler_finish_registration() {
         let cognito = MockResponseInterceptor::new()
             .rule_mode(RuleMode::MatchAny)
@@ -920,7 +992,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn start_user_registration_of_new_user() {
+    async fn start_registration_of_new_user() {
         let cognito = MockResponseInterceptor::new()
             .rule_mode(RuleMode::MatchAny)
             .with_rule(&self::mocks::cognito::list_users_empty());
@@ -948,6 +1020,671 @@ mod tests {
                 },
             ).await.is_ok(),
         );
+    }
+
+    #[tokio::test]
+    async fn start_registration_with_dynamodb_put_item_provisitioned_throughput_exceeded() {
+        let cognito = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::cognito::list_users_empty());
+        let dynamodb = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::dynamodb::put_item_provisioned_throughput_exceeded());
+
+        let shared_state: SharedState<ConstantWebauthnStartRegistration> = SharedStateBuilder::default()
+            .webauthn(ConstantWebauthnStartRegistration::new(
+                self::mocks::webauthn::OK_CREATION_CHALLENGE_RESPONSE,
+                self::mocks::webauthn::OK_PASSKEY_REGISTRATION,
+            ))
+            .cognito(self::mocks::cognito::new_client(cognito))
+            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .build()
+            .unwrap();
+        let shared_state = Arc::new(shared_state);
+
+        let err = start_registration(
+            shared_state,
+            NewUserInfo {
+                username: "test".into(),
+                display_name: "Test User".into(),
+            },
+        ).await.err().unwrap();
+        assert!(matches!(err, ErrorResponse::Unavailable(_)));
+    }
+
+    #[tokio::test]
+    async fn start_registration_with_dynamodb_put_item_request_limit_exceeded() {
+        let cognito = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::cognito::list_users_empty());
+        let dynamodb = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::dynamodb::put_item_request_limit_exceeded());
+
+        let shared_state: SharedState<ConstantWebauthnStartRegistration> = SharedStateBuilder::default()
+            .webauthn(ConstantWebauthnStartRegistration::new(
+                self::mocks::webauthn::OK_CREATION_CHALLENGE_RESPONSE,
+                self::mocks::webauthn::OK_PASSKEY_REGISTRATION,
+            ))
+            .cognito(self::mocks::cognito::new_client(cognito))
+            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .build()
+            .unwrap();
+        let shared_state = Arc::new(shared_state);
+
+        let err = start_registration(
+            shared_state,
+            NewUserInfo {
+                username: "test".into(),
+                display_name: "Test User".into(),
+            },
+        ).await.err().unwrap();
+        assert!(matches!(err, ErrorResponse::Unavailable(_)));
+    }
+
+    #[tokio::test]
+    async fn start_registration_with_dynamodb_put_item_service_unavailable() {
+        let cognito = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::cognito::list_users_empty());
+        let dynamodb = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::dynamodb::put_item_service_unavailable());
+
+        let shared_state: SharedState<ConstantWebauthnStartRegistration> = SharedStateBuilder::default()
+            .webauthn(ConstantWebauthnStartRegistration::new(
+                self::mocks::webauthn::OK_CREATION_CHALLENGE_RESPONSE,
+                self::mocks::webauthn::OK_PASSKEY_REGISTRATION,
+            ))
+            .cognito(self::mocks::cognito::new_client(cognito))
+            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .build()
+            .unwrap();
+        let shared_state = Arc::new(shared_state);
+
+        let err = start_registration(
+            shared_state,
+            NewUserInfo {
+                username: "test".into(),
+                display_name: "Test User".into(),
+            },
+        ).await.err().unwrap();
+        assert!(matches!(err, ErrorResponse::Unavailable(_)));
+    }
+
+    #[tokio::test]
+    async fn start_registration_with_dynamodb_put_item_throttling_exception() {
+        let cognito = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::cognito::list_users_empty());
+        let dynamodb = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::dynamodb::put_item_throttling_exception());
+
+        let shared_state: SharedState<ConstantWebauthnStartRegistration> = SharedStateBuilder::default()
+            .webauthn(ConstantWebauthnStartRegistration::new(
+                self::mocks::webauthn::OK_CREATION_CHALLENGE_RESPONSE,
+                self::mocks::webauthn::OK_PASSKEY_REGISTRATION,
+            ))
+            .cognito(self::mocks::cognito::new_client(cognito))
+            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .build()
+            .unwrap();
+        let shared_state = Arc::new(shared_state);
+
+        let err = start_registration(
+            shared_state,
+            NewUserInfo {
+                username: "test".into(),
+                display_name: "Test User".into(),
+            },
+        ).await.err().unwrap();
+        assert!(matches!(err, ErrorResponse::Unavailable(_)));
+    }
+
+    #[tokio::test]
+    async fn start_registration_for_verified_user_with_existing_credential() {
+        let cognito = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::cognito::list_users_one());
+        let dynamodb = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::dynamodb::query_one_credential())
+            .with_rule(&self::mocks::dynamodb::put_item_ok());
+
+        let shared_state: SharedState<ConstantWebauthnStartRegistration> = SharedStateBuilder::default()
+            .webauthn(ConstantWebauthnStartRegistration::new(
+                self::mocks::webauthn::OK_CREATION_CHALLENGE_RESPONSE_WITH_EXCLUDE_CREDENTIALS,
+                self::mocks::webauthn::OK_PASSKEY_REGISTRATION_WITH_EXCLUDE_CREDENTIALS,
+            ))
+            .cognito(self::mocks::cognito::new_client(cognito))
+            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .build()
+            .unwrap();
+        let shared_state = Arc::new(shared_state);
+
+        assert!(
+            start_registration_for_verified_user(
+                shared_state,
+                VerifiedUserInfo {
+                    user_info: NewUserInfo {
+                        username: "test".into(),
+                        display_name: "Test User".into(),
+                    },
+                    cognito_sub: "dummy-sub-123".into(),
+                    user_id: "8TZ_kg_dp_pr0t7SDvGJiw".into(),
+                },
+            ).await.is_ok(),
+        );
+    }
+
+    #[tokio::test]
+    async fn start_registration_for_verified_user_with_non_existing_credential() {
+        let cognito = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny);
+        let dynamodb = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::dynamodb::query_empty_credentials());
+
+        let shared_state: SharedState<ConstantWebauthnStartRegistration> = SharedStateBuilder::default()
+            .webauthn(ConstantWebauthnStartRegistration::new(
+                self::mocks::webauthn::OK_CREATION_CHALLENGE_RESPONSE_WITH_EXCLUDE_CREDENTIALS,
+                self::mocks::webauthn::OK_PASSKEY_REGISTRATION_WITH_EXCLUDE_CREDENTIALS,
+            ))
+            .cognito(self::mocks::cognito::new_client(cognito))
+            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .build()
+            .unwrap();
+        let shared_state = Arc::new(shared_state);
+
+        let err = start_registration_for_verified_user(
+            shared_state,
+            VerifiedUserInfo {
+                user_info: NewUserInfo {
+                    username: "test".into(),
+                    display_name: "Test User".into(),
+                },
+                cognito_sub: "dummy-sub-123".into(),
+                user_id: "8TZ_kg_dp_pr0t7SDvGJiw".into(),
+            },
+        ).await.err().unwrap();
+        assert!(matches!(err, ErrorResponse::BadRequest(_)));
+    }
+
+    #[tokio::test]
+    async fn start_registration_for_verified_user_with_cognito_username_user_id_mismatch() {
+        let cognito = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::cognito::list_users_one());
+        let dynamodb = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::dynamodb::query_one_credential());
+
+        let shared_state: SharedState<ConstantWebauthnStartRegistration> = SharedStateBuilder::default()
+            .webauthn(ConstantWebauthnStartRegistration::new(
+                self::mocks::webauthn::OK_CREATION_CHALLENGE_RESPONSE_WITH_EXCLUDE_CREDENTIALS,
+                self::mocks::webauthn::OK_PASSKEY_REGISTRATION_WITH_EXCLUDE_CREDENTIALS,
+            ))
+            .cognito(self::mocks::cognito::new_client(cognito))
+            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .build()
+            .unwrap();
+        let shared_state = Arc::new(shared_state);
+
+        let err = start_registration_for_verified_user(
+            shared_state,
+            VerifiedUserInfo {
+                user_info: NewUserInfo {
+                    username: "test".into(),
+                    display_name: "Test User".into(),
+                },
+                cognito_sub: "dummy-sub-123".into(),
+                user_id: "q8UUA6NeySf0A6JBBpM4EA".into(), // another user ID
+            },
+        ).await.err().unwrap();
+        assert!(matches!(err, ErrorResponse::Unhandled(_)));
+    }
+
+    #[tokio::test]
+    async fn start_registration_for_verified_user_with_disabled_cognito_user() {
+        let cognito = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::cognito::list_users_disabled_one());
+        let dynamodb = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::dynamodb::query_one_credential());
+
+        let shared_state: SharedState<ConstantWebauthnStartRegistration> = SharedStateBuilder::default()
+            .webauthn(ConstantWebauthnStartRegistration::new(
+                self::mocks::webauthn::OK_CREATION_CHALLENGE_RESPONSE_WITH_EXCLUDE_CREDENTIALS,
+                self::mocks::webauthn::OK_PASSKEY_REGISTRATION_WITH_EXCLUDE_CREDENTIALS,
+            ))
+            .cognito(self::mocks::cognito::new_client(cognito))
+            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .build()
+            .unwrap();
+        let shared_state = Arc::new(shared_state);
+
+        let err = start_registration_for_verified_user(
+            shared_state,
+            VerifiedUserInfo {
+                user_info: NewUserInfo {
+                    username: "test".into(),
+                    display_name: "Test User".into(),
+                },
+                cognito_sub: "dummy-sub-123".into(),
+                user_id: "8TZ_kg_dp_pr0t7SDvGJiw".into(),
+            },
+        ).await.err().unwrap();
+        assert!(matches!(err, ErrorResponse::Unauthorized(_)));
+    }
+
+    #[tokio::test]
+    async fn start_registration_for_verified_user_with_unconfirmed_cognito_user() {
+        let cognito = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::cognito::list_users_unconfirmed_one());
+        let dynamodb = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::dynamodb::query_one_credential());
+
+        let shared_state: SharedState<ConstantWebauthnStartRegistration> = SharedStateBuilder::default()
+            .webauthn(ConstantWebauthnStartRegistration::new(
+                self::mocks::webauthn::OK_CREATION_CHALLENGE_RESPONSE_WITH_EXCLUDE_CREDENTIALS,
+                self::mocks::webauthn::OK_PASSKEY_REGISTRATION_WITH_EXCLUDE_CREDENTIALS,
+            ))
+            .cognito(self::mocks::cognito::new_client(cognito))
+            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .build()
+            .unwrap();
+        let shared_state = Arc::new(shared_state);
+
+        let err = start_registration_for_verified_user(
+            shared_state,
+            VerifiedUserInfo {
+                user_info: NewUserInfo {
+                    username: "test".into(),
+                    display_name: "Test User".into(),
+                },
+                cognito_sub: "dummy-sub-123".into(),
+                user_id: "8TZ_kg_dp_pr0t7SDvGJiw".into(),
+            },
+        ).await.err().unwrap();
+        assert!(matches!(err, ErrorResponse::Unhandled(_)));
+    }
+
+    #[tokio::test]
+    async fn start_registration_for_verified_user_with_dynamodb_query_throughput_exceeded() {
+        let cognito = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny);
+        let dynamodb = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::dynamodb::query_throughput_exceeded());
+
+        let shared_state: SharedState<ConstantWebauthnStartRegistration> = SharedStateBuilder::default()
+            .webauthn(ConstantWebauthnStartRegistration::new(
+                self::mocks::webauthn::OK_CREATION_CHALLENGE_RESPONSE_WITH_EXCLUDE_CREDENTIALS,
+                self::mocks::webauthn::OK_PASSKEY_REGISTRATION_WITH_EXCLUDE_CREDENTIALS,
+            ))
+            .cognito(self::mocks::cognito::new_client(cognito))
+            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .build()
+            .unwrap();
+        let shared_state = Arc::new(shared_state);
+
+        let err = start_registration_for_verified_user(
+            shared_state,
+            VerifiedUserInfo {
+                user_info: NewUserInfo {
+                    username: "test".into(),
+                    display_name: "Test User".into(),
+                },
+                cognito_sub: "dummy-sub-123".into(),
+                user_id: "8TZ_kg_dp_pr0t7SDvGJiw".into(),
+            },
+        ).await.err().unwrap();
+        assert!(matches!(err, ErrorResponse::Unavailable(_)));
+    }
+
+    #[tokio::test]
+    async fn start_registration_for_verified_user_with_dynamodb_query_request_limit_exceeded() {
+        let cognito = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny);
+        let dynamodb = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::dynamodb::query_request_limit_exceeded());
+
+        let shared_state: SharedState<ConstantWebauthnStartRegistration> = SharedStateBuilder::default()
+            .webauthn(ConstantWebauthnStartRegistration::new(
+                self::mocks::webauthn::OK_CREATION_CHALLENGE_RESPONSE_WITH_EXCLUDE_CREDENTIALS,
+                self::mocks::webauthn::OK_PASSKEY_REGISTRATION_WITH_EXCLUDE_CREDENTIALS,
+            ))
+            .cognito(self::mocks::cognito::new_client(cognito))
+            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .build()
+            .unwrap();
+        let shared_state = Arc::new(shared_state);
+
+        let err = start_registration_for_verified_user(
+            shared_state,
+            VerifiedUserInfo {
+                user_info: NewUserInfo {
+                    username: "test".into(),
+                    display_name: "Test User".into(),
+                },
+                cognito_sub: "dummy-sub-123".into(),
+                user_id: "8TZ_kg_dp_pr0t7SDvGJiw".into(),
+            },
+        ).await.err().unwrap();
+        assert!(matches!(err, ErrorResponse::Unavailable(_)));
+    }
+
+    #[tokio::test]
+    async fn start_registration_for_verified_user_with_dynamodb_query_service_unavailable() {
+        let cognito = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny);
+        let dynamodb = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::dynamodb::query_service_unavailable());
+
+        let shared_state: SharedState<ConstantWebauthnStartRegistration> = SharedStateBuilder::default()
+            .webauthn(ConstantWebauthnStartRegistration::new(
+                self::mocks::webauthn::OK_CREATION_CHALLENGE_RESPONSE_WITH_EXCLUDE_CREDENTIALS,
+                self::mocks::webauthn::OK_PASSKEY_REGISTRATION_WITH_EXCLUDE_CREDENTIALS,
+            ))
+            .cognito(self::mocks::cognito::new_client(cognito))
+            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .build()
+            .unwrap();
+        let shared_state = Arc::new(shared_state);
+
+        let err = start_registration_for_verified_user(
+            shared_state,
+            VerifiedUserInfo {
+                user_info: NewUserInfo {
+                    username: "test".into(),
+                    display_name: "Test User".into(),
+                },
+                cognito_sub: "dummy-sub-123".into(),
+                user_id: "8TZ_kg_dp_pr0t7SDvGJiw".into(),
+            },
+        ).await.err().unwrap();
+        assert!(matches!(err, ErrorResponse::Unavailable(_)));
+    }
+
+    #[tokio::test]
+    async fn start_registration_for_verified_user_with_dynamodb_query_throttling() {
+        let cognito = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny);
+        let dynamodb = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::dynamodb::query_throttling_exception());
+
+        let shared_state: SharedState<ConstantWebauthnStartRegistration> = SharedStateBuilder::default()
+            .webauthn(ConstantWebauthnStartRegistration::new(
+                self::mocks::webauthn::OK_CREATION_CHALLENGE_RESPONSE_WITH_EXCLUDE_CREDENTIALS,
+                self::mocks::webauthn::OK_PASSKEY_REGISTRATION_WITH_EXCLUDE_CREDENTIALS,
+            ))
+            .cognito(self::mocks::cognito::new_client(cognito))
+            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .build()
+            .unwrap();
+        let shared_state = Arc::new(shared_state);
+
+        let err = start_registration_for_verified_user(
+            shared_state,
+            VerifiedUserInfo {
+                user_info: NewUserInfo {
+                    username: "test".into(),
+                    display_name: "Test User".into(),
+                },
+                cognito_sub: "dummy-sub-123".into(),
+                user_id: "8TZ_kg_dp_pr0t7SDvGJiw".into(),
+            },
+        ).await.err().unwrap();
+        assert!(matches!(err, ErrorResponse::Unavailable(_)));
+    }
+
+    #[tokio::test]
+    async fn start_registration_for_verified_user_with_cognito_list_users_too_many_requests() {
+        let cognito = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::cognito::list_users_too_many_requests());
+        let dynamodb = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::dynamodb::query_one_credential());
+
+        let shared_state: SharedState<ConstantWebauthnStartRegistration> = SharedStateBuilder::default()
+            .webauthn(ConstantWebauthnStartRegistration::new(
+                self::mocks::webauthn::OK_CREATION_CHALLENGE_RESPONSE_WITH_EXCLUDE_CREDENTIALS,
+                self::mocks::webauthn::OK_PASSKEY_REGISTRATION_WITH_EXCLUDE_CREDENTIALS,
+            ))
+            .cognito(self::mocks::cognito::new_client(cognito))
+            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .build()
+            .unwrap();
+        let shared_state = Arc::new(shared_state);
+
+        let err = start_registration_for_verified_user(
+            shared_state,
+            VerifiedUserInfo {
+                user_info: NewUserInfo {
+                    username: "test".into(),
+                    display_name: "Test User".into(),
+                },
+                cognito_sub: "dummy-sub-123".into(),
+                user_id: "8TZ_kg_dp_pr0t7SDvGJiw".into(),
+            },
+        ).await.err().unwrap();
+        assert!(matches!(err, ErrorResponse::Unavailable(_)));
+    }
+
+    #[tokio::test]
+    async fn start_registration_for_verified_user_with_cognito_list_users_service_unavailable() {
+        let cognito = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::cognito::list_users_service_unavailable());
+        let dynamodb = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::dynamodb::query_one_credential());
+
+        let shared_state: SharedState<ConstantWebauthnStartRegistration> = SharedStateBuilder::default()
+            .webauthn(ConstantWebauthnStartRegistration::new(
+                self::mocks::webauthn::OK_CREATION_CHALLENGE_RESPONSE_WITH_EXCLUDE_CREDENTIALS,
+                self::mocks::webauthn::OK_PASSKEY_REGISTRATION_WITH_EXCLUDE_CREDENTIALS,
+            ))
+            .cognito(self::mocks::cognito::new_client(cognito))
+            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .build()
+            .unwrap();
+        let shared_state = Arc::new(shared_state);
+
+        let err = start_registration_for_verified_user(
+            shared_state,
+            VerifiedUserInfo {
+                user_info: NewUserInfo {
+                    username: "test".into(),
+                    display_name: "Test User".into(),
+                },
+                cognito_sub: "dummy-sub-123".into(),
+                user_id: "8TZ_kg_dp_pr0t7SDvGJiw".into(),
+            },
+        ).await.err().unwrap();
+        assert!(matches!(err, ErrorResponse::Unavailable(_)));
+    }
+
+    #[tokio::test]
+    async fn start_registration_for_verified_user_with_cognito_list_users_throttling() {
+        let cognito = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::cognito::list_users_throttling_exception());
+        let dynamodb = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::dynamodb::query_one_credential());
+
+        let shared_state: SharedState<ConstantWebauthnStartRegistration> = SharedStateBuilder::default()
+            .webauthn(ConstantWebauthnStartRegistration::new(
+                self::mocks::webauthn::OK_CREATION_CHALLENGE_RESPONSE_WITH_EXCLUDE_CREDENTIALS,
+                self::mocks::webauthn::OK_PASSKEY_REGISTRATION_WITH_EXCLUDE_CREDENTIALS,
+            ))
+            .cognito(self::mocks::cognito::new_client(cognito))
+            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .build()
+            .unwrap();
+        let shared_state = Arc::new(shared_state);
+
+        let err = start_registration_for_verified_user(
+            shared_state,
+            VerifiedUserInfo {
+                user_info: NewUserInfo {
+                    username: "test".into(),
+                    display_name: "Test User".into(),
+                },
+                cognito_sub: "dummy-sub-123".into(),
+                user_id: "8TZ_kg_dp_pr0t7SDvGJiw".into(),
+            },
+        ).await.err().unwrap();
+        assert!(matches!(err, ErrorResponse::Unavailable(_)));
+    }
+
+    #[tokio::test]
+    async fn start_registration_for_verified_user_with_dynamodb_put_item_provisioned_throughput_exceeded() {
+        let cognito = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::cognito::list_users_one());
+        let dynamodb = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::dynamodb::query_one_credential())
+            .with_rule(&self::mocks::dynamodb::put_item_provisioned_throughput_exceeded());
+
+        let shared_state: SharedState<ConstantWebauthnStartRegistration> = SharedStateBuilder::default()
+            .webauthn(ConstantWebauthnStartRegistration::new(
+                self::mocks::webauthn::OK_CREATION_CHALLENGE_RESPONSE_WITH_EXCLUDE_CREDENTIALS,
+                self::mocks::webauthn::OK_PASSKEY_REGISTRATION_WITH_EXCLUDE_CREDENTIALS,
+            ))
+            .cognito(self::mocks::cognito::new_client(cognito))
+            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .build()
+            .unwrap();
+        let shared_state = Arc::new(shared_state);
+
+        let err = start_registration_for_verified_user(
+            shared_state,
+            VerifiedUserInfo {
+                user_info: NewUserInfo {
+                    username: "test".into(),
+                    display_name: "Test User".into(),
+                },
+                cognito_sub: "dummy-sub-123".into(),
+                user_id: "8TZ_kg_dp_pr0t7SDvGJiw".into(),
+            },
+        ).await.err().unwrap();
+        assert!(matches!(err, ErrorResponse::Unavailable(_)));
+    }
+
+    #[tokio::test]
+    async fn start_registration_for_verified_user_with_dynamodb_put_item_request_limit_exceeded() {
+        let cognito = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::cognito::list_users_one());
+        let dynamodb = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::dynamodb::query_one_credential())
+            .with_rule(&self::mocks::dynamodb::put_item_request_limit_exceeded());
+
+        let shared_state: SharedState<ConstantWebauthnStartRegistration> = SharedStateBuilder::default()
+            .webauthn(ConstantWebauthnStartRegistration::new(
+                self::mocks::webauthn::OK_CREATION_CHALLENGE_RESPONSE_WITH_EXCLUDE_CREDENTIALS,
+                self::mocks::webauthn::OK_PASSKEY_REGISTRATION_WITH_EXCLUDE_CREDENTIALS,
+            ))
+            .cognito(self::mocks::cognito::new_client(cognito))
+            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .build()
+            .unwrap();
+        let shared_state = Arc::new(shared_state);
+
+        let err = start_registration_for_verified_user(
+            shared_state,
+            VerifiedUserInfo {
+                user_info: NewUserInfo {
+                    username: "test".into(),
+                    display_name: "Test User".into(),
+                },
+                cognito_sub: "dummy-sub-123".into(),
+                user_id: "8TZ_kg_dp_pr0t7SDvGJiw".into(),
+            },
+        ).await.err().unwrap();
+        assert!(matches!(err, ErrorResponse::Unavailable(_)));
+    }
+
+    #[tokio::test]
+    async fn start_registration_for_verified_user_with_dynamodb_put_item_service_unavailable() {
+        let cognito = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::cognito::list_users_one());
+        let dynamodb = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::dynamodb::query_one_credential())
+            .with_rule(&self::mocks::dynamodb::put_item_service_unavailable());
+
+        let shared_state: SharedState<ConstantWebauthnStartRegistration> = SharedStateBuilder::default()
+            .webauthn(ConstantWebauthnStartRegistration::new(
+                self::mocks::webauthn::OK_CREATION_CHALLENGE_RESPONSE_WITH_EXCLUDE_CREDENTIALS,
+                self::mocks::webauthn::OK_PASSKEY_REGISTRATION_WITH_EXCLUDE_CREDENTIALS,
+            ))
+            .cognito(self::mocks::cognito::new_client(cognito))
+            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .build()
+            .unwrap();
+        let shared_state = Arc::new(shared_state);
+
+        let err = start_registration_for_verified_user(
+            shared_state,
+            VerifiedUserInfo {
+                user_info: NewUserInfo {
+                    username: "test".into(),
+                    display_name: "Test User".into(),
+                },
+                cognito_sub: "dummy-sub-123".into(),
+                user_id: "8TZ_kg_dp_pr0t7SDvGJiw".into(),
+            },
+        ).await.err().unwrap();
+        assert!(matches!(err, ErrorResponse::Unavailable(_)));
+    }
+
+    #[tokio::test]
+    async fn start_registration_for_verified_user_with_dynamodb_put_item_throttling() {
+        let cognito = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::cognito::list_users_one());
+        let dynamodb = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::dynamodb::query_one_credential())
+            .with_rule(&self::mocks::dynamodb::put_item_throttling_exception());
+
+        let shared_state: SharedState<ConstantWebauthnStartRegistration> = SharedStateBuilder::default()
+            .webauthn(ConstantWebauthnStartRegistration::new(
+                self::mocks::webauthn::OK_CREATION_CHALLENGE_RESPONSE_WITH_EXCLUDE_CREDENTIALS,
+                self::mocks::webauthn::OK_PASSKEY_REGISTRATION_WITH_EXCLUDE_CREDENTIALS,
+            ))
+            .cognito(self::mocks::cognito::new_client(cognito))
+            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .build()
+            .unwrap();
+        let shared_state = Arc::new(shared_state);
+
+        let err = start_registration_for_verified_user(
+            shared_state,
+            VerifiedUserInfo {
+                user_info: NewUserInfo {
+                    username: "test".into(),
+                    display_name: "Test User".into(),
+                },
+                cognito_sub: "dummy-sub-123".into(),
+                user_id: "8TZ_kg_dp_pr0t7SDvGJiw".into(),
+            },
+        ).await.err().unwrap();
+        assert!(matches!(err, ErrorResponse::Unavailable(_)));
     }
 
     #[tokio::test]
@@ -1090,7 +1827,7 @@ mod tests {
         let dynamodb = MockResponseInterceptor::new()
             .rule_mode(RuleMode::MatchAny)
             .with_rule(&self::mocks::dynamodb::delete_item_session())
-            .with_rule(&self::mocks::dynamodb::put_item_throughput_exceeded());
+            .with_rule(&self::mocks::dynamodb::put_item_provisioned_throughput_exceeded());
 
         let shared_state: SharedState<ConstantWebauthnFinishRegistration> = SharedStateBuilder::default()
             .webauthn(ConstantWebauthnFinishRegistration::new(
@@ -1359,10 +2096,54 @@ mod tests {
                 }
             }"#;
 
+            pub(crate) const OK_CREATION_CHALLENGE_RESPONSE_WITH_EXCLUDE_CREDENTIALS: &str = r#"{
+                "publicKey": {
+                    "rp": {
+                        "id": "localhost",
+                        "name": "Passkey Test"
+                    },
+                    "user": {
+                        "id": "8TZ_kg_dp_pr0t7SDvGJiw",
+                        "name": "test",
+                        "displayName": "Test User"
+                    },
+                    "challenge": "fS_B1MxJouaI0QpuYtrsl6kheAAqtQlUgyAfaxOYdXE",
+                    "pubKeyCredParams": [
+                        {
+                            "type": "public-key",
+                            "alg": -7
+                        },
+                        {
+                            "type": "public-key",
+                            "alg": -8
+                        }
+                    ],
+                    "exclude_credentials": [
+                        {
+                            "type": "public-key",
+                            "id": "VD-k4AUT6FLUNmROa7OAiA"
+                        }
+                    ]
+                }
+            }"#;
+
             pub(crate) const OK_PASSKEY_REGISTRATION: &str = r#"{
                 "rs": {
                     "policy": "required",
                     "exclude_credentials": [],
+                    "challenge": "fS_B1MxJouaI0QpuYtrsl6kheAAqtQlUgyAfaxOYdXE",
+                    "credential_algorithms": ["ECDSA_SHA256", "EDDSA"],
+                    "require_resident_key": true,
+                    "authenticator_attachment": null,
+                    "extensions": {},
+                    "allow_synchronised_authenticators": false
+                }
+            }"#;
+
+            pub(crate) const OK_PASSKEY_REGISTRATION_WITH_EXCLUDE_CREDENTIALS: &str = r#"{
+                "rs": {
+                    "policy": "required",
+                    "exclude_credentials": ["VD-k4AUT6FLUNmROa7OAiA"],
                     "challenge": "fS_B1MxJouaI0QpuYtrsl6kheAAqtQlUgyAfaxOYdXE",
                     "credential_algorithms": ["ECDSA_SHA256", "EDDSA"],
                     "require_resident_key": true,
@@ -1423,10 +2204,19 @@ mod tests {
                     admin_set_user_password::AdminSetUserPasswordOutput,
                     list_users::ListUsersOutput,
                 },
-                types::{AttributeType, UserType},
+                types::{AttributeType, UserStatusType, UserType},
                 Client,
                 Config,
             };
+            use aws_smithy_runtime_api::client::orchestrator::HttpResponse;
+            use aws_smithy_runtime_api::http::StatusCode as SmithyStatusCode;
+            use aws_smithy_types::body::SdkBody;
+
+            const TOO_MANY_REQUESTS_EXCEPTION: &str = r#"{"__type": "TooManyRequestsException", "message": "Too many requests."}"#;
+
+            const SERVICE_UNAVAILABLE: &str = r#"{"__type": "ServiceUnavailable", "message": "Service unavailable."}"#;
+
+            const THROTTLING_EXCEPTION: &str = r#"{"__type": "ThrottlingException", "message": "Throttled."}"#;
 
             pub(crate) fn new_client(mocks: MockResponseInterceptor) -> Client {
                 Client::from_conf(
@@ -1447,14 +2237,11 @@ mod tests {
                 mock!(Client::list_users)
                     .then_output(|| ListUsersOutput::builder()
                         .users(UserType::builder()
+                            .enabled(true)
+                            .username("8TZ_kg_dp_pr0t7SDvGJiw")
                             .attributes(AttributeType::builder()
                                 .name("sub")
                                 .value("dummy-sub-123")
-                                .build()
-                                .unwrap())
-                            .attributes(AttributeType::builder()
-                                .name("username")
-                                .value("8TZ_kg_dp_pr0t7SDvGJiw")
                                 .build()
                                 .unwrap())
                             .attributes(AttributeType::builder()
@@ -1464,6 +2251,77 @@ mod tests {
                                 .unwrap())
                             .build())
                         .build())
+            }
+
+            pub(crate) fn list_users_disabled_one() -> Rule {
+                mock!(Client::list_users)
+                    .then_output(|| ListUsersOutput::builder()
+                        .users(UserType::builder()
+                            .enabled(false)
+                            .username("8TZ_kg_dp_pr0t7SDvGJiw")
+                            .attributes(AttributeType::builder()
+                                .name("sub")
+                                .value("dummy-sub-123")
+                                .build()
+                                .unwrap())
+                            .attributes(AttributeType::builder()
+                                .name("preferred_username")
+                                .value("test")
+                                .build()
+                                .unwrap())
+                            .build())
+                        .build())
+            }
+
+            pub(crate) fn list_users_unconfirmed_one() -> Rule {
+                mock!(Client::list_users)
+                    .then_output(|| ListUsersOutput::builder()
+                        .users(UserType::builder()
+                            .enabled(true)
+                            .username("8TZ_kg_dp_pr0t7SDvGJiw")
+                            .attributes(AttributeType::builder()
+                                .name("sub")
+                                .value("dummy-sub-123")
+                                .build()
+                                .unwrap())
+                            .attributes(AttributeType::builder()
+                                .name("preferred_username")
+                                .value("test")
+                                .build()
+                                .unwrap())
+                            .user_status(UserStatusType::Unconfirmed)
+                            .build())
+                        .build())
+            }
+
+            pub(crate) fn list_users_too_many_requests() -> Rule {
+                mock!(Client::list_users)
+                    .then_http_response(|| {
+                        HttpResponse::new(
+                            SmithyStatusCode::try_from(400).unwrap(),
+                            SdkBody::from(TOO_MANY_REQUESTS_EXCEPTION),
+                        )
+                    })
+            }
+
+            pub(crate) fn list_users_service_unavailable() -> Rule {
+                mock!(Client::list_users)
+                    .then_http_response(|| {
+                        HttpResponse::new(
+                            SmithyStatusCode::try_from(503).unwrap(),
+                            SdkBody::from(SERVICE_UNAVAILABLE),
+                        )
+                    })
+            }
+
+            pub(crate) fn list_users_throttling_exception() -> Rule {
+                mock!(Client::list_users)
+                    .then_http_response(|| {
+                        HttpResponse::new(
+                            SmithyStatusCode::try_from(400).unwrap(),
+                            SdkBody::from(THROTTLING_EXCEPTION),
+                        )
+                    })
             }
 
             pub(crate) fn admin_create_user_ok() -> Rule {
@@ -1495,8 +2353,11 @@ mod tests {
 
             use aws_sdk_dynamodb::{
                 config::Region,
-                operation::delete_item::DeleteItemOutput,
-                operation::put_item::PutItemOutput,
+                operation::{
+                    delete_item::DeleteItemOutput,
+                    put_item::PutItemOutput,
+                    query::QueryOutput,
+                },
                 Client,
                 Config,
             };
@@ -1527,7 +2388,7 @@ mod tests {
                     .then_output(|| PutItemOutput::builder().build())
             }
 
-            pub(crate) fn put_item_throughput_exceeded() -> Rule {
+            pub(crate) fn put_item_provisioned_throughput_exceeded() -> Rule {
                 mock!(Client::put_item)
                     .then_http_response(|| {
                         HttpResponse::new(
@@ -1595,6 +2456,68 @@ mod tests {
                         DeleteItemOutput::builder()
                             .attributes("ttl", AttributeValue::N(format!("{}", ttl)))
                             .build()
+                    })
+            }
+
+            pub(crate) fn query_one_credential() -> Rule {
+                mock!(Client::query)
+                    .then_output(|| {
+                        QueryOutput::builder()
+                            .items(HashMap::from([
+                                ("pk".to_string(), AttributeValue::S("user#8TZ_kg_dp_pr0t7SDvGJiw".to_string())),
+                                ("sk".to_string(), AttributeValue::S("credential#VD-k4AUT6FLUNmROa7OAiA".to_string())),
+                                ("credentialId".to_string(), AttributeValue::S("VD-k4AUT6FLUNmROa7OAiA".to_string())),
+                                ("credential".to_string(), AttributeValue::S(webauthn::OK_PASSKEY.to_string())),
+                                ("cognitoSub".to_string(), AttributeValue::S("dummy-sub-123".to_string())),
+                                ("createdAt".to_string(), AttributeValue::S("2025-03-16T16:35:00.000000Z".to_string())),
+                                ("updatedAt".to_string(), AttributeValue::S("2025-03-16T16:35:00.000000Z".to_string())),
+                            ]))
+                            .build()
+                    })
+            }
+
+            pub(crate) fn query_empty_credentials() -> Rule {
+                mock!(Client::query)
+                    .then_output(|| QueryOutput::builder().build())
+            }
+
+            pub(crate) fn query_throughput_exceeded() -> Rule {
+                mock!(Client::query)
+                    .then_http_response(|| {
+                        HttpResponse::new(
+                            SmithyStatusCode::try_from(400).unwrap(),
+                            SdkBody::from(PROVISIONED_THROUGHPUT_EXCEEDED_EXCEPTION),
+                        )
+                    })
+            }
+
+            pub(crate) fn query_request_limit_exceeded() -> Rule {
+                mock!(Client::query)
+                    .then_http_response(|| {
+                        HttpResponse::new(
+                            SmithyStatusCode::try_from(400).unwrap(),
+                            SdkBody::from(REQUEST_LIMIT_EXCEEDED),
+                        )
+                    })
+            }
+
+            pub(crate) fn query_service_unavailable() -> Rule {
+                mock!(Client::query)
+                    .then_http_response(|| {
+                        HttpResponse::new(
+                            SmithyStatusCode::try_from(503).unwrap(),
+                            SdkBody::from(SERVICE_UNAVAILABLE),
+                        )
+                    })
+            }
+
+            pub(crate) fn query_throttling_exception() -> Rule {
+                mock!(Client::query)
+                    .then_http_response(|| {
+                        HttpResponse::new(
+                            SmithyStatusCode::try_from(400).unwrap(),
+                            SdkBody::from(THROTTLING_EXCEPTION),
+                        )
                     })
             }
         }
