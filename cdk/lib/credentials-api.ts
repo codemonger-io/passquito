@@ -43,6 +43,9 @@ export class CredentialsApi extends Construct {
   /** Lambda function for discoverable credentials. */
   readonly discoverableLambda: lambda.IFunction;
 
+  /** Lambda function for the facade that masks Cognito APIs. */
+  readonly cognitoFacadeLambda: lambda.IFunction;
+
   /** Lambda function that serves secured contents. */
   readonly securedLambda: lambda.IFunction;
 
@@ -71,8 +74,8 @@ export class CredentialsApi extends Construct {
       architecture: lambda.Architecture.ARM_64,
       environment: {
         SESSION_TABLE_NAME: sessionStore.sessionTable.tableName,
-        USER_POOL_ID: userPool.userPool.userPoolId,
-        CREDENTIAL_TABLE_NAME: userPool.credentialTable.tableName,
+        USER_POOL_ID: userPool.userPoolId,
+        CREDENTIAL_TABLE_NAME: userPool.credentialTableName,
         RP_ORIGIN_PARAMETER_PATH: parameters.rpOriginParameter.parameterName,
       },
       memorySize: 128,
@@ -102,6 +105,17 @@ export class CredentialsApi extends Construct {
     });
     parameters.rpOriginParameter.grantRead(this.discoverableLambda);
     sessionStore.sessionTable.grantReadWriteData(this.discoverableLambda);
+
+    this.cognitoFacadeLambda = new RustFunction(this, 'CognitoFacadeLambda', {
+      manifestPath,
+      binaryName: 'cognito-facade',
+      architecture: lambda.Architecture.ARM_64,
+      environment: {
+        USER_POOL_CLIENT_ID: userPool.userPoolClientId,
+      },
+      memorySize: 128,
+      timeout: Duration.seconds(5),
+    });
 
     this.securedLambda = new RustFunction(this, 'SecuredLambda', {
       manifestPath,
@@ -441,7 +455,38 @@ export class CredentialsApi extends Construct {
         ]),
       },
     );
-    // TODO: /authentication/start
+    // the following endpoints serve the facade that masks Cognito APIs
+    // /authentication/start
+    const authenticationStart = authentication.addResource('start');
+    // - POST
+    authenticationStart.addMethod(
+      'POST',
+      new apigw.LambdaIntegration(this.cognitoFacadeLambda, {
+        proxy: false,
+        passthroughBehavior: apigw.PassthroughBehavior.NEVER,
+        requestTemplates: {
+          'application/json': composeMappingTemplate([
+            ['start', composeMappingTemplate([
+              ['userId', '$input.json("$.userId")'],
+            ])],
+          ]),
+        },
+        integrationResponses: makeIntegrationResponsesAllowCors([
+          {
+            statusCode: '200',
+          },
+        ]),
+      }),
+      {
+        // TODO: request model
+        methodResponses: makeMethodResponsesAllowCors([
+          {
+            statusCode: '200',
+            description: 'Successfully initiated the authentication session.',
+          },
+        ]),
+      },
+    );
     // TODO: /authentication/finish
     // TODO: /authentication/refresh
 
