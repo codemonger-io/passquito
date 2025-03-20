@@ -383,7 +383,7 @@ async function getCredentialRequestOptions(username?: string) {
     throw new Error("not implemented yet");
   } else {
     const endpoint =
-      `${credentialsApiUrl.replace(/\/$/, '')}/discoverable/start`;
+      `${credentialsApiUrl.replace(/\/$/, '')}/authentication/discover`;
     res = await fetch(endpoint, {
       method: 'POST',
     });

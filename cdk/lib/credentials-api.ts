@@ -404,11 +404,12 @@ export class CredentialsApi extends Construct {
     );
 
     // discoverable endpoints
-    const discoverable = root.addResource('discoverable');
-    // /discoverable/start
-    const discoverableStart = discoverable.addResource('start');
+    // /authentication
+    const authentication = root.addResource('authentication');
+    // /authentication/discover
+    const authenticationDiscover = authentication.addResource('discover');
     // - POST
-    discoverableStart.addMethod(
+    authenticationDiscover.addMethod(
       'POST',
       new apigw.LambdaIntegration(this.discoverableLambda, {
         proxy: false,
@@ -440,6 +441,9 @@ export class CredentialsApi extends Construct {
         ]),
       },
     );
+    // TODO: /authentication/start
+    // TODO: /authentication/finish
+    // TODO: /authentication/refresh
 
     // secured endpoints
     const secured = root.addResource('secured');
