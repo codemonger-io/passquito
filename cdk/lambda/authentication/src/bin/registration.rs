@@ -302,74 +302,13 @@ where
 {
     info!("start_registration: {:?}", user_info);
 
-    // TODO: move to another function `start_registration_for_verified_user`
-    // resolves the existing user
-    let existing_user = shared_state.cognito
-        .list_users()
-        .user_pool_id(shared_state.user_pool_id.clone())
-        .attributes_to_get("username")
-        .filter(format!("username = \"{}\"", user_info.username))
-        .limit(1)
-        .send()
-        .await?
-        .users
-        .unwrap_or_default()
-        .pop();
-
-    // obtains the user ID or generates a new one for a new user
-    let user_unique_id = existing_user.as_ref()
-        .map(|u| u.username.as_ref()
-            .ok_or("missing username in user pool"))
-        .transpose()?
-        .map(|username| base64url.decode(username)
-            .or(Err("malformed username in user pool"))
-            .and_then(|id| Uuid::from_slice(&id)
-                .or(Err("malformed username in user pool"))))
-        .transpose()?
-        .unwrap_or_else(Uuid::new_v4);
-
-    // lists existing credentials for the user to be excluded
-    let exclude_credentials: Option<Vec<CredentialID>> =
-        match existing_user.as_ref()
-    {
-        Some(user) => {
-            let username = user.username.as_ref().unwrap();
-            info!("listing credentials for {}", username);
-            let credentials = shared_state.dynamodb
-                .query()
-                .table_name(shared_state.credential_table_name.clone())
-                .key_condition_expression("pk = :pk")
-                .expression_attribute_values(":pk", AttributeValue::S(
-                    format!("user#{}", username),
-                ))
-                .send()
-                .await?
-                .items
-                .unwrap_or_default();
-            Some(
-                credentials.into_iter()
-                    .map(|c| {
-                        let id = c.get("credentialId")
-                            .ok_or("missing credentialId in the database")?
-                            .as_s()
-                            .or(Err("malformed credentialId in the database"))?
-                            .as_str();
-                        // as far as I know, we have to use serde::Deserialize
-                        // to build HumanBinaryData from a base64-encoded string
-                        serde_json::from_value(serde_json::Value::String(id.into()))
-                            .or(Err("malformed credentialId in the database"))
-                    })
-                    .collect::<Result<_, _>>()?,
-            )
-        }
-        None => None,
-    };
+    let user_unique_id = Uuid::new_v4();
 
     let (mut ccr, reg_state) = shared_state.webauthn.start_passkey_registration(
         user_unique_id,
         &user_info.username,
         &user_info.display_name,
-        exclude_credentials,
+        None,
     )?;
 
     // caches `reg_state`
@@ -836,9 +775,7 @@ mod tests {
 
     #[tokio::test]
     async fn function_handler_start_registration() {
-        let cognito = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::cognito::list_users_empty());
+        let cognito = MockResponseInterceptor::new();
         let dynamodb = MockResponseInterceptor::new()
             .rule_mode(RuleMode::MatchAny)
             .with_rule(&self::mocks::dynamodb::put_item_ok());
@@ -993,9 +930,7 @@ mod tests {
 
     #[tokio::test]
     async fn start_registration_of_new_user() {
-        let cognito = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::cognito::list_users_empty());
+        let cognito = MockResponseInterceptor::new();
         let dynamodb = MockResponseInterceptor::new()
             .rule_mode(RuleMode::MatchAny)
             .with_rule(&self::mocks::dynamodb::put_item_ok());
@@ -1024,9 +959,7 @@ mod tests {
 
     #[tokio::test]
     async fn start_registration_with_dynamodb_put_item_provisitioned_throughput_exceeded() {
-        let cognito = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::cognito::list_users_empty());
+        let cognito = MockResponseInterceptor::new();
         let dynamodb = MockResponseInterceptor::new()
             .rule_mode(RuleMode::MatchAny)
             .with_rule(&self::mocks::dynamodb::put_item_provisioned_throughput_exceeded());
@@ -1054,9 +987,7 @@ mod tests {
 
     #[tokio::test]
     async fn start_registration_with_dynamodb_put_item_request_limit_exceeded() {
-        let cognito = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::cognito::list_users_empty());
+        let cognito = MockResponseInterceptor::new();
         let dynamodb = MockResponseInterceptor::new()
             .rule_mode(RuleMode::MatchAny)
             .with_rule(&self::mocks::dynamodb::put_item_request_limit_exceeded());
@@ -1084,9 +1015,7 @@ mod tests {
 
     #[tokio::test]
     async fn start_registration_with_dynamodb_put_item_service_unavailable() {
-        let cognito = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::cognito::list_users_empty());
+        let cognito = MockResponseInterceptor::new();
         let dynamodb = MockResponseInterceptor::new()
             .rule_mode(RuleMode::MatchAny)
             .with_rule(&self::mocks::dynamodb::put_item_service_unavailable());
@@ -1114,9 +1043,7 @@ mod tests {
 
     #[tokio::test]
     async fn start_registration_with_dynamodb_put_item_throttling_exception() {
-        let cognito = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::cognito::list_users_empty());
+        let cognito = MockResponseInterceptor::new();
         let dynamodb = MockResponseInterceptor::new()
             .rule_mode(RuleMode::MatchAny)
             .with_rule(&self::mocks::dynamodb::put_item_throttling_exception());
@@ -1180,8 +1107,7 @@ mod tests {
 
     #[tokio::test]
     async fn start_registration_for_verified_user_with_non_existing_credential() {
-        let cognito = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny);
+        let cognito = MockResponseInterceptor::new();
         let dynamodb = MockResponseInterceptor::new()
             .rule_mode(RuleMode::MatchAny)
             .with_rule(&self::mocks::dynamodb::query_empty_credentials());
@@ -1315,8 +1241,7 @@ mod tests {
 
     #[tokio::test]
     async fn start_registration_for_verified_user_with_dynamodb_query_throughput_exceeded() {
-        let cognito = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny);
+        let cognito = MockResponseInterceptor::new();
         let dynamodb = MockResponseInterceptor::new()
             .rule_mode(RuleMode::MatchAny)
             .with_rule(&self::mocks::dynamodb::query_throughput_exceeded());
@@ -1348,8 +1273,7 @@ mod tests {
 
     #[tokio::test]
     async fn start_registration_for_verified_user_with_dynamodb_query_request_limit_exceeded() {
-        let cognito = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny);
+        let cognito = MockResponseInterceptor::new();
         let dynamodb = MockResponseInterceptor::new()
             .rule_mode(RuleMode::MatchAny)
             .with_rule(&self::mocks::dynamodb::query_request_limit_exceeded());
@@ -1381,8 +1305,7 @@ mod tests {
 
     #[tokio::test]
     async fn start_registration_for_verified_user_with_dynamodb_query_service_unavailable() {
-        let cognito = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny);
+        let cognito = MockResponseInterceptor::new();
         let dynamodb = MockResponseInterceptor::new()
             .rule_mode(RuleMode::MatchAny)
             .with_rule(&self::mocks::dynamodb::query_service_unavailable());
@@ -1414,8 +1337,7 @@ mod tests {
 
     #[tokio::test]
     async fn start_registration_for_verified_user_with_dynamodb_query_throttling() {
-        let cognito = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny);
+        let cognito = MockResponseInterceptor::new();
         let dynamodb = MockResponseInterceptor::new()
             .rule_mode(RuleMode::MatchAny)
             .with_rule(&self::mocks::dynamodb::query_throttling_exception());
