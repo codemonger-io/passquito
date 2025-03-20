@@ -97,7 +97,7 @@ use std::collections::HashMap;
 use std::env;
 use std::sync::Arc;
 use std::time::SystemTime;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 use webauthn_rs::{
     Webauthn,
     WebauthnBuilder,
@@ -367,9 +367,9 @@ where
 {
     info!("start_registration_for_verified_user: {:?}", user_info);
 
-    // finds the user associated with the user ID,
-    // who has the exact Cognito sub
-    shared_state.dynamodb
+    // finds all the credentials associated with the user ID and
+    // the exact Cognito sub
+    let res = shared_state.dynamodb
         .query()
         .table_name(shared_state.credential_table_name.clone())
         .key_condition_expression("pk = :pk")
@@ -389,11 +389,18 @@ where
             ErrorResponse::unavailable("too many requests")
         } else {
             e.into()
-        })?
+        })?;
+    if res.last_evaluated_key.is_some() {
+        // TODO: list all the credentials across pages anyway?
+        //       or cap the number of credentials?
+        warn!("too many credentials associated with the user: {}", user_info.user_id);
+    }
+    let existing_credentials = res
         .items
-        .ok_or_else(|| ErrorResponse::bad_request("no credentials associated with user"))?
-        .pop()
         .ok_or_else(|| ErrorResponse::bad_request("no credentials associated with user"))?;
+    if existing_credentials.is_empty() {
+        return Err(ErrorResponse::bad_request("no credentials associated with user"));
+    }
 
     // makes sure that the user exists in the Cognito user pool
     // also checks the following:
@@ -433,23 +440,7 @@ where
         .and_then(|user_id| Uuid::from_slice(&user_id)
             .map_err(|_| "user ID must be a UUID"))?;
 
-    // lists existing credentials for the user to be excluded
-    // TODO: do this in the first query to save RCUs
-    info!("listing credentials for {}", user_info.user_id);
-    let exclude_credentials = shared_state.dynamodb
-        .query()
-        .table_name(shared_state.credential_table_name.clone())
-        .key_condition_expression("pk = :pk")
-        .expression_attribute_values(":pk", AttributeValue::S(
-            format!("user#{}", user_info.user_id),
-        ))
-        .send()
-        .await?
-        .items
-        // TODO: is there any normal situation where the user has no
-        // credentials?
-        .ok_or("missing credentials for the user")?;
-    let exclude_credentials: Vec<CredentialID> = exclude_credentials.into_iter()
+    let exclude_credentials: Vec<CredentialID> = existing_credentials.into_iter()
         .map(|c| {
             let id = c.get("credentialId")
                 .ok_or("missing credentialId in the database")?
