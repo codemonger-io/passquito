@@ -147,4 +147,19 @@ export class UserPool extends Construct {
       refreshTokenValidity: Duration.days(30),
     });
   }
+
+  /** User pool ID. */
+  get userPoolId(): string {
+    return this.userPool.userPoolId;
+  }
+
+  /** User pool client ID. */
+  get userPoolClientId(): string {
+    return this.userPoolClient.userPoolClientId;
+  }
+
+  /** Name of the credential table. */
+  get credentialTableName(): string {
+    return this.credentialTable.tableName;
+  }
 }
