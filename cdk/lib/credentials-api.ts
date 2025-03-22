@@ -487,7 +487,39 @@ export class CredentialsApi extends Construct {
         ]),
       },
     );
-    // TODO: /authentication/finish
+    // /authentication/finish
+    const authenticationFinish = authentication.addResource('finish');
+    // POST
+    authenticationFinish.addMethod(
+      'POST',
+      new apigw.LambdaIntegration(this.cognitoFacadeLambda, {
+        proxy: false,
+        passthroughBehavior: apigw.PassthroughBehavior.NEVER,
+        requestTemplates: {
+          'application/json': composeMappingTemplate([
+            ['finish', composeMappingTemplate([
+              ['session', '$input.json("$.session")'],
+              ['userId', '$input.json("$.userId")'],
+              ['publicKey', '$input.json("$.publicKey")'],
+            ])]
+          ]),
+        },
+        integrationResponses: makeIntegrationResponsesAllowCors([
+          {
+            statusCode: '200',
+          },
+        ]),
+      }),
+      {
+        // TODO: request model
+        methodResponses: makeMethodResponsesAllowCors([
+          {
+            statusCode: '200',
+            description: 'Successfully finished the authentication session.',
+          },
+        ]),
+      },
+    );
     // TODO: /authentication/refresh
 
     // secured endpoints

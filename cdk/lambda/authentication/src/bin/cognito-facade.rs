@@ -36,7 +36,7 @@
 //!
 //! ```json
 //! {
-//!   "session": "session",
+//!   "session": "Session",
 //!   "credentialRequestOptions": {
 //!     "publicKey": { ... }
 //!   }
@@ -58,16 +58,16 @@
 //! ```json
 //! {
 //!   "finish": {
-//!     "session": "session",
+//!     "session": "Session",
 //!     "userId": "userId",
-//!     "answer": "credential"
+//!     "publicKey": "PublicKeyCredential"
 //!   }
 //! }
 //! ```
 //!
 //! `session` must be the session token returned by the `Start` action.
-//! `answer` must be a JSON-stringified form of the credential signed by the
-//! authenticator of the user.
+//! `publicKey` must be a JSON-stringified form of the public key credential
+//! signed by the authenticator of the user.
 //! The challenge signed by the authenticator may be either:
 //! - a challenge issued by the `Start` action
 //! - a challenge issued by the discoverable authentication endpoint
@@ -78,16 +78,35 @@
 //! - `Session`: `session`
 //! - `ChallengeResponses`:
 //!   - `USERNAME`: `userId`
-//!   - `ANSWER`: `answer`
+//!   - `ANSWER`: `publicKey`
 //!
-//! A successful response will be a serialized representation of
-//! [`AuthenticationResultType`](https://docs.aws.amazon.com/cognito-user-identity-pools/latest/APIReference/API_AuthenticationResultType.html).
+//! A successful response will be in the following form which is a serialized
+//! representation of [`AuthenticationResult`].
 //!
-//! ### Refresh Token
+//! ```json
+//! {
+//!   "accessToken": "AccessToken",
+//!   "expiresIn": 123,
+//!   "idToken": "IdToken",
+//!   "newDeviceMetadata": {
+//!     "deviceGroupKey": "DeviceGroupKey",
+//!     "deviceKey": "DeviceKey"
+//!   },
+//!   "refreshToken": "RefreshToken",
+//!   "tokenType": "TokenType"
+//! }
+//! ```
+//!
+//! ### Refresh Tokens
 //!
 //! TBD
 
-use aws_sdk_cognitoidentityprovider::types::AuthFlowType;
+use aws_sdk_cognitoidentityprovider::types::{
+    AuthFlowType,
+    AuthenticationResultType,
+    ChallengeNameType,
+    NewDeviceMetadataType,
+};
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
 use serde::{Deserialize, Serialize};
 use std::env;
@@ -129,6 +148,95 @@ enum CognitoAction {
         /// User ID to authenticate, which was issued by Passquito.
         user_id: String,
     },
+    /// Finishes an authentication session.
+    Finish(FinishPayload),
+}
+
+/// Answer to an authentication session.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct FinishPayload {
+    /// Session token issued by the [`CognitoAction::Start`] action.
+    session: String,
+    /// User ID to authenticate, which was issued by Passquito.
+    user_id: String,
+    /// Public key credential signed by the authenticator of the user.
+    public_key: String,
+}
+
+/// Authentication session initiated by a `Start` action.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AuthenticationSession {
+    /// Session token to be passed to the `Finish` action.
+    session: String,
+    /// WebAuthn extension of credential request options.
+    credential_request_options: RequestChallengeResponse,
+}
+
+/// Authentication result.
+///
+/// A serialized representation of this struct is a "camelCase" version of
+/// [`AuthenticationResultType`](https://docs.aws.amazon.com/cognito-user-identity-pools/latest/APIReference/API_AuthenticationResultType.html).
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AuthenticationResult {
+    /// AccessToken.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    access_token: Option<String>,
+    /// ExpiresIn.
+    expires_in: i32,
+    /// TokenType.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    token_type: Option<String>,
+    /// RefreshToken.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    refresh_token: Option<String>,
+    /// IdToken.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    id_token: Option<String>,
+    /// NewDeviceMetadata.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    new_device_metadata: Option<NewDeviceMetadata>,
+}
+
+impl From<AuthenticationResultType> for AuthenticationResult {
+    #[inline]
+    fn from(from: AuthenticationResultType) -> Self {
+        Self {
+            access_token: from.access_token,
+            expires_in: from.expires_in,
+            token_type: from.token_type,
+            refresh_token: from.refresh_token,
+            id_token: from.id_token,
+            new_device_metadata: from.new_device_metadata.map(Into::into),
+        }
+    }
+}
+
+/// New device metadata in an authentication result.
+///
+/// A serialized representation of this struct is a "camelCase" version of
+/// [`NewDeviceMetadataType`](https://docs.aws.amazon.com/cognito-user-identity-pools/latest/APIReference/API_NewDeviceMetadataType.html).
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct NewDeviceMetadata {
+    /// DeviceKey.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    device_key: Option<String>,
+    /// DeviceGroupKey.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    device_group_key: Option<String>,
+}
+
+impl From<NewDeviceMetadataType> for NewDeviceMetadata {
+    #[inline]
+    fn from(from: NewDeviceMetadataType) -> Self {
+        Self {
+            device_key: from.device_key,
+            device_group_key: from.device_group_key,
+        }
+    }
 }
 
 async fn function_handler(
@@ -147,17 +255,15 @@ async fn function_handler(
                         e.into()
                     }))
         }
+        CognitoAction::Finish(payload) => {
+            finish_authentication(shared_state, payload).await
+                .and_then(|results| serde_json::to_value(results)
+                    .map_err(|e| {
+                        error!("failed to serialize the response: {e:?}");
+                        e.into()
+                    }))
+        }
     }
-}
-
-/// Authentication session initiated by a `Start` action.
-#[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct AuthenticationSession {
-    /// Session token to be passed to the `Finish` action.
-    session: String,
-    /// WebAuthn extension of credential request options.
-    credential_request_options: RequestChallengeResponse,
 }
 
 async fn start_authentication(
@@ -190,6 +296,24 @@ async fn start_authentication(
         session,
         credential_request_options,
     })
+}
+
+async fn finish_authentication(
+    shared_state: Arc<SharedState>,
+    payload: FinishPayload,
+) -> Result<AuthenticationResult, ErrorResponse> {
+    info!("finish_authentication: {}", payload.user_id);
+    let res = shared_state.cognito.respond_to_auth_challenge()
+        .client_id(&shared_state.user_pool_client_id)
+        .challenge_name(ChallengeNameType::CustomChallenge)
+        .session(&payload.session)
+        .challenge_responses("USERNAME", payload.user_id)
+        .challenge_responses("ANSWER", payload.public_key)
+        .send()
+        .await?;
+    let result = res.authentication_result
+        .ok_or_else(|| "authentication result must be set")?;
+    Ok(result.into())
 }
 
 #[tokio::main]
