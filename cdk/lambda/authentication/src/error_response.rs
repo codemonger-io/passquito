@@ -39,12 +39,39 @@ use lambda_runtime::diagnostic::Diagnostic;
 #[derive(Debug)]
 pub enum ErrorResponse {
     /// 400 Bad Request.
+    ///
+    /// ### Diagnostic message
+    ///
+    /// Use the following pattern to catch this error in an integration
+    /// response: `"[BadRequest] message"`
     BadRequest(String),
     /// 401 Unauthorized.
+    ///
+    /// ### Diagnostic message
+    ///
+    /// Use the following pattern to catch this error in an integration
+    /// response: `"[Unauthorized] message"`
     Unauthorized(String),
     /// 503 Service Unavailable.
+    ///
+    /// ### Diagnostic message
+    ///
+    /// Use the following pattern to catch this error in an integration
+    /// response: `"[ServiceUnavailable] message"`
     Unavailable(String),
-    /// Others ending up with 500 Internal Server Error.
+    /// Configuration error which will end up with 500 Internal Server Error.
+    ///
+    /// ### Diagnostic message
+    ///
+    /// Use the following pattern to catch this error in an integration
+    /// response: `"[BadConfiguration] message"`
+    BadConfiguration(String),
+    /// Others which will end up with 500 Internal Server Error.
+    ///
+    /// ### Diagnostic message
+    ///
+    /// Use the following pattern to catch this error in an integration
+    /// response: `"[Unhandled] message"`
     Unhandled(Error),
 }
 
@@ -62,6 +89,11 @@ impl ErrorResponse {
     /// Creates [`ErrorResponse::Unavailable`].
     pub fn unavailable(message: impl Into<String>) -> Self {
         Self::Unavailable(message.into())
+    }
+
+    /// Creates [`ErrorResponse::BadConfiguration`].
+    pub fn bad_configuration(message: impl Into<String>) -> Self {
+        Self::BadConfiguration(message.into())
     }
 }
 
@@ -91,6 +123,10 @@ impl TryInto<Response<Body>> for ErrorResponse {
                 .status(StatusCode::SERVICE_UNAVAILABLE)
                 .header("Content-Type", "text/plain")
                 .body(msg.into())?),
+            ErrorResponse::BadConfiguration(msg) => Ok(Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .header("Content-Type", "text/plain")
+                .body(msg.into())?),
             ErrorResponse::Unhandled(e) => Err(e),
         }
     }
@@ -102,7 +138,8 @@ impl From<ErrorResponse> for Diagnostic {
             ErrorResponse::BadRequest(msg) => make_diagnostic("BadRequest", &msg),
             ErrorResponse::Unauthorized(msg) => make_diagnostic("Unauthorized", &msg),
             ErrorResponse::Unavailable(msg) => make_diagnostic("ServiceUnavailable", &msg),
-            ErrorResponse::Unhandled(e) => e.into(),
+            ErrorResponse::BadConfiguration(msg) => make_diagnostic("BadConfiguration", &msg),
+            ErrorResponse::Unhandled(e) => make_diagnostic("Unhandled", &e.to_string()),
         }
     }
 }
