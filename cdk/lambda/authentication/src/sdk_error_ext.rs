@@ -57,7 +57,7 @@ impl<R> SdkErrorExt for SdkError<ListUsersError, R> {
 }
 
 /// Returns if a given error is a common retryable error.
-fn is_common_retryable_error(e: &impl ProvideErrorMetadata) -> bool {
+pub fn is_common_retryable_error(e: &impl ProvideErrorMetadata) -> bool {
     match e.code() {
         Some("ServiceUnavailable") | Some("ThrottlingException") => true,
         _ => false,
