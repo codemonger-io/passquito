@@ -102,7 +102,10 @@
 //! TBD
 
 use aws_sdk_cognitoidentityprovider::{
-    operation::initiate_auth::InitiateAuthError,
+    operation::{
+        initiate_auth::InitiateAuthError,
+        respond_to_auth_challenge::RespondToAuthChallengeError,
+    },
     types::{
         AuthFlowType,
         AuthenticationResultType,
@@ -348,7 +351,26 @@ async fn finish_authentication(
         .challenge_responses("USERNAME", payload.user_id)
         .challenge_responses("ANSWER", payload.public_key)
         .send()
-        .await?;
+        .await
+        .map_err(|e| match e.into_service_error() {
+            RespondToAuthChallengeError::NotAuthorizedException(e) => {
+                error!("{e:?}");
+                ErrorResponse::unauthorized("not authorized")
+            }
+            RespondToAuthChallengeError::UserNotFoundException(e) => {
+                error!("{e:?}");
+                ErrorResponse::unauthorized("not authorized")
+            }
+            RespondToAuthChallengeError::TooManyRequestsException(e) => {
+                error!("{e:?}");
+                ErrorResponse::unavailable("too many requests")
+            }
+            e if is_common_retryable_error(&e) => {
+                error!("{e:?}");
+                ErrorResponse::unavailable("service unavailable")
+            }
+            e => e.into(),
+        })?;
     let result = res.authentication_result
         .ok_or_else(|| "authentication result must be set")?;
     Ok(result.into())
@@ -484,6 +506,7 @@ mod tests {
     #[tokio::test]
     async fn function_handler_unhandled_error() {
         // the details of unhandled errors must not be exposed to the caller
+        // - start
         let cognito = MockResponseInterceptor::new()
             .rule_mode(RuleMode::MatchAny)
             .with_rule(&self::mocks::cognito::initiate_auth_no_session());
@@ -498,6 +521,31 @@ mod tests {
             serde_json::json!({
                 "start": {
                     "userId": "8TZ_kg_dp_pr0t7SDvGJiw",
+                },
+            }),
+            lambda_runtime::Context::default(),
+        );
+
+        let err = function_handler(shared_state, event).await.unwrap_err();
+        assert!(matches!(err, ErrorResponse::Unhandled(msg) if msg.to_string() == "internal server error"));
+
+        // -finish
+        let cognito = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::cognito::respond_to_auth_challenge_missing_authentication_result());
+
+        let shared_state = SharedStateBuilder::default()
+            .cognito(self::mocks::cognito::new_client(cognito))
+            .build()
+            .unwrap();
+        let shared_state = Arc::new(shared_state);
+
+        let event = LambdaEvent::new(
+            serde_json::json!({
+                "finish": {
+                    "session": "ABCDEFGHI",
+                    "userId": "8TZ_kg_dp_pr0t7SDvGJiw",
+                    "publicKey": self::mocks::webauthn::OK_PUBLIC_KEY_CREDENTIAL,
                 },
             }),
             lambda_runtime::Context::default(),
@@ -727,6 +775,121 @@ mod tests {
         assert_eq!(session.refresh_token, Some("RefreshToken".to_string()));
     }
 
+    #[tokio::test]
+    async fn finish_authentication_cognito_respond_to_auth_challenge_not_authorized() {
+        let cognito = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::cognito::respond_to_auth_challenge_not_authorized());
+
+        let shared_state = SharedStateBuilder::default()
+            .cognito(self::mocks::cognito::new_client(cognito))
+            .build()
+            .unwrap();
+        let shared_state = Arc::new(shared_state);
+
+        let err = finish_authentication(
+            shared_state,
+            FinishPayload {
+                session: "ABCDEFGHI".to_string(),
+                user_id: "8TZ_kg_dp_pr0t7SDvGJiw".to_string(),
+                public_key: self::mocks::webauthn::OK_PUBLIC_KEY_CREDENTIAL.to_string(),
+            },
+        ).await.unwrap_err();
+        assert!(matches!(err, ErrorResponse::Unauthorized(_)));
+    }
+
+    #[tokio::test]
+    async fn finish_authentication_cognito_respond_to_auth_challenge_user_not_found() {
+        let cognito = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::cognito::respond_to_auth_challenge_user_not_found());
+
+        let shared_state = SharedStateBuilder::default()
+            .cognito(self::mocks::cognito::new_client(cognito))
+            .build()
+            .unwrap();
+        let shared_state = Arc::new(shared_state);
+
+        let err = finish_authentication(
+            shared_state,
+            FinishPayload {
+                session: "ABCDEFGHI".to_string(),
+                user_id: "8TZ_kg_dp_pr0t7SDvGJiw".to_string(),
+                public_key: self::mocks::webauthn::OK_PUBLIC_KEY_CREDENTIAL.to_string(),
+            },
+        ).await.unwrap_err();
+        assert!(matches!(err, ErrorResponse::Unauthorized(_)));
+    }
+
+    #[tokio::test]
+    async fn finish_authentication_cognito_respond_to_auth_challenge_too_many_requests_exception() {
+        let cognito = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::cognito::respond_to_auth_challenge_too_many_requests_exception());
+
+        let shared_state = SharedStateBuilder::default()
+            .cognito(self::mocks::cognito::new_client(cognito))
+            .build()
+            .unwrap();
+        let shared_state = Arc::new(shared_state);
+
+        let err = finish_authentication(
+            shared_state,
+            FinishPayload {
+                session: "ABCDEFGHI".to_string(),
+                user_id: "8TZ_kg_dp_pr0t7SDvGJiw".to_string(),
+                public_key: self::mocks::webauthn::OK_PUBLIC_KEY_CREDENTIAL.to_string(),
+            },
+        ).await.unwrap_err();
+        assert!(matches!(err, ErrorResponse::Unavailable(_)));
+    }
+
+    #[tokio::test]
+    async fn finish_authentication_cognito_respond_to_auth_challenge_service_unavailable() {
+        let cognito = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::cognito::respond_to_auth_challenge_service_unavailable());
+
+        let shared_state = SharedStateBuilder::default()
+            .cognito(self::mocks::cognito::new_client(cognito))
+            .build()
+            .unwrap();
+        let shared_state = Arc::new(shared_state);
+
+        let err = finish_authentication(
+            shared_state,
+            FinishPayload {
+                session: "ABCDEFGHI".to_string(),
+                user_id: "8TZ_kg_dp_pr0t7SDvGJiw".to_string(),
+                public_key: self::mocks::webauthn::OK_PUBLIC_KEY_CREDENTIAL.to_string(),
+            },
+        ).await.unwrap_err();
+        assert!(matches!(err, ErrorResponse::Unavailable(_)));
+    }
+
+    #[tokio::test]
+    async fn finish_authentication_cognito_respond_to_auth_challenge_throttling_exception() {
+        let cognito = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::cognito::respond_to_auth_challenge_throttling_exception());
+
+        let shared_state = SharedStateBuilder::default()
+            .cognito(self::mocks::cognito::new_client(cognito))
+            .build()
+            .unwrap();
+        let shared_state = Arc::new(shared_state);
+
+        let err = finish_authentication(
+            shared_state,
+            FinishPayload {
+                session: "ABCDEFGHI".to_string(),
+                user_id: "8TZ_kg_dp_pr0t7SDvGJiw".to_string(),
+                public_key: self::mocks::webauthn::OK_PUBLIC_KEY_CREDENTIAL.to_string(),
+            },
+        ).await.unwrap_err();
+        assert!(matches!(err, ErrorResponse::Unavailable(_)));
+    }
+
     pub(crate) mod mocks {
         use super::*;
 
@@ -943,6 +1106,61 @@ mod tests {
                             .refresh_token("RefreshToken")
                             .build())
                         .build())
+            }
+
+            pub(crate) fn respond_to_auth_challenge_missing_authentication_result() -> Rule {
+                mock!(Client::respond_to_auth_challenge)
+                    .then_output(|| RespondToAuthChallengeOutput::builder().build())
+            }
+
+            pub(crate) fn respond_to_auth_challenge_not_authorized() -> Rule {
+                mock!(Client::respond_to_auth_challenge)
+                    .then_http_response(|| {
+                        HttpResponse::new(
+                            StatusCode::try_from(400).unwrap(),
+                            SdkBody::from(NOT_AUTHORIZED_EXCEPTION_RESPONSE),
+                        )
+                    })
+            }
+
+            pub(crate) fn respond_to_auth_challenge_user_not_found() -> Rule {
+                mock!(Client::respond_to_auth_challenge)
+                    .then_http_response(|| {
+                        HttpResponse::new(
+                            StatusCode::try_from(400).unwrap(),
+                            SdkBody::from(USER_NOT_FOUND_EXCEPTION_RESPONSE),
+                        )
+                    })
+            }
+
+            pub(crate) fn respond_to_auth_challenge_too_many_requests_exception() -> Rule {
+                mock!(Client::respond_to_auth_challenge)
+                    .then_http_response(|| {
+                        HttpResponse::new(
+                            StatusCode::try_from(400).unwrap(),
+                            SdkBody::from(TOO_MANY_REQUESTS_EXCEPTION_RESPONSE),
+                        )
+                    })
+            }
+
+            pub(crate) fn respond_to_auth_challenge_service_unavailable() -> Rule {
+                mock!(Client::respond_to_auth_challenge)
+                    .then_http_response(|| {
+                        HttpResponse::new(
+                            StatusCode::try_from(503).unwrap(),
+                            SdkBody::from(SERVICE_UNAVAILABLE_RESPONSE),
+                        )
+                    })
+            }
+
+            pub(crate) fn respond_to_auth_challenge_throttling_exception() -> Rule {
+                mock!(Client::respond_to_auth_challenge)
+                    .then_http_response(|| {
+                        HttpResponse::new(
+                            StatusCode::try_from(400).unwrap(),
+                            SdkBody::from(THROTTLING_EXCEPTION_RESPONSE),
+                        )
+                    })
             }
         }
     }
