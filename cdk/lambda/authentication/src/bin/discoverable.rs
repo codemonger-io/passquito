@@ -120,7 +120,7 @@ mod tests {
     use super::*;
 
     use aws_sdk_dynamodb::operation::put_item::PutItemOutput;
-    use aws_smithy_mocks_experimental::{mock, MockResponseInterceptor, RuleMode};
+    use aws_smithy_mocks_experimental::{MockResponseInterceptor, RuleMode};
     use aws_smithy_runtime_api::client::orchestrator::HttpResponse;
     use aws_smithy_runtime_api::http::StatusCode as SmithyStatusCode;
     use aws_smithy_types::body::SdkBody;
@@ -151,18 +151,9 @@ mod tests {
             let rp_id = "localhost".to_string();
             let rp_origin = Url::parse("http://localhost:5173").unwrap();
 
-            let put_item_ok = mock!(aws_sdk_dynamodb::Client::put_item)
-                .then_output(|| PutItemOutput::builder().build());
-            let put_item_mocks = MockResponseInterceptor::new()
+            let dynamodb = MockResponseInterceptor::new()
                 .rule_mode(RuleMode::MatchAny)
-                .with_rule(&put_item_ok);
-            let dynamodb = aws_sdk_dynamodb::Client::from_conf(
-                aws_sdk_dynamodb::Config::builder()
-                    .with_test_defaults()
-                    .region(aws_sdk_dynamodb::config::Region::new("ap-northeast-1"))
-                    .interceptor(put_item_mocks)
-                    .build(),
-            );
+                .with_rule(&mocks::dynamodb::put_item_ok());
 
             SharedState {
                 webauthn: WebauthnBuilder::new(&rp_id, &rp_origin)
@@ -170,7 +161,7 @@ mod tests {
                     .rp_name("Passkey Test")
                     .build()
                     .unwrap(),
-                dynamodb,
+                dynamodb: self::mocks::dynamodb::new_client(dynamodb),
                 session_table_name: "sessions".to_string(),
             }
         }
@@ -182,40 +173,14 @@ mod tests {
         assert!(start_authentication(state).await.is_ok());
     }
 
-    const RESOURCE_NOT_FOUND_EXCEPTION: &str = r#"{"__type": "com.amazonaws.dynamodb.v20120810#ResourceNotFoundException", "message": "Requested resource not found: Table: sessions not found"}"#;
-
-    const PROVISIONED_THROUGHPUT_EXCEEDED_EXCEPTION: &str = r#"{"__type": "com.amazonaws.dynamodb.v20120810#ProvisionedThroughputExceededException", "message": "Exceeded provisioned throughput."}"#;
-
-    const REQUEST_LIMIT_EXCEEDED: &str = r#"{"__type": "com.amazonaws.dynamodb.v20120810#RequestLimitExceeded", "message": "Exceeded request limit."}"#;
-
-    const THROTTLING_EXCEPTION: &str = r#"{"__type": "com.amazonaws.dynamodb.v20120810#ThrottlingException", "message": "Request throttled"}"#;
-
-    const SERVICE_UNAVAILABLE: &str = r#"{"__type": "com.amazonaws.dynamodb.v20120810#ServiceUnavailable", "message": "Service temporarily unavailable"}"#;
-
     #[tokio::test]
     async fn start_authentication_with_put_item_with_non_retryable_error() {
-        let put_item_not_found = mock!(aws_sdk_dynamodb::Client::put_item)
-            .then_http_response(|| {
-                HttpResponse::new(
-                    SmithyStatusCode::try_from(400).unwrap(),
-                    SdkBody::from(RESOURCE_NOT_FOUND_EXCEPTION),
-                )
-            });
-
-        let put_item_mocks = MockResponseInterceptor::new()
+        let dynamodb = MockResponseInterceptor::new()
             .rule_mode(RuleMode::MatchAny)
-            .with_rule(&put_item_not_found);
-
-        let dynamodb = aws_sdk_dynamodb::Client::from_conf(
-            aws_sdk_dynamodb::Config::builder()
-                .with_test_defaults()
-                .region(aws_sdk_dynamodb::config::Region::new("ap-northeast-1"))
-                .interceptor(put_item_mocks)
-                .build(),
-        );
+            .with_rule(&mocks::dynamodb::put_item_not_found());
 
         let state = Arc::new(SharedState::with_dynamodb_and_session_table_name(
-            dynamodb,
+            self::mocks::dynamodb::new_client(dynamodb),
             "sessions",
         ));
 
@@ -225,48 +190,12 @@ mod tests {
 
     #[tokio::test]
     async fn start_authentication_with_put_item_with_retryable_errors() {
-        let put_item_throughput_cap = mock!(aws_sdk_dynamodb::Client::put_item)
-            .match_requests(|req| req.table_name() == Some("sessions_throughput_cap"))
-            .then_http_response(|| {
-                HttpResponse::new(
-                    SmithyStatusCode::try_from(400).unwrap(),
-                    SdkBody::from(PROVISIONED_THROUGHPUT_EXCEEDED_EXCEPTION),
-                )
-            });
-
-        let put_item_request_cap = mock!(aws_sdk_dynamodb::Client::put_item)
-            .match_requests(|req| req.table_name() == Some("sessions_request_cap"))
-            .then_http_response(|| {
-                HttpResponse::new(
-                    SmithyStatusCode::try_from(400).unwrap(),
-                    SdkBody::from(REQUEST_LIMIT_EXCEEDED),
-                )
-            });
-
-        let put_item_throttled = mock!(aws_sdk_dynamodb::Client::put_item)
-            .match_requests(|req| req.table_name() == Some("sessions_throttled"))
-            .then_http_response(|| {
-                HttpResponse::new(
-                    SmithyStatusCode::try_from(400).unwrap(),
-                    SdkBody::from(THROTTLING_EXCEPTION),
-                )
-            });
-
-        let put_item_unavailable = mock!(aws_sdk_dynamodb::Client::put_item)
-            .match_requests(|req| req.table_name() == Some("sessions_unavailable"))
-            .then_http_response(|| {
-                HttpResponse::new(
-                    SmithyStatusCode::try_from(503).unwrap(),
-                    SdkBody::from(SERVICE_UNAVAILABLE),
-                )
-            });
-
         let put_item_mocks = MockResponseInterceptor::new()
             .rule_mode(RuleMode::MatchAny)
-            .with_rule(&put_item_throughput_cap)
-            .with_rule(&put_item_request_cap)
-            .with_rule(&put_item_throttled)
-            .with_rule(&put_item_unavailable);
+            .with_rule(&self::mocks::dynamodb::put_item_throughput_cap())
+            .with_rule(&self::mocks::dynamodb::put_item_request_cap())
+            .with_rule(&self::mocks::dynamodb::put_item_throttled())
+            .with_rule(&self::mocks::dynamodb::put_item_unavailable());
 
         let dynamodb = aws_sdk_dynamodb::Client::from_conf(
             aws_sdk_dynamodb::Config::builder()
@@ -303,5 +232,95 @@ mod tests {
         ));
         let res = start_authentication(state).await.err().unwrap();
         assert!(matches!(res, ErrorResponse::Unavailable(_)));
+    }
+
+    mod mocks {
+        use super::*;
+
+        pub(crate) mod dynamodb {
+            use super::*;
+
+            use aws_sdk_dynamodb::{config::Region, Client, Config};
+            use aws_smithy_mocks_experimental::{mock, Rule};
+
+            const RESOURCE_NOT_FOUND_EXCEPTION: &str = r#"{"__type": "com.amazonaws.dynamodb.v20120810#ResourceNotFoundException", "message": "Requested resource not found: Table: sessions not found"}"#;
+
+            const PROVISIONED_THROUGHPUT_EXCEEDED_EXCEPTION: &str = r#"{"__type": "com.amazonaws.dynamodb.v20120810#ProvisionedThroughputExceededException", "message": "Exceeded provisioned throughput."}"#;
+
+            const REQUEST_LIMIT_EXCEEDED: &str = r#"{"__type": "com.amazonaws.dynamodb.v20120810#RequestLimitExceeded", "message": "Exceeded request limit."}"#;
+
+            const THROTTLING_EXCEPTION: &str = r#"{"__type": "com.amazonaws.dynamodb.v20120810#ThrottlingException", "message": "Request throttled"}"#;
+
+            const SERVICE_UNAVAILABLE: &str = r#"{"__type": "com.amazonaws.dynamodb.v20120810#ServiceUnavailable", "message": "Service temporarily unavailable"}"#;
+
+            pub(crate) fn new_client(mocks: MockResponseInterceptor) -> Client {
+                Client::from_conf(
+                    Config::builder()
+                        .with_test_defaults()
+                        .interceptor(mocks)
+                        .region(Region::new("ap-northeast-1"))
+                        .build()
+                )
+            }
+
+            pub(crate) fn put_item_ok() -> Rule {
+                mock!(Client::put_item)
+                    .then_output(|| PutItemOutput::builder().build())
+            }
+
+            pub(crate) fn put_item_not_found() -> Rule {
+                mock!(Client::put_item)
+                    .then_http_response(|| {
+                        HttpResponse::new(
+                            SmithyStatusCode::try_from(400).unwrap(),
+                            SdkBody::from(RESOURCE_NOT_FOUND_EXCEPTION),
+                        )
+                    })
+            }
+
+            pub(crate) fn put_item_throughput_cap() -> Rule {
+                mock!(Client::put_item)
+                    .match_requests(|req| req.table_name() == Some("sessions_throughput_cap")) // TODO: remove this later
+                    .then_http_response(|| {
+                        HttpResponse::new(
+                            SmithyStatusCode::try_from(400).unwrap(),
+                            SdkBody::from(PROVISIONED_THROUGHPUT_EXCEEDED_EXCEPTION),
+                        )
+                    })
+            }
+
+            pub(crate) fn put_item_request_cap() -> Rule {
+                mock!(Client::put_item)
+                    .match_requests(|req| req.table_name() == Some("sessions_request_cap")) // TODO: remove this later
+                    .then_http_response(|| {
+                        HttpResponse::new(
+                            SmithyStatusCode::try_from(400).unwrap(),
+                            SdkBody::from(REQUEST_LIMIT_EXCEEDED),
+                        )
+                    })
+            }
+
+            pub(crate) fn put_item_throttled() -> Rule {
+                mock!(Client::put_item)
+                    .match_requests(|req| req.table_name() == Some("sessions_throttled")) // TODO: remove this later
+                    .then_http_response(|| {
+                        HttpResponse::new(
+                            SmithyStatusCode::try_from(400).unwrap(),
+                            SdkBody::from(THROTTLING_EXCEPTION),
+                        )
+                    })
+            }
+
+            pub(crate) fn put_item_unavailable() -> Rule {
+                mock!(Client::put_item)
+                    .match_requests(|req| req.table_name() == Some("sessions_unavailable")) // TODO: remove this later
+                    .then_http_response(|| {
+                        HttpResponse::new(
+                            SmithyStatusCode::try_from(503).unwrap(),
+                            SdkBody::from(SERVICE_UNAVAILABLE),
+                        )
+                    })
+            }
+        }
     }
 }
