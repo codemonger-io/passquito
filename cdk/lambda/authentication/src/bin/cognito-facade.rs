@@ -43,7 +43,7 @@
 //! }
 //! ```
 //!
-//! `sessionId` is the session token that must be passed to the `Finish` action.
+//! `sessionId` is the session ID that must be passed to the `Finish` action.
 //! `credentialRequestOptions` represents a
 //! [WebAuthn extension of the `CredentialRequestOptions`](https://www.w3.org/TR/webauthn-3/#sctn-credentialrequestoptions-extension).
 //!
@@ -60,13 +60,13 @@
 //!   "finish": {
 //!     "sessionId": "Session ID",
 //!     "userId": "userId",
-//!     "publicKey": "PublicKeyCredential"
+//!     "publicKey": { ... }
 //!   }
 //! }
 //! ```
 //!
 //! `sessionId` must be the session token returned by the `Start` action.
-//! `publicKey` must be a JSON-stringified form of the public key credential
+//! `publicKey` must be a [public key credential](https://www.w3.org/TR/webauthn-3/#iface-pkcredential)
 //! signed by the authenticator of the user.
 //! The challenge signed by the authenticator may be either:
 //! - a challenge issued by the `Start` action
@@ -113,7 +113,7 @@ use serde::{Deserialize, Serialize};
 use std::env;
 use std::sync::Arc;
 use tracing::{error, info};
-use webauthn_rs::prelude::RequestChallengeResponse;
+use webauthn_rs::prelude::{PublicKeyCredential, RequestChallengeResponse};
 
 use authentication::error_response::ErrorResponse;
 use authentication::sdk_error_ext::is_common_retryable_error;
@@ -163,7 +163,7 @@ struct FinishPayload {
     /// User ID to authenticate, which was issued by Passquito.
     user_id: String,
     /// Public key credential signed by the authenticator of the user.
-    public_key: String,
+    public_key: PublicKeyCredential,
 }
 
 /// Authentication session initiated by a `Start` action.
@@ -344,7 +344,7 @@ async fn finish_authentication(
         .challenge_name(ChallengeNameType::CustomChallenge)
         .session(&payload.session_id)
         .challenge_responses("USERNAME", payload.user_id)
-        .challenge_responses("ANSWER", payload.public_key)
+        .challenge_responses("ANSWER", serde_json::to_string(&payload.public_key)?)
         .send()
         .await
         .map_err(|e| match e.into_service_error() {
@@ -440,7 +440,7 @@ mod tests {
                 "finish": {
                     "sessionId": "ABCDEFGHI",
                     "userId": "8TZ_kg_dp_pr0t7SDvGJiw",
-                    "publicKey": self::mocks::webauthn::OK_PUBLIC_KEY_CREDENTIAL,
+                    "publicKey": self::mocks::webauthn::ok_public_key_credential_as_value()
                 },
             }),
             lambda_runtime::Context::default(),
@@ -474,6 +474,7 @@ mod tests {
         );
         let err = function_handler(shared_state.clone(), event).await.unwrap_err();
         assert!(matches!(err, ErrorResponse::BadRequest(_)));
+
         // invalid start payload
         let event = LambdaEvent::new(
             serde_json::json!({
@@ -485,11 +486,16 @@ mod tests {
         );
         let err = function_handler(shared_state.clone(), event).await.unwrap_err();
         assert!(matches!(err, ErrorResponse::BadRequest(_)));
-        // invalid finish payload
+
+        // finish payload with an invalid public key
         let event = LambdaEvent::new(
             serde_json::json!({
                 "finish": {
-                    "unknownField": "UnknownValue",
+                    "sessionId": "ABCDEFGHI",
+                    "userId": "8TZ_kg_dp_pr0t7SDvGJiw",
+                    "publicKey": {
+                        "unknownField": "invalid public key",
+                    },
                 },
             }),
             lambda_runtime::Context::default(),
@@ -540,7 +546,7 @@ mod tests {
                 "finish": {
                     "sessionId": "ABCDEFGHI",
                     "userId": "8TZ_kg_dp_pr0t7SDvGJiw",
-                    "publicKey": self::mocks::webauthn::OK_PUBLIC_KEY_CREDENTIAL,
+                    "publicKey": self::mocks::webauthn::ok_public_key_credential_as_value(),
                 },
             }),
             lambda_runtime::Context::default(),
@@ -761,7 +767,7 @@ mod tests {
             FinishPayload {
                 session_id: "ABCDEFGHI".to_string(),
                 user_id: "8TZ_kg_dp_pr0t7SDvGJiw".to_string(),
-                public_key: self::mocks::webauthn::OK_PUBLIC_KEY_CREDENTIAL.to_string(),
+                public_key: serde_json::from_str(self::mocks::webauthn::OK_PUBLIC_KEY_CREDENTIAL).unwrap(),
             },
         ).await.unwrap();
         assert_eq!(session.access_token, Some("AccessToken".to_string())); 
@@ -787,7 +793,7 @@ mod tests {
             FinishPayload {
                 session_id: "ABCDEFGHI".to_string(),
                 user_id: "8TZ_kg_dp_pr0t7SDvGJiw".to_string(),
-                public_key: self::mocks::webauthn::OK_PUBLIC_KEY_CREDENTIAL.to_string(),
+                public_key: serde_json::from_str(self::mocks::webauthn::OK_PUBLIC_KEY_CREDENTIAL).unwrap(),
             },
         ).await.unwrap_err();
         assert!(matches!(err, ErrorResponse::Unauthorized(_)));
@@ -810,7 +816,7 @@ mod tests {
             FinishPayload {
                 session_id: "ABCDEFGHI".to_string(),
                 user_id: "8TZ_kg_dp_pr0t7SDvGJiw".to_string(),
-                public_key: self::mocks::webauthn::OK_PUBLIC_KEY_CREDENTIAL.to_string(),
+                public_key: serde_json::from_str(self::mocks::webauthn::OK_PUBLIC_KEY_CREDENTIAL).unwrap(),
             },
         ).await.unwrap_err();
         assert!(matches!(err, ErrorResponse::Unauthorized(_)));
@@ -833,7 +839,7 @@ mod tests {
             FinishPayload {
                 session_id: "ABCDEFGHI".to_string(),
                 user_id: "8TZ_kg_dp_pr0t7SDvGJiw".to_string(),
-                public_key: self::mocks::webauthn::OK_PUBLIC_KEY_CREDENTIAL.to_string(),
+                public_key: serde_json::from_str(self::mocks::webauthn::OK_PUBLIC_KEY_CREDENTIAL).unwrap(),
             },
         ).await.unwrap_err();
         assert!(matches!(err, ErrorResponse::Unavailable(_)));
@@ -856,7 +862,7 @@ mod tests {
             FinishPayload {
                 session_id: "ABCDEFGHI".to_string(),
                 user_id: "8TZ_kg_dp_pr0t7SDvGJiw".to_string(),
-                public_key: self::mocks::webauthn::OK_PUBLIC_KEY_CREDENTIAL.to_string(),
+                public_key: serde_json::from_str(self::mocks::webauthn::OK_PUBLIC_KEY_CREDENTIAL).unwrap(),
             },
         ).await.unwrap_err();
         assert!(matches!(err, ErrorResponse::Unavailable(_)));
@@ -879,7 +885,7 @@ mod tests {
             FinishPayload {
                 session_id: "ABCDEFGHI".to_string(),
                 user_id: "8TZ_kg_dp_pr0t7SDvGJiw".to_string(),
-                public_key: self::mocks::webauthn::OK_PUBLIC_KEY_CREDENTIAL.to_string(),
+                public_key: serde_json::from_str(self::mocks::webauthn::OK_PUBLIC_KEY_CREDENTIAL).unwrap(),
             },
         ).await.unwrap_err();
         assert!(matches!(err, ErrorResponse::Unavailable(_)));
@@ -905,7 +911,7 @@ mod tests {
                 "response": {
                     "authenticatorData": "",
                     "clientDataJSON": "ewogICJ0eXBlIjogIndlYmF1dGhuLmdldCIsCiAgImNoYWxsZW5nZSI6ICJmU19CMU14Sm91YUkwUXB1WXRyc2w2a2hlQUFxdFFsVWd5QWZheE9ZZFhFIiwKICAib3JpZ2luIjogImh0dHA6Ly9sb2NhbGhvc3QiCn0K",
-                    "signature": "OK signature",
+                    "signature": "",
                     "userHandle": "8TZ_kg_dp_pr0t7SDvGJiw"
                 },
                 "extensions": {},
@@ -918,6 +924,10 @@ mod tests {
             //     "challenge": "fS_B1MxJouaI0QpuYtrsl6kheAAqtQlUgyAfaxOYdXE",
             //     "origin": "http://localhost"
             // }
+
+            pub(crate) fn ok_public_key_credential_as_value() -> serde_json::Value {
+                serde_json::from_str(OK_PUBLIC_KEY_CREDENTIAL).unwrap()
+            }
         }
 
         pub(crate) mod cognito {
