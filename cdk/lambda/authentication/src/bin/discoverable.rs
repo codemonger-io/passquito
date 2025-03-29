@@ -38,9 +38,13 @@ use authentication::parameters::load_relying_party_origin;
 use authentication::sdk_error_ext::SdkErrorExt as _;
 
 // State shared among Lambda invocations.
+#[cfg_attr(test, derive(derive_builder::Builder))]
+#[cfg_attr(test, builder(setter(into), pattern = "owned"))]
 struct SharedState {
+    #[cfg_attr(test, builder(default = "self::tests::mocks::webauthn::new_webauthn()"))]
     webauthn: Webauthn,
     dynamodb: aws_sdk_dynamodb::Client,
+    #[cfg_attr(test, builder(default = "\"sessions\".to_string()"))]
     session_table_name: String,
 }
 
@@ -119,58 +123,21 @@ async fn main() -> Result<(), Error> {
 mod tests {
     use super::*;
 
-    use aws_sdk_dynamodb::operation::put_item::PutItemOutput;
     use aws_smithy_mocks_experimental::{MockResponseInterceptor, RuleMode};
-    use aws_smithy_runtime_api::client::orchestrator::HttpResponse;
-    use aws_smithy_runtime_api::http::StatusCode as SmithyStatusCode;
-    use aws_smithy_types::body::SdkBody;
-    use webauthn_rs::prelude::Url;
-
-    impl SharedState {
-        fn with_dynamodb_and_session_table_name(
-            dynamodb: aws_sdk_dynamodb::Client,
-            session_table_name: impl Into<String>,
-        ) -> Self {
-            let session_table_name = session_table_name.into();
-            let rp_id = "localhost".to_string();
-            let rp_origin = Url::parse("http://localhost:5173").unwrap();
-            SharedState {
-                webauthn: WebauthnBuilder::new(&rp_id, &rp_origin)
-                    .unwrap()
-                    .rp_name("Passkey Test")
-                    .build()
-                    .unwrap(),
-                dynamodb,
-                session_table_name,
-            }
-        }
-    }
-
-    impl Default for SharedState {
-        fn default() -> Self {
-            let rp_id = "localhost".to_string();
-            let rp_origin = Url::parse("http://localhost:5173").unwrap();
-
-            let dynamodb = MockResponseInterceptor::new()
-                .rule_mode(RuleMode::MatchAny)
-                .with_rule(&mocks::dynamodb::put_item_ok());
-
-            SharedState {
-                webauthn: WebauthnBuilder::new(&rp_id, &rp_origin)
-                    .unwrap()
-                    .rp_name("Passkey Test")
-                    .build()
-                    .unwrap(),
-                dynamodb: self::mocks::dynamodb::new_client(dynamodb),
-                session_table_name: "sessions".to_string(),
-            }
-        }
-    }
 
     #[tokio::test]
     async fn start_authentication_with_put_item_ok() {
-        let state = Arc::new(SharedState::default());
-        assert!(start_authentication(state).await.is_ok());
+        let dynamodb = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&mocks::dynamodb::put_item_ok());
+
+        let shared_state = SharedStateBuilder::default()
+            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .build()
+            .unwrap();
+        let shared_state = Arc::new(shared_state);
+
+        assert!(start_authentication(shared_state).await.is_ok());
     }
 
     #[tokio::test]
@@ -179,12 +146,13 @@ mod tests {
             .rule_mode(RuleMode::MatchAny)
             .with_rule(&mocks::dynamodb::put_item_not_found());
 
-        let state = Arc::new(SharedState::with_dynamodb_and_session_table_name(
-            self::mocks::dynamodb::new_client(dynamodb),
-            "sessions",
-        ));
+        let shared_state = SharedStateBuilder::default()
+            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .build()
+            .unwrap();
+        let shared_state = Arc::new(shared_state);
 
-        let res = start_authentication(state).await.err().unwrap();
+        let res = start_authentication(shared_state).await.err().unwrap();
         assert!(matches!(res, ErrorResponse::Unhandled(_)));
     }
 
@@ -205,43 +173,77 @@ mod tests {
                 .build(),
         );
 
-        let state = Arc::new(SharedState::with_dynamodb_and_session_table_name(
-            dynamodb.clone(),
-            "sessions_throughput_cap",
-        ));
-        let res = start_authentication(state).await.err().unwrap();
+        let shared_state = SharedStateBuilder::default()
+            .dynamodb(dynamodb.clone())
+            .session_table_name("sessions_throughput_cap")
+            .build()
+            .unwrap();
+        let shared_state = Arc::new(shared_state);
+        let res = start_authentication(shared_state).await.err().unwrap();
         assert!(matches!(res, ErrorResponse::Unavailable(_)));
 
-        let state = Arc::new(SharedState::with_dynamodb_and_session_table_name(
-            dynamodb.clone(),
-            "sessions_request_cap",
-        ));
-        let res = start_authentication(state).await.err().unwrap();
+        let shared_state = SharedStateBuilder::default()
+            .dynamodb(dynamodb.clone())
+            .session_table_name("sessions_request_cap")
+            .build()
+            .unwrap();
+        let shared_state = Arc::new(shared_state);
+        let res = start_authentication(shared_state).await.err().unwrap();
         assert!(matches!(res, ErrorResponse::Unavailable(_)));
 
-        let state = Arc::new(SharedState::with_dynamodb_and_session_table_name(
-            dynamodb.clone(),
-            "sessions_throttled",
-        ));
-        let res = start_authentication(state).await.err().unwrap();
+        let shared_state = SharedStateBuilder::default()
+            .dynamodb(dynamodb.clone())
+            .session_table_name("sessions_throttled")
+            .build()
+            .unwrap();
+        let shared_state = Arc::new(shared_state);
+        let res = start_authentication(shared_state).await.err().unwrap();
         assert!(matches!(res, ErrorResponse::Unavailable(_)));
 
-        let state = Arc::new(SharedState::with_dynamodb_and_session_table_name(
-            dynamodb,
-            "sessions_unavailable",
-        ));
-        let res = start_authentication(state).await.err().unwrap();
+        let shared_state = SharedStateBuilder::default()
+            .dynamodb(dynamodb.clone())
+            .session_table_name("sessions_unavailable")
+            .build()
+            .unwrap();
+        let shared_state = Arc::new(shared_state);
+        let res = start_authentication(shared_state).await.err().unwrap();
         assert!(matches!(res, ErrorResponse::Unavailable(_)));
     }
 
-    mod mocks {
+    pub(crate) mod mocks {
         use super::*;
+
+        pub(crate) mod webauthn {
+            use super::*;
+
+            use webauthn_rs::prelude::Url;
+
+            pub(crate) fn new_webauthn() -> Webauthn {
+                let rp_id = "localhost".to_string();
+                let rp_origin = Url::parse("http://localhost:5173").unwrap();
+                WebauthnBuilder::new(&rp_id, &rp_origin)
+                    .unwrap()
+                    .rp_name("Passkey Test")
+                    .build()
+                    .unwrap()
+            }
+        }
 
         pub(crate) mod dynamodb {
             use super::*;
 
-            use aws_sdk_dynamodb::{config::Region, Client, Config};
+            use aws_sdk_dynamodb::{
+                config::Region,
+                operation::put_item::PutItemOutput,
+                Client,
+                Config,
+            };
             use aws_smithy_mocks_experimental::{mock, Rule};
+            use aws_smithy_runtime_api::{
+                client::orchestrator::HttpResponse,
+                http::StatusCode as SmithyStatusCode,
+            };
+            use aws_smithy_types::body::SdkBody;
 
             const RESOURCE_NOT_FOUND_EXCEPTION: &str = r#"{"__type": "com.amazonaws.dynamodb.v20120810#ResourceNotFoundException", "message": "Requested resource not found: Table: sessions not found"}"#;
 
