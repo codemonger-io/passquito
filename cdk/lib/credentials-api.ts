@@ -306,7 +306,7 @@ export class CredentialsApi extends Construct {
           description: 'Authentication session.',
           type: apigw.JsonSchemaType.OBJECT,
           properties: {
-            session: {
+            sessionId: {
               description: 'Session ID. Pass this to the finish endpoint.',
               type: apigw.JsonSchemaType.STRING,
               example: '0123456789abcdef',
@@ -331,7 +331,7 @@ export class CredentialsApi extends Construct {
           title: 'finishAuthenticationSession',
           type: apigw.JsonSchemaType.OBJECT,
           properties: {
-            session: {
+            sessionId: {
               description: 'Session ID to finish, which has been issued by the start endpoint.',
               type: apigw.JsonSchemaType.STRING,
               example: '0123456789abcdef',
@@ -692,7 +692,7 @@ export class CredentialsApi extends Construct {
         requestTemplates: {
           'application/json': composeMappingTemplate([
             ['finish', composeMappingTemplate([
-              ['session', '$input.json("$.session")'],
+              ['sessionId', '$input.json("$.sessionId")'],
               ['userId', '$input.json("$.userId")'],
               ['publicKey', '$input.json("$.publicKey")'],
             ])]

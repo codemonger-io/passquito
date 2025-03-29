@@ -15,7 +15,7 @@
 //!
 //! To initiate an authentication session, the request body must be in the
 //! following form which is a serialized representation of
-//! [`CognitoAcition::InitiateAuth`]:
+//! [`CognitoAction::Start`]:
 //!
 //! ```json
 //! {
@@ -36,14 +36,14 @@
 //!
 //! ```json
 //! {
-//!   "session": "Session",
+//!   "sessionId": "Session ID",
 //!   "credentialRequestOptions": {
 //!     "publicKey": { ... }
 //!   }
 //! }
 //! ```
 //!
-//! `session` is the session token that must be passed to the `Finish` action.
+//! `sessionId` is the session token that must be passed to the `Finish` action.
 //! `credentialRequestOptions` represents a
 //! [WebAuthn extension of the `CredentialRequestOptions`](https://www.w3.org/TR/webauthn-3/#sctn-credentialrequestoptions-extension).
 //!
@@ -58,14 +58,14 @@
 //! ```json
 //! {
 //!   "finish": {
-//!     "session": "Session",
+//!     "sessionId": "Session ID",
 //!     "userId": "userId",
 //!     "publicKey": "PublicKeyCredential"
 //!   }
 //! }
 //! ```
 //!
-//! `session` must be the session token returned by the `Start` action.
+//! `sessionId` must be the session token returned by the `Start` action.
 //! `publicKey` must be a JSON-stringified form of the public key credential
 //! signed by the authenticator of the user.
 //! The challenge signed by the authenticator may be either:
@@ -75,25 +75,20 @@
 //! The following inputs will be passed to the `RespondToAuthChallenge` API:
 //! - `ClientId`: value of the `USER_POOL_CLIENT_ID` environment variable
 //! - `ChallengeName`: `"CUSTOM_CHALLENGE"`
-//! - `Session`: `session`
+//! - `Session`: `sessionId`
 //! - `ChallengeResponses`:
 //!   - `USERNAME`: `userId`
 //!   - `ANSWER`: `publicKey`
 //!
 //! A successful response will be in the following form which is a serialized
-//! representation of [`AuthenticationResult`].
+//! representation of a subset of [`AuthenticationResult`].
 //!
 //! ```json
 //! {
 //!   "accessToken": "AccessToken",
 //!   "expiresIn": 123,
 //!   "idToken": "IdToken",
-//!   "newDeviceMetadata": {
-//!     "deviceGroupKey": "DeviceGroupKey",
-//!     "deviceKey": "DeviceKey"
-//!   },
-//!   "refreshToken": "RefreshToken",
-//!   "tokenType": "TokenType"
+//!   "refreshToken": "RefreshToken"
 //! }
 //! ```
 //!
@@ -164,7 +159,7 @@ enum CognitoAction {
 #[serde(rename_all = "camelCase")]
 struct FinishPayload {
     /// Session token issued by the [`CognitoAction::Start`] action.
-    session: String,
+    session_id: String,
     /// User ID to authenticate, which was issued by Passquito.
     user_id: String,
     /// Public key credential signed by the authenticator of the user.
@@ -177,7 +172,7 @@ struct FinishPayload {
 #[serde(rename_all = "camelCase")]
 struct AuthenticationSession {
     /// Session token to be passed to the `Finish` action.
-    session: String,
+    session_id: String,
     /// WebAuthn extension of credential request options.
     credential_request_options: RequestChallengeResponse,
 }
@@ -316,8 +311,8 @@ async fn start_authentication(
         return Err(ErrorResponse::bad_configuration("bad user pool configuration"));
     }
 
-    // retrieves the session token
-    let session = res.session.ok_or_else(|| "no session token")?;
+    // retrieves the session ID
+    let session_id = res.session.ok_or_else(|| "no session ID")?;
 
     // retrieves the credential request options
     let challenge_parameter = res.challenge_parameters
@@ -334,7 +329,7 @@ async fn start_authentication(
         })?;
 
     Ok(AuthenticationSession {
-        session,
+        session_id,
         credential_request_options,
     })
 }
@@ -347,7 +342,7 @@ async fn finish_authentication(
     let res = shared_state.cognito.respond_to_auth_challenge()
         .client_id(&shared_state.user_pool_client_id)
         .challenge_name(ChallengeNameType::CustomChallenge)
-        .session(&payload.session)
+        .session(&payload.session_id)
         .challenge_responses("USERNAME", payload.user_id)
         .challenge_responses("ANSWER", payload.public_key)
         .send()
@@ -421,7 +416,7 @@ mod tests {
 
         let result = function_handler(shared_state, event).await.unwrap();
         let session: AuthenticationSession = serde_json::from_value(result).unwrap();
-        assert_eq!(session.session, "ABCDEFGHI");
+        assert_eq!(session.session_id, "ABCDEFGHI");
         assert_eq!(
             serde_json::to_string(&session.credential_request_options.public_key.challenge).unwrap(),
             "\"fS_B1MxJouaI0QpuYtrsl6kheAAqtQlUgyAfaxOYdXE\"",
@@ -443,7 +438,7 @@ mod tests {
         let event = LambdaEvent::new(
             serde_json::json!({
                 "finish": {
-                    "session": "ABCDEFGHI",
+                    "sessionId": "ABCDEFGHI",
                     "userId": "8TZ_kg_dp_pr0t7SDvGJiw",
                     "publicKey": self::mocks::webauthn::OK_PUBLIC_KEY_CREDENTIAL,
                 },
@@ -543,7 +538,7 @@ mod tests {
         let event = LambdaEvent::new(
             serde_json::json!({
                 "finish": {
-                    "session": "ABCDEFGHI",
+                    "sessionId": "ABCDEFGHI",
                     "userId": "8TZ_kg_dp_pr0t7SDvGJiw",
                     "publicKey": self::mocks::webauthn::OK_PUBLIC_KEY_CREDENTIAL,
                 },
@@ -571,7 +566,7 @@ mod tests {
             shared_state,
             "8TZ_kg_dp_pr0t7SDvGJiw".to_string(),
         ).await.unwrap();
-        assert_eq!(session.session, "ABCDEFGHI");
+        assert_eq!(session.session_id, "ABCDEFGHI");
         assert_eq!(
             serde_json::to_string(&session.credential_request_options.public_key.challenge).unwrap(),
             "\"fS_B1MxJouaI0QpuYtrsl6kheAAqtQlUgyAfaxOYdXE\"",
@@ -764,7 +759,7 @@ mod tests {
         let session = finish_authentication(
             shared_state,
             FinishPayload {
-                session: "ABCDEFGHI".to_string(),
+                session_id: "ABCDEFGHI".to_string(),
                 user_id: "8TZ_kg_dp_pr0t7SDvGJiw".to_string(),
                 public_key: self::mocks::webauthn::OK_PUBLIC_KEY_CREDENTIAL.to_string(),
             },
@@ -790,7 +785,7 @@ mod tests {
         let err = finish_authentication(
             shared_state,
             FinishPayload {
-                session: "ABCDEFGHI".to_string(),
+                session_id: "ABCDEFGHI".to_string(),
                 user_id: "8TZ_kg_dp_pr0t7SDvGJiw".to_string(),
                 public_key: self::mocks::webauthn::OK_PUBLIC_KEY_CREDENTIAL.to_string(),
             },
@@ -813,7 +808,7 @@ mod tests {
         let err = finish_authentication(
             shared_state,
             FinishPayload {
-                session: "ABCDEFGHI".to_string(),
+                session_id: "ABCDEFGHI".to_string(),
                 user_id: "8TZ_kg_dp_pr0t7SDvGJiw".to_string(),
                 public_key: self::mocks::webauthn::OK_PUBLIC_KEY_CREDENTIAL.to_string(),
             },
@@ -836,7 +831,7 @@ mod tests {
         let err = finish_authentication(
             shared_state,
             FinishPayload {
-                session: "ABCDEFGHI".to_string(),
+                session_id: "ABCDEFGHI".to_string(),
                 user_id: "8TZ_kg_dp_pr0t7SDvGJiw".to_string(),
                 public_key: self::mocks::webauthn::OK_PUBLIC_KEY_CREDENTIAL.to_string(),
             },
@@ -859,7 +854,7 @@ mod tests {
         let err = finish_authentication(
             shared_state,
             FinishPayload {
-                session: "ABCDEFGHI".to_string(),
+                session_id: "ABCDEFGHI".to_string(),
                 user_id: "8TZ_kg_dp_pr0t7SDvGJiw".to_string(),
                 public_key: self::mocks::webauthn::OK_PUBLIC_KEY_CREDENTIAL.to_string(),
             },
@@ -882,7 +877,7 @@ mod tests {
         let err = finish_authentication(
             shared_state,
             FinishPayload {
-                session: "ABCDEFGHI".to_string(),
+                session_id: "ABCDEFGHI".to_string(),
                 user_id: "8TZ_kg_dp_pr0t7SDvGJiw".to_string(),
                 public_key: self::mocks::webauthn::OK_PUBLIC_KEY_CREDENTIAL.to_string(),
             },
