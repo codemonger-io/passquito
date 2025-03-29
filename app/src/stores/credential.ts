@@ -39,7 +39,7 @@ export const useCredentialStore = defineStore('credential', () => {
     if (state.value !== 'authenticated') {
       return null;
     }
-    return tokens.value?.IdToken;
+    return tokens.value?.idToken;
   });
 
   // username associated with the current credential

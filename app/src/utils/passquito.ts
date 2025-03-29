@@ -1,15 +1,6 @@
-import {
-  CognitoIdentityProviderClient,
-  InitiateAuthCommand,
-  RespondToAuthChallengeCommand,
-} from '@aws-sdk/client-cognito-identity-provider';
 import { Base64 } from 'js-base64';
 
 import { credentialsApiUrl, isCognito, userPoolClientId } from '../auth-config';
-
-const cognitoClient = new CognitoIdentityProviderClient({
-  region: 'ap-northeast-1',
-});
 
 /**
  * User information for registration.
@@ -56,9 +47,9 @@ interface CredentialCreationOptions {
  * @beta
  */
 export interface CognitoTokens {
-  IdToken: string;
-  AccessToken: string;
-  RefreshToken: string;
+  idToken: string;
+  accessToken: string;
+  refreshToken: string;
 }
 
 /**
@@ -428,30 +419,28 @@ async function authenticatePublicKeyCredential(credential: PublicKeyCredential):
     if (userHandle == null) {
       throw new Error("authenticator must return userHandle");
     }
-    const challenge = await cognitoClient.send(new InitiateAuthCommand({
-      ClientId: userPoolClientId,
-      AuthFlow: 'CUSTOM_AUTH',
-      AuthParameters: {
-        USERNAME: userHandle,
-      }
-    }));
-    if (challenge.ChallengeName !== 'CUSTOM_CHALLENGE') {
-      throw new Error(`unexpected challenge name: ${challenge.ChallengeName}`);
-    }
-    // ignores challenge parameters for discoverable credentials
-    const res = await cognitoClient.send(new RespondToAuthChallengeCommand({
-      ClientId: userPoolClientId,
-      ChallengeName: 'CUSTOM_CHALLENGE',
-      Session: challenge.Session,
-      ChallengeResponses: {
-        USERNAME: userHandle,
-        ANSWER: JSON.stringify(encodedCredential),
+    const startRes = await fetch(`${credentialsApiUrl.replace(/\/$/, '')}/authentication/start`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
       },
-    }));
-    const tokens = res.AuthenticationResult;
-    if (tokens == null) {
-      throw new Error('failed to authenticate');
-    }
+      body: JSON.stringify({ userId: userHandle }),
+    });
+    const session = await startRes.json();
+    console.log('initiated authentication session:', session);
+    // ignores challenge parameters for discoverable credentials
+    const finishRes = await fetch(`${credentialsApiUrl.replace(/\/$/, '')}/authentication/finish`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        sessionId: session.sessionId,
+        userId: userHandle,
+        publicKey: encodedCredential,
+      }),
+    });
+    const tokens = await finishRes.json();
     if (!isCognitoTokens(tokens)) {
       throw new Error('invalid Cognito tokens');
     }
@@ -529,9 +518,9 @@ export function isCognitoTokens(value: unknown): value is CognitoTokens {
   }
   const maybeTokens = value as CognitoTokens;
   if (
-    typeof maybeTokens.IdToken !== 'string' ||
-    typeof maybeTokens.AccessToken !== 'string' ||
-    typeof maybeTokens.RefreshToken !== 'string'
+    typeof maybeTokens.idToken !== 'string' ||
+    typeof maybeTokens.accessToken !== 'string' ||
+    typeof maybeTokens.refreshToken !== 'string'
   ) {
     return false;
   }
