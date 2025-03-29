@@ -30,7 +30,7 @@ use serde_json::Value;
 use std::env;
 use std::sync::Arc;
 use std::time::SystemTime;
-use tracing::info;
+use tracing::{error, info};
 use webauthn_rs::{Webauthn, WebauthnBuilder, prelude::RequestChallengeResponse};
 
 use authentication::error_response::ErrorResponse;
@@ -70,6 +70,14 @@ async fn function_handler(
     _event: LambdaEvent<Value>,
 ) -> Result<RequestChallengeResponse, ErrorResponse> {
     start_authentication(shared_state).await
+        .map_err(|e| match e {
+            // never exposes the details of an unhandled error to the caller.
+            ErrorResponse::Unhandled(e) => {
+                error!("{e:?}");
+                "internal server error".into()
+            }
+            _ => e,
+        })
 }
 
 async fn start_authentication(
@@ -124,6 +132,45 @@ mod tests {
     use super::*;
 
     use aws_smithy_mocks_experimental::{MockResponseInterceptor, RuleMode};
+
+    #[tokio::test]
+    async fn function_handler_ok() {
+        let dynamodb = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&mocks::dynamodb::put_item_ok());
+
+        let shared_state = SharedStateBuilder::default()
+            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .build()
+            .unwrap();
+        let shared_state = Arc::new(shared_state);
+
+        let event = LambdaEvent::new(
+            serde_json::Value::Null,
+            lambda_runtime::Context::default(),
+        );
+        assert!(function_handler(shared_state, event).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn function_handler_unhandled_error() {
+        let dynamodb = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&mocks::dynamodb::put_item_resource_not_found());
+
+        let shared_state = SharedStateBuilder::default()
+            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .build()
+            .unwrap();
+        let shared_state = Arc::new(shared_state);
+
+        let event = LambdaEvent::new(
+            serde_json::Value::Null,
+            lambda_runtime::Context::default(),
+        );
+        let res = function_handler(shared_state, event).await.err().unwrap();
+        assert!(matches!(res, ErrorResponse::Unhandled(e) if e.to_string() == "internal server error"));
+    }
 
     #[tokio::test]
     async fn start_authentication_with_put_item_ok() {
