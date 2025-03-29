@@ -238,27 +238,6 @@ pub struct FinishRegistrationSession {
     pub public_key_credential: RegisterPublicKeyCredential,
 }
 
-/// Invitation session.
-#[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct InvitationSession {
-    /// Session ID.
-    ///
-    /// Guaranteed to be URL-safe.
-    ///
-    /// Pass this session ID when you start the registration of a new device.
-    pub session_id: String,
-
-    /// Expiration time.
-    ///
-    /// Represented as the number of seconds elapsed since the Unix epoch;
-    /// i.e., 00:00:00 UTC on January 1, 1970.
-    pub expires_at: i64,
-}
-
-/// Duration of an invitation session.
-pub const INVITATION_SESSION_DURATION: i64 = 5 * 60;
-
 async fn function_handler<Webauthn>(
     shared_state: Arc<SharedState<Webauthn>>,
     event: LambdaEvent<serde_json::Value>,
@@ -286,10 +265,13 @@ where
             let res = finish_registration(shared_state, session).await;
             res.and_then(|res| serde_json::to_value(res).map_err(Into::into))
         }
-    }.map_err(|e| {
+    }.map_err(|e| match e {
         // prevents the internal error details from being exposed to the client
-        error!("{e:?}");
-        "internal error".into()
+        ErrorResponse::Unhandled(e) => {
+            error!("{e:?}");
+            "internal server error".into()
+        }
+        _ => e,
     })
 }
 
@@ -357,7 +339,6 @@ where
     })
 }
 
-// TODO: describe error responses
 async fn start_registration_for_verified_user<Webauthn>(
     shared_state: Arc<SharedState<Webauthn>>,
     user_info: VerifiedUserInfo,
@@ -917,6 +898,73 @@ mod tests {
         );
         let res = function_handler(shared_state.clone(), event).await.err().unwrap();
         assert!(matches!(res, ErrorResponse::BadRequest(_)));
+    }
+
+    #[tokio::test]
+    async fn function_handler_with_unhandled_error() {
+        let cognito = MockResponseInterceptor::new();
+        let dynamodb = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::dynamodb::put_item_resource_not_found_exception())
+            .with_rule(&self::mocks::dynamodb::query_resource_not_found_exception())
+            .with_rule(&self::mocks::dynamodb::delete_item_resource_not_found_exception());
+
+        let shared_state: SharedState<ConstantWebauthn> = SharedStateBuilder::default()
+            .webauthn(ConstantWebauthn::new(
+                self::mocks::webauthn::OK_CREATION_CHALLENGE_RESPONSE,
+                self::mocks::webauthn::OK_PASSKEY_REGISTRATION,
+                self::mocks::webauthn::OK_PASSKEY,
+            ))
+            .cognito(self::mocks::cognito::new_client(cognito))
+            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .build()
+            .unwrap();
+        let shared_state = Arc::new(shared_state);
+
+        // start
+        let event = LambdaEvent::new(
+            serde_json::json!({
+                "start": {
+                    "username": "test",
+                    "displayName": "Test User",
+                },
+            }),
+            lambda_runtime::Context::default(),
+        );
+        let res = function_handler(shared_state.clone(), event).await.err().unwrap();
+        assert!(matches!(res, ErrorResponse::Unhandled(e) if e.to_string() == "internal server error"));
+
+        // start for verified user
+        let event = LambdaEvent::new(
+            serde_json::json!({
+                "startVerified": {
+                    "username": "test",
+                    "displayName": "Test User",
+                    "cognitoSub": "dummy-sub-123",
+                    "userId": "8TZ_kg_dp_pr0t7SDvGJiw",
+                },
+            }),
+            lambda_runtime::Context::default(),
+        );
+        let res = function_handler(shared_state.clone(), event).await.err().unwrap();
+        assert!(matches!(res, ErrorResponse::Unhandled(e) if e.to_string() == "internal server error"));
+
+        // finish
+        let payload = format!(
+            r#"{{
+                "finish": {{
+                    "sessionId": "dummy-session-id",
+                    "publicKeyCredential": {}
+                }}
+            }}"#,
+            self::mocks::webauthn::OK_REGISTER_PUBLIC_KEY_CREDENTIAL,
+        );
+        let event = LambdaEvent::new(
+            serde_json::from_str(&payload).unwrap(),
+            lambda_runtime::Context::default(),
+        );
+        let res = function_handler(shared_state.clone(), event).await.err().unwrap();
+        assert!(matches!(res, ErrorResponse::Unhandled(e) if e.to_string() == "internal server error"));
     }
 
     #[tokio::test]
@@ -2286,6 +2334,8 @@ mod tests {
 
             const THROTTLING_EXCEPTION: &str = r#"{"__type": "com.amazonaws.dynamodb.v20120810#ThrottlingException", "message": "Throttled."}"#;
 
+            const RESOURCE_NOT_FOUND_EXCEPTION: &str = r#"{"__type": "com.amazonaws.dynamodb.v20120810#ResourceNotFoundException", "message": "No such table."}"#;
+
             pub(crate) fn new_client(mocks: MockResponseInterceptor) -> Client {
                 Client::from_conf(
                     Config::builder()
@@ -2341,6 +2391,16 @@ mod tests {
                     })
             }
 
+            pub(crate) fn put_item_resource_not_found_exception() -> Rule {
+                mock!(Client::put_item)
+                    .then_http_response(|| {
+                        HttpResponse::new(
+                            SmithyStatusCode::try_from(400).unwrap(),
+                            SdkBody::from(RESOURCE_NOT_FOUND_EXCEPTION),
+                        )
+                    })
+            }
+
             pub(crate) fn delete_item_session() -> Rule {
                 mock!(Client::delete_item)
                     .then_output(|| {
@@ -2369,6 +2429,16 @@ mod tests {
                         DeleteItemOutput::builder()
                             .attributes("ttl", AttributeValue::N(format!("{}", ttl)))
                             .build()
+                    })
+            }
+
+            pub(crate) fn delete_item_resource_not_found_exception() -> Rule {
+                mock!(Client::delete_item)
+                    .then_http_response(|| {
+                        HttpResponse::new(
+                            SmithyStatusCode::try_from(400).unwrap(),
+                            SdkBody::from(RESOURCE_NOT_FOUND_EXCEPTION),
+                        )
                     })
             }
 
@@ -2430,6 +2500,16 @@ mod tests {
                         HttpResponse::new(
                             SmithyStatusCode::try_from(400).unwrap(),
                             SdkBody::from(THROTTLING_EXCEPTION),
+                        )
+                    })
+            }
+
+            pub(crate) fn query_resource_not_found_exception() -> Rule {
+                mock!(Client::query)
+                    .then_http_response(|| {
+                        HttpResponse::new(
+                            SmithyStatusCode::try_from(400).unwrap(),
+                            SdkBody::from(RESOURCE_NOT_FOUND_EXCEPTION),
                         )
                     })
             }
