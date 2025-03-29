@@ -242,6 +242,145 @@ export class CredentialsApi extends Construct {
               // TODO: add the schema
             },
           },
+          required: ['sessionId', 'publicKeyCredential'],
+        },
+      },
+    );
+    // - WebAuthn extension of credentials request options
+    //   https://www.w3.org/TR/webauthn-3/#sctn-credentialrequestoptions-extension
+    const credentialRequestOptionsModel = this.credentialsApi.addModel(
+      'CredentialRequestOptionsModel',
+      {
+        description: 'WebAuthn extension of credentials request options.',
+        contentType: 'application/json',
+        schema: {
+          schema: apigw.JsonSchemaVersion.DRAFT4,
+          title: 'credentialRequestOptions',
+          description: 'WebAuthn extension of credentials request options.',
+          type: apigw.JsonSchemaType.OBJECT,
+          properties: {
+            publicKey: {
+              description: 'Credential request options for a public key. See https://www.w3.org/TR/webauthn-3/#dictdef-publickeycredentialrequestoptions for more details.',
+              type: apigw.JsonSchemaType.OBJECT,
+            },
+            mediation: {
+              description: 'Mediation requirements for the credential request.',
+              type: apigw.JsonSchemaType.STRING,
+            },
+          },
+          required: ['publicKey'],
+        },
+      },
+    );
+    // - user ID
+    const userIdModel = this.credentialsApi.addModel(
+      'UserIdModel',
+      {
+        description: 'User ID for authentication.',
+        contentType: 'application/json',
+        schema: {
+          schema: apigw.JsonSchemaVersion.DRAFT4,
+          title: 'userId',
+          description: 'User ID for authentication.',
+          type: apigw.JsonSchemaType.OBJECT,
+          properties: {
+            userId: {
+              description: 'Unique user ID issued by Passquito.',
+              type: apigw.JsonSchemaType.STRING,
+              example: '0123456789abcdef',
+            },
+          },
+          required: ['userId'],
+        },
+      },
+    );
+    // - authentication session
+    const authenticationSessionModel = this.credentialsApi.addModel(
+      'AuthenticationSessionModel',
+      {
+        description: 'Authentication session.',
+        contentType: 'application/json',
+        schema: {
+          schema: apigw.JsonSchemaVersion.DRAFT4,
+          title: 'authenticationSession',
+          description: 'Authentication session.',
+          type: apigw.JsonSchemaType.OBJECT,
+          properties: {
+            session: {
+              description: 'Session ID. Pass this to the finish endpoint.',
+              type: apigw.JsonSchemaType.STRING,
+              example: '0123456789abcdef',
+            },
+            credentialRequestOptions: {
+              modelRef: credentialRequestOptionsModel,
+            },
+          },
+          required: ['session', 'credentialRequestOptions'],
+        },
+      },
+    );
+    // - authentication session to finish
+    const finishAuthenticationSessionModel = this.credentialsApi.addModel(
+      'FinishAuthenticationSessionModel',
+      {
+        description: 'Public key credential for authentication responding to an authentication session.',
+        contentType: 'application/json',
+        schema: {
+          description: 'Public key credential for authentication responding to an authentication session.',
+          schema: apigw.JsonSchemaVersion.DRAFT4,
+          title: 'finishAuthenticationSession',
+          type: apigw.JsonSchemaType.OBJECT,
+          properties: {
+            session: {
+              description: 'Session ID to finish, which has been issued by the start endpoint.',
+              type: apigw.JsonSchemaType.STRING,
+              example: '0123456789abcdef',
+            },
+            userId: {
+              description: 'ID of the user to be authenticated.',
+              type: apigw.JsonSchemaType.STRING,
+              example: '0123456789abcdef',
+            },
+            publicKey: {
+              description: 'Public key credential for authentication. See https://www.w3.org/TR/webauthn-3/#iface-pkcredential for more details',
+              type: apigw.JsonSchemaType.OBJECT,
+            },
+          },
+          required: ['session', 'userId', 'publicKey'],
+        },
+      },
+    );
+    // - authentication result
+    const authenticationResultModel = this.credentialsApi.addModel(
+      'AuthenticationResultModel',
+      {
+        description: 'Authentication result.',
+        contentType: 'application/json',
+        schema: {
+          description: 'Authentication result.',
+          schema: apigw.JsonSchemaVersion.DRAFT4,
+          title: 'authenticationResult',
+          type: apigw.JsonSchemaType.OBJECT,
+          properties: {
+            accessToken: {
+              description: 'Access token issued by the Cognito user pool client.',
+              type: apigw.JsonSchemaType.STRING,
+            },
+            idToken: {
+              description: 'ID token issued by the Cognito user pool. Use this token to access secured endpoints of the Passquito API.',
+              type: apigw.JsonSchemaType.STRING,
+            },
+            refreshToken: {
+              description: 'Refresh token issued by the Cognito user pool.',
+              type: apigw.JsonSchemaType.STRING,
+            },
+            expiresIn: {
+              description: 'Expiration time of the access and ID tokens in seconds.',
+              type: apigw.JsonSchemaType.INTEGER,
+              example: 3600,
+            },
+          },
+          required: ['accessToken', 'expiresIn', 'idToken', 'refreshToken'],
         },
       },
     );
@@ -258,6 +397,30 @@ export class CredentialsApi extends Construct {
         name: 'Authorization',
       },
     );
+
+    // common 5xx response
+    const common5xxResponses = {
+      integrationResponses: [
+        {
+          statusCode: '503',
+          selectionPattern: makeSelectionPattern('ServiceUnavailable'),
+        } as const,
+        {
+          statusCode: '500',
+          selectionPattern: makeSelectionPattern('BadConfiguration|Unhandled'),
+        } as const,
+      ] as const,
+      methodResponses: [
+        {
+          statusCode: '503',
+          description: 'Service is temporarily unavailable. Try again later.',
+        } as const,
+        {
+          statusCode: '500',
+          description: 'Internal server error. Maybe due to misconfiguration.',
+        } as const,
+      ] as const,
+    } as const;
 
     // gets to the base path
     const root = props.basePath
@@ -288,10 +451,7 @@ export class CredentialsApi extends Construct {
             statusCode: '400',
             selectionPattern: makeSelectionPattern('BadRequest'),
           },
-          {
-            statusCode: '503',
-            selectionPattern: makeSelectionPattern('ServiceUnavailable'),
-          },
+          ...common5xxResponses.integrationResponses,
           {
             statusCode: '200',
           },
@@ -314,10 +474,7 @@ export class CredentialsApi extends Construct {
             statusCode: '400',
             description: 'Request payload is invalid.',
           },
-          {
-            statusCode: '503',
-            description: 'Service is temporarily unavailable. Try again later.',
-          },
+          ...common5xxResponses.methodResponses,
         ]),
       },
     );
@@ -341,6 +498,15 @@ export class CredentialsApi extends Construct {
         },
         integrationResponses: makeIntegrationResponsesAllowCors([
           {
+            statusCode: '400',
+            selectionPattern: makeSelectionPattern('BadRequest'),
+          },
+          {
+            statusCode: '401',
+            selectionPattern: makeSelectionPattern('Unauthorized'),
+          },
+          ...common5xxResponses.integrationResponses,
+          {
             statusCode: '200',
           },
         ]),
@@ -349,13 +515,26 @@ export class CredentialsApi extends Construct {
         description: 'Start a registration session for a verified user.',
         authorizer,
         authorizationType: apigw.AuthorizationType.COGNITO,
-        // TODO: request model
+        requestModels: {
+          'application/json': newUserInfoModel,
+        },
         methodResponses: makeMethodResponsesAllowCors([
           {
             statusCode: '200',
             description: 'Registration session has been successfully started.',
-            // TODO: response model
+            responseModels: {
+              'application/json': startRegistrationSessionModel,
+            },
           },
+          {
+            statusCode: '400',
+            description: 'Request payload is invalid.',
+          },
+          {
+            statusCode: '401',
+            description: 'User is not allowed to start registration as a verified user.',
+          },
+          ...common5xxResponses.methodResponses,
         ]),
       },
     );
@@ -381,10 +560,7 @@ export class CredentialsApi extends Construct {
             statusCode: '401',
             selectionPattern: makeSelectionPattern('Unauthorized'),
           },
-          {
-            statusCode: '503',
-            selectionPattern: makeSelectionPattern('ServiceUnavailable'),
-          },
+          ...common5xxResponses.integrationResponses,
           {
             statusCode: '200',
           },
@@ -409,16 +585,12 @@ export class CredentialsApi extends Construct {
             statusCode: '401',
             description: 'Registration session is invalid or expired.',
           },
-          {
-            statusCode: '503',
-            description: 'Service is temporarily unavailable. Try again later.',
-          },
+          ...common5xxResponses.methodResponses,
         ]),
       },
     );
 
-    // discoverable endpoints
-    // /authentication
+    // authentication endpoints
     const authentication = root.addResource('authentication');
     // /authentication/discover
     const authenticationDiscover = authentication.addResource('discover');
@@ -432,30 +604,28 @@ export class CredentialsApi extends Construct {
           'application/json': '{}',
         },
         integrationResponses: makeIntegrationResponsesAllowCors([
-          {
-            statusCode: '503',
-            selectionPattern: makeSelectionPattern('ServiceUnavailable'),
-          },
+          ...common5xxResponses.integrationResponses,
           {
             statusCode: '200',
           },
         ]),
       }),
       {
+        description: 'Start an authentication session with a discoverable credential (passkey).',
         // no request model (shoud be empty but ignored)
         methodResponses: makeMethodResponsesAllowCors([
           {
             statusCode: '200',
             description: 'Discoverable credentials session has been successfully started.',
+            responseModels: {
+              'application/json': credentialRequestOptionsModel,
+            },
           },
-          {
-            statusCode: '503',
-            description: 'Service is temporarily unavailable. Try again later.',
-          },
+          ...common5xxResponses.methodResponses,
         ]),
       },
     );
-    // the following endpoints serve the facade that masks Cognito APIs
+    // the following endpoints serve as the facade that masks Cognito APIs
     // /authentication/start
     const authenticationStart = authentication.addResource('start');
     // - POST
@@ -473,17 +643,41 @@ export class CredentialsApi extends Construct {
         },
         integrationResponses: makeIntegrationResponsesAllowCors([
           {
+            statusCode: '400',
+            selectionPattern: makeSelectionPattern('BadRequest'),
+          },
+          {
+            statusCode: '401',
+            selectionPattern: makeSelectionPattern('Unauthorized'),
+          },
+          ...common5xxResponses.integrationResponses,
+          {
             statusCode: '200',
           },
         ]),
       }),
       {
-        // TODO: request model
+        description: 'Start an authentication session.',
+        requestModels: {
+          'application/json': userIdModel,
+        },
         methodResponses: makeMethodResponsesAllowCors([
           {
             statusCode: '200',
             description: 'Successfully initiated the authentication session.',
+            responseModels: {
+              'application/json': authenticationSessionModel,
+            },
           },
+          {
+            statusCode: '400',
+            description: 'Request payload is invalid.',
+          },
+          {
+            statusCode: '401',
+            description: 'The user is not allowed to start authentication.',
+          },
+          ...common5xxResponses.methodResponses,
         ]),
       },
     );
@@ -506,17 +700,41 @@ export class CredentialsApi extends Construct {
         },
         integrationResponses: makeIntegrationResponsesAllowCors([
           {
+            statusCode: '400',
+            selectionPattern: makeSelectionPattern('BadRequest'),
+          },
+          {
+            statusCode: '401',
+            selectionPattern: makeSelectionPattern('Unauthorized'),
+          },
+          ...common5xxResponses.integrationResponses,
+          {
             statusCode: '200',
           },
         ]),
       }),
       {
-        // TODO: request model
+        description: 'Finish an authentication session.',
+        requestModels: {
+          'application/json': finishAuthenticationSessionModel,
+        },
         methodResponses: makeMethodResponsesAllowCors([
           {
             statusCode: '200',
             description: 'Successfully finished the authentication session.',
+            responseModels: {
+              'application/json': authenticationResultModel,
+            },
           },
+          {
+            statusCode: '400',
+            description: 'Request payload is invalid.',
+          },
+          {
+            statusCode: '401',
+            description: 'Failed to authenticate the user.',
+          },
+          ...common5xxResponses.methodResponses,
         ]),
       },
     );
