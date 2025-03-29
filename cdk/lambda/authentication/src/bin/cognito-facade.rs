@@ -180,7 +180,7 @@ struct AuthenticationSession {
 /// Authentication result.
 ///
 /// A serialized representation of this struct is a "camelCase" version of
-/// [`AuthenticationResultType`](https://docs.aws.amazon.com/cognito-user-identity-pools/latest/APIReference/API_AuthenticationResultType.html).
+/// a subset of [`AuthenticationResultType`](https://docs.aws.amazon.com/cognito-user-identity-pools/latest/APIReference/API_AuthenticationResultType.html).
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(test, derive(Deserialize))]
 #[serde(rename_all = "camelCase")]
@@ -191,17 +191,12 @@ struct AuthenticationResult {
     /// ExpiresIn.
     expires_in: i32,
     /// TokenType.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    token_type: Option<String>,
     /// RefreshToken.
     #[serde(skip_serializing_if = "Option::is_none")]
     refresh_token: Option<String>,
     /// IdToken.
     #[serde(skip_serializing_if = "Option::is_none")]
     id_token: Option<String>,
-    /// NewDeviceMetadata.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    new_device_metadata: Option<NewDeviceMetadata>,
 }
 
 impl From<AuthenticationResultType> for AuthenticationResult {
@@ -210,10 +205,8 @@ impl From<AuthenticationResultType> for AuthenticationResult {
         Self {
             access_token: from.access_token,
             expires_in: from.expires_in,
-            token_type: from.token_type,
             refresh_token: from.refresh_token,
             id_token: from.id_token,
-            new_device_metadata: from.new_device_metadata.map(Into::into),
         }
     }
 }
@@ -368,6 +361,7 @@ async fn finish_authentication(
         })?;
     let result = res.authentication_result
         .ok_or_else(|| "authentication result must be set")?;
+    info!("token type: {:?}", result.token_type);
     Ok(result.into())
 }
 
