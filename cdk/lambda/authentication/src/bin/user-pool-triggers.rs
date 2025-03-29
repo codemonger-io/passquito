@@ -6,6 +6,11 @@
 //!   credentials
 //! - `RP_ORIGIN_PARAMETER_PATH`: path to the parameter that stores the origin
 //!   (URL) of the relying party in Parameter Store on AWS Systems Manager
+//!
+//! You may configure the following environment variable:
+//! - `AUTHENTICATION_TIMEOUT_IN_MILLIS`: timeout for authentication in
+//!   milliseconds. 300,000 ms (5 minutes) by default, which is the [lower bound
+//!   recommended in the WebAuthn specification](https://www.w3.org/TR/webauthn-3/#sctn-timeout-recommended-range).
 
 use aws_lambda_events::event::cognito::{
     CognitoEventUserPoolsCreateAuthChallenge,
@@ -24,7 +29,7 @@ use lambda_runtime::{run, service_fn, Error, LambdaEvent};
 use ring::digest;
 use std::env;
 use std::sync::Arc;
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 use tracing::{error, info};
 use webauthn_rs::{
     Webauthn,
@@ -54,7 +59,10 @@ use authentication::event::{
 };
 use authentication::parameters::load_relying_party_origin;
 
+// TODO: move to the library module
 const CHALLENGE_PARAMETER_NAME: &str = "passkeyTestChallenge";
+
+const DEFAULT_AUTHENTICATION_TIMEOUT_IN_MILLIS: &str = "300000";
 
 // State shared among Lambda invocations.
 #[cfg_attr(test, derive(derive_builder::Builder))]
@@ -68,6 +76,8 @@ struct SharedState<Webauthn> {
     session_table_name: String,
     #[cfg_attr(test, builder(default = "\"credentials\".to_string()"))]
     credential_table_name: String,
+    #[cfg_attr(test, builder(default = "DEFAULT_AUTHENTICATION_TIMEOUT_IN_MILLIS.parse().map(Duration::from_millis).unwrap()"))]
+    authentication_timeout: Duration,
 }
 
 impl SharedState<Webauthn> {
@@ -75,8 +85,14 @@ impl SharedState<Webauthn> {
         let config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
         let (rp_id, rp_origin) =
             load_relying_party_origin(aws_sdk_ssm::Client::new(&config)).await?;
+        let authentication_timeout = env::var("AUTHENTICATION_TIMEOUT_IN_MILLIS")
+            .unwrap_or_else(|_| DEFAULT_AUTHENTICATION_TIMEOUT_IN_MILLIS.to_string())
+            .parse()
+            .map(Duration::from_millis)
+            .map_err(|_| "AUTHENTICATION_TIMEOUT_IN_MILLIS must be an integer or omitted")?;
         let webauthn = WebauthnBuilder::new(&rp_id, &rp_origin)?
             .rp_name("Passkey Test")
+            .timeout(authentication_timeout.clone())
             .build()?;
         Ok(Self {
             webauthn,
@@ -86,6 +102,7 @@ impl SharedState<Webauthn> {
                 .or(Err("SESSION_TABLE_NAME env must be set"))?,
             credential_table_name: env::var("CREDENTIAL_TABLE_NAME")
                 .or(Err("CREDENTIAL_TABLE_NAME env must be set"))?,
+            authentication_timeout,
         })
     }
 }
@@ -229,7 +246,7 @@ where
                         transports: None,
                     }],
                     user_verification: UserVerificationPolicy::Preferred,
-                    timeout: Some(60000),
+                    timeout: Some(shared_state.authentication_timeout.as_millis().try_into()?),
                     hints: None, // TODO: client-device?
                     extensions: None,
                 },

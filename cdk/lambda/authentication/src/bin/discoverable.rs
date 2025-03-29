@@ -7,6 +7,11 @@
 //! - `RP_ORIGIN_PARAMETER_PATH`: path to the parameter that stores the origin
 //!   (URL) of the relying party in the Parameter Store on AWS Systems Manager
 //!
+//! You may specify the following environment variable:
+//! - `AUTHENTICATION_TIMEOUT_IN_MILLIS`: timeout in milliseconds for device
+//!   discovery and authentication. 300000 ms = 5 minutes by default, which is
+//!   the [lower bound recommended in the WebAuthn specification](https://www.w3.org/TR/webauthn-3/#sctn-timeout-recommended-range).
+//!
 //! ## Action
 //!
 //! Starts authentication of a client-side discoverable credential.
@@ -29,13 +34,15 @@ use lambda_runtime::{Error, LambdaEvent, run, service_fn};
 use serde_json::Value;
 use std::env;
 use std::sync::Arc;
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 use tracing::{error, info};
 use webauthn_rs::{Webauthn, WebauthnBuilder, prelude::RequestChallengeResponse};
 
 use authentication::error_response::ErrorResponse;
 use authentication::parameters::load_relying_party_origin;
 use authentication::sdk_error_ext::SdkErrorExt as _;
+
+const DEFAULT_AUTHENTICATION_TIMEOUT_IN_MILLIS: &str = "300000";
 
 // State shared among Lambda invocations.
 #[cfg_attr(test, derive(derive_builder::Builder))]
@@ -46,6 +53,8 @@ struct SharedState {
     dynamodb: aws_sdk_dynamodb::Client,
     #[cfg_attr(test, builder(default = "\"sessions\".to_string()"))]
     session_table_name: String,
+    #[cfg_attr(test, builder(default = "DEFAULT_AUTHENTICATION_TIMEOUT_IN_MILLIS.parse().map(Duration::from_millis).unwrap()"))]
+    authentication_timeout: Duration,
 }
 
 impl SharedState {
@@ -53,14 +62,21 @@ impl SharedState {
         let config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
         let (rp_id, rp_origin) =
             load_relying_party_origin(aws_sdk_ssm::Client::new(&config)).await?;
+        let authentication_timeout = env::var("AUTHENTICATION_TIMEOUT_IN_MILLIS")
+            .unwrap_or_else(|_| DEFAULT_AUTHENTICATION_TIMEOUT_IN_MILLIS.to_string())
+            .parse()
+            .map(Duration::from_millis)
+            .map_err(|_| "AUTHENTICATION_TIMEOUT_IN_MILLIS env must be an integer or omitted")?;
         let webauthn = WebauthnBuilder::new(&rp_id, &rp_origin)?
             .rp_name("Passkey Test")
+            .timeout(authentication_timeout.clone())
             .build()?;
         Ok(Self {
             webauthn,
             dynamodb: aws_sdk_dynamodb::Client::new(&config),
             session_table_name: env::var("SESSION_TABLE_NAME")
                 .or(Err("SESSION_TABLE_NAME env must be set"))?,
+            authentication_timeout,
         })
     }
 }
@@ -85,7 +101,7 @@ async fn start_authentication(
 ) -> Result<RequestChallengeResponse, ErrorResponse> {
     info!("start_authentication");
     let (rcr, auth_state) = shared_state.webauthn.start_discoverable_authentication()?;
-    let ttl = DateTime::from(SystemTime::now()).secs() + 60;
+    let ttl = DateTime::from(SystemTime::now() + shared_state.authentication_timeout).secs();
     info!("putting authentication session: {}", base64url.encode(&rcr.public_key.challenge));
     shared_state.dynamodb
         .put_item()

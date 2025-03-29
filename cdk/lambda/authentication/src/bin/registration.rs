@@ -9,6 +9,11 @@
 //! - `RP_ORIGIN_PARAMETER_PATH`: path to the parameter that stores the origin
 //!   (URL) of the relying party in the Parameter Store on AWS Systems Manager
 //!
+//! You may configure the following environment variable:
+//! - `REGISTRATION_TIMEOUT_IN_MILLIS`: timeout of the registration
+//!   session in milliseconds (default: 30000 ms = 5 minutes).
+//!   The default value is [recommended in the WebAuthn specification](https://www.w3.org/TR/webauthn-3/#sctn-timeout-recommended-range).
+//!
 //! ## Actions
 //!
 //! Provides the following actions depending on the request payload.
@@ -96,7 +101,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::env;
 use std::sync::Arc;
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 use tracing::{error, info, warn};
 use webauthn_rs::{
     Webauthn,
@@ -116,6 +121,8 @@ use authentication::error_response::ErrorResponse;
 use authentication::parameters::load_relying_party_origin;
 use authentication::sdk_error_ext::SdkErrorExt as _;
 
+const DEFAULT_REGISTRATION_TIMEOUT_IN_MILLIS: &str = "300000";
+
 // Shared state.
 #[cfg_attr(test, derive(derive_builder::Builder))]
 #[cfg_attr(test, builder(setter(into), pattern = "owned"))]
@@ -129,6 +136,8 @@ struct SharedState<Webauthn> {
     session_table_name: String,
     #[cfg_attr(test, builder(default = "\"credentials\".to_string()"))]
     credential_table_name: String,
+    #[cfg_attr(test, builder(default = "DEFAULT_REGISTRATION_TIMEOUT_IN_MILLIS.parse().map(Duration::from_millis).unwrap()"))]
+    registration_timeout: Duration,
 }
 
 impl SharedState<Webauthn> {
@@ -136,8 +145,14 @@ impl SharedState<Webauthn> {
         let config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
         let (rp_id, rp_origin) =
             load_relying_party_origin(aws_sdk_ssm::Client::new(&config)).await?;
+        let registration_timeout = env::var("REGISTRATION_TIMEOUT_IN_MILLIS")
+            .unwrap_or_else(|_| DEFAULT_REGISTRATION_TIMEOUT_IN_MILLIS.to_string())
+            .parse()
+            .map(Duration::from_millis)
+            .map_err(|_| "REGISTRATION_TIMEOUT_IN_MILLIS env must be an integer or omitted")?;
         let webauthn = WebauthnBuilder::new(&rp_id, &rp_origin)?
             .rp_name("Passkey Test")
+            .timeout(registration_timeout.clone())
             .build()?;
         Ok(Self {
             webauthn,
@@ -149,6 +164,7 @@ impl SharedState<Webauthn> {
                 .or(Err("SESSION_TABLE_NAME env must be set"))?,
             credential_table_name: env::var("CREDENTIAL_TABLE_NAME")
                 .or(Err("CREDENTIAL_TABLE_NAME env must be set"))?,
+            registration_timeout,
         })
     }
 }
@@ -296,7 +312,7 @@ where
     // caches `reg_state`
     let user_unique_id = base64url.encode(user_unique_id.into_bytes());
     let session_id = base64url.encode(Uuid::new_v4().as_bytes());
-    let ttl = DateTime::from(SystemTime::now()).secs() + 60;
+    let ttl = DateTime::from(SystemTime::now() + shared_state.registration_timeout).secs();
     info!("putting registration session: {}", session_id);
     shared_state.dynamodb
         .put_item()
@@ -444,7 +460,7 @@ where
 
     // caches `reg_state`
     let session_id = base64url.encode(Uuid::new_v4().as_bytes());
-    let ttl = DateTime::from(SystemTime::now()).secs() + 60;
+    let ttl = DateTime::from(SystemTime::now() + shared_state.registration_timeout).secs();
     info!("putting registration session: {}", session_id);
     shared_state.dynamodb
         .put_item()
@@ -2404,7 +2420,7 @@ mod tests {
             pub(crate) fn delete_item_session() -> Rule {
                 mock!(Client::delete_item)
                     .then_output(|| {
-                        let ttl = DateTime::from(SystemTime::now()).secs() + 60;
+                        let ttl = DateTime::from(SystemTime::now()).secs() + 300;
                         DeleteItemOutput::builder()
                             .attributes("ttl", AttributeValue::N(format!("{}", ttl)))
                             .attributes("state", AttributeValue::S(super::webauthn::OK_PASSKEY_REGISTRATION.to_string()))
@@ -2425,7 +2441,7 @@ mod tests {
             pub(crate) fn delete_item_expired_session() -> Rule {
                 mock!(Client::delete_item)
                     .then_output(|| {
-                        let ttl = DateTime::from(SystemTime::now()).secs() - 60;
+                        let ttl = DateTime::from(SystemTime::now()).secs() - 300;
                         DeleteItemOutput::builder()
                             .attributes("ttl", AttributeValue::N(format!("{}", ttl)))
                             .build()
