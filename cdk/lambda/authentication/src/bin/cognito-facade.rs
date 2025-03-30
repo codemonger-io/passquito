@@ -420,13 +420,27 @@ async fn refresh_tokens(
         .auth_flow(AuthFlowType::RefreshTokenAuth)
         .auth_parameters("REFRESH_TOKEN", &refresh_token)
         .send()
-        .await?;
-
+        .await
+        .map_err(|e| match e.into_service_error() {
+            InitiateAuthError::NotAuthorizedException(e) => {
+                error!("{e:?}");
+                ErrorResponse::unauthorized("not authorized")
+            }
+            InitiateAuthError::TooManyRequestsException(e) => {
+                error!("{e:?}");
+                ErrorResponse::unavailable("too many requests")
+            }
+            e if is_common_retryable_error(&e) => {
+                error!("{e:?}");
+                ErrorResponse::unavailable("service unavailable")
+            }
+            e => e.into(),
+        })?;
     let mut result = res.authentication_result
         .ok_or_else(|| "authentication result must be set")?;
-    info!("token type: {:?}", result.token_type);
     // refresh token is not returend from the API and has to be reused
     result.refresh_token = Some(refresh_token);
+    info!("token type: {:?}", result.token_type);
 
     Ok(result.into())
 }
@@ -507,11 +521,40 @@ mod tests {
         );
 
         let result = function_handler(shared_state, event).await.unwrap();
-        let session: AuthenticationResult = serde_json::from_value(result).unwrap();
-        assert_eq!(session.access_token, Some("AccessToken".to_string()));
-        assert_eq!(session.expires_in, 3600);
-        assert_eq!(session.id_token, Some("IdToken".to_string()));
-        assert_eq!(session.refresh_token, Some("RefreshToken".to_string()));
+        let result: AuthenticationResult = serde_json::from_value(result).unwrap();
+        assert_eq!(result.access_token, Some("AccessToken".to_string()));
+        assert_eq!(result.id_token, Some("IdToken".to_string()));
+        assert_eq!(result.refresh_token, Some("RefreshToken".to_string()));
+        assert_eq!(result.expires_in, 3600);
+    }
+
+    #[tokio::test]
+    async fn function_handler_refresh() {
+        let cognito = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::cognito::initiate_auth_refresh_tokens_ok());
+
+        let shared_state = SharedStateBuilder::default()
+            .cognito(self::mocks::cognito::new_client(cognito))
+            .build()
+            .unwrap();
+        let shared_state = Arc::new(shared_state);
+
+        let event = LambdaEvent::new(
+            serde_json::json!({
+                "refresh": {
+                    "refreshToken": "RefreshToken",
+                },
+            }),
+            lambda_runtime::Context::default(),
+        );
+
+        let result = function_handler(shared_state, event).await.unwrap();
+        let result: AuthenticationResult = serde_json::from_value(result).unwrap();
+        assert_eq!(result.access_token, Some("NewAccessToken".to_string()));
+        assert_eq!(result.id_token, Some("NewIdToken".to_string()));
+        assert_eq!(result.refresh_token, Some("RefreshToken".to_string()));
+        assert_eq!(result.expires_in, 3600);
     }
 
     #[tokio::test]
@@ -590,7 +633,7 @@ mod tests {
         let err = function_handler(shared_state, event).await.unwrap_err();
         assert!(matches!(err, ErrorResponse::Unhandled(msg) if msg.to_string() == "internal server error"));
 
-        // -finish
+        // - finish
         let cognito = MockResponseInterceptor::new()
             .rule_mode(RuleMode::MatchAny)
             .with_rule(&self::mocks::cognito::respond_to_auth_challenge_missing_authentication_result());
@@ -607,6 +650,29 @@ mod tests {
                     "sessionId": "ABCDEFGHI",
                     "userId": "8TZ_kg_dp_pr0t7SDvGJiw",
                     "publicKey": self::mocks::webauthn::ok_public_key_credential_as_value(),
+                },
+            }),
+            lambda_runtime::Context::default(),
+        );
+
+        let err = function_handler(shared_state, event).await.unwrap_err();
+        assert!(matches!(err, ErrorResponse::Unhandled(msg) if msg.to_string() == "internal server error"));
+
+        // - refresh
+        let cognito = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::cognito::initiate_auth_refresh_tokens_no_authentication_result());
+
+        let shared_state = SharedStateBuilder::default()
+            .cognito(self::mocks::cognito::new_client(cognito))
+            .build()
+            .unwrap();
+        let shared_state = Arc::new(shared_state);
+
+        let event = LambdaEvent::new(
+            serde_json::json!({
+                "refresh": {
+                    "refreshToken": "RefreshToken",
                 },
             }),
             lambda_runtime::Context::default(),
@@ -822,7 +888,7 @@ mod tests {
             .unwrap();
         let shared_state = Arc::new(shared_state);
 
-        let session = finish_authentication(
+        let result = finish_authentication(
             shared_state,
             FinishPayload {
                 session_id: "ABCDEFGHI".to_string(),
@@ -830,10 +896,10 @@ mod tests {
                 public_key: serde_json::from_str(self::mocks::webauthn::OK_PUBLIC_KEY_CREDENTIAL).unwrap(),
             },
         ).await.unwrap();
-        assert_eq!(session.access_token, Some("AccessToken".to_string())); 
-        assert_eq!(session.expires_in, 3600);
-        assert_eq!(session.id_token, Some("IdToken".to_string()));
-        assert_eq!(session.refresh_token, Some("RefreshToken".to_string()));
+        assert_eq!(result.access_token, Some("AccessToken".to_string())); 
+        assert_eq!(result.id_token, Some("IdToken".to_string()));
+        assert_eq!(result.refresh_token, Some("RefreshToken".to_string()));
+        assert_eq!(result.expires_in, 3600);
     }
 
     #[tokio::test]
@@ -951,6 +1017,104 @@ mod tests {
         assert!(matches!(err, ErrorResponse::Unavailable(_)));
     }
 
+    #[tokio::test]
+    async fn refresh_tokens_ok() {
+        let cognito = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::cognito::initiate_auth_refresh_tokens_ok());
+
+        let shared_state = SharedStateBuilder::default()
+            .cognito(self::mocks::cognito::new_client(cognito))
+            .build()
+            .unwrap();
+        let shared_state = Arc::new(shared_state);
+
+        let session = refresh_tokens(
+            shared_state,
+            "RefreshToken".to_string(),
+        ).await.unwrap();
+        assert_eq!(session.access_token, Some("NewAccessToken".to_string()));
+        assert_eq!(session.id_token, Some("NewIdToken".to_string()));
+        assert_eq!(session.refresh_token, Some("RefreshToken".to_string()));
+        assert_eq!(session.expires_in, 3600);
+    }
+
+    #[tokio::test]
+    async fn refresh_tokens_cognito_initiate_auth_not_authorized() {
+        let cognito = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::cognito::initiate_auth_not_authorized());
+
+        let shared_state = SharedStateBuilder::default()
+            .cognito(self::mocks::cognito::new_client(cognito))
+            .build()
+            .unwrap();
+        let shared_state = Arc::new(shared_state);
+
+        let err = refresh_tokens(
+            shared_state,
+            "RefreshToken".to_string(),
+        ).await.unwrap_err();
+        assert!(matches!(err, ErrorResponse::Unauthorized(_)));
+    }
+
+    #[tokio::test]
+    async fn refresh_tokens_cognito_initiate_auth_too_many_requests_exception() {
+        let cognito = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::cognito::initiate_auth_too_many_requests_exception());
+
+        let shared_state = SharedStateBuilder::default()
+            .cognito(self::mocks::cognito::new_client(cognito))
+            .build()
+            .unwrap();
+        let shared_state = Arc::new(shared_state);
+
+        let err = refresh_tokens(
+            shared_state,
+            "RefreshToken".to_string(),
+        ).await.unwrap_err();
+        assert!(matches!(err, ErrorResponse::Unavailable(_)));
+    }
+
+    #[tokio::test]
+    async fn refresh_tokens_cognito_initiate_auth_service_unavailable() {
+        let cognito = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::cognito::initiate_auth_service_unavailable());
+
+        let shared_state = SharedStateBuilder::default()
+            .cognito(self::mocks::cognito::new_client(cognito))
+            .build()
+            .unwrap();
+        let shared_state = Arc::new(shared_state);
+
+        let err = refresh_tokens(
+            shared_state,
+            "RefreshToken".to_string(),
+        ).await.unwrap_err();
+        assert!(matches!(err, ErrorResponse::Unavailable(_)));
+    }
+
+    #[tokio::test]
+    async fn refresh_tokens_cognito_initiate_auth_throttling_exception() {
+        let cognito = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::cognito::initiate_auth_throttling_exception());
+
+        let shared_state = SharedStateBuilder::default()
+            .cognito(self::mocks::cognito::new_client(cognito))
+            .build()
+            .unwrap();
+        let shared_state = Arc::new(shared_state);
+
+        let err = refresh_tokens(
+            shared_state,
+            "RefreshToken".to_string(),
+        ).await.unwrap_err();
+        assert!(matches!(err, ErrorResponse::Unavailable(_)));
+    }
+
     pub(crate) mod mocks {
         use super::*;
 
@@ -1056,6 +1220,17 @@ mod tests {
                         .build())
             }
 
+            pub(crate) fn initiate_auth_refresh_tokens_ok() -> Rule {
+                mock!(Client::initiate_auth)
+                    .then_output(|| InitiateAuthOutput::builder()
+                        .authentication_result(AuthenticationResultType::builder()
+                            .access_token("NewAccessToken")
+                            .id_token("NewIdToken")
+                            .expires_in(3600)
+                            .build())
+                        .build())
+            }
+
             pub(crate) fn initiate_auth_wrong_challenge_name() -> Rule {
                 mock!(Client::initiate_auth)
                     .then_output(|| InitiateAuthOutput::builder()
@@ -1109,6 +1284,11 @@ mod tests {
                             r#"{ "credential": 123 }"#,
                         )
                         .build())
+            }
+
+            pub(crate) fn initiate_auth_refresh_tokens_no_authentication_result() -> Rule {
+                mock!(Client::initiate_auth)
+                    .then_output(|| InitiateAuthOutput::builder().build())
             }
 
             pub(crate) fn initiate_auth_not_authorized() -> Rule {
