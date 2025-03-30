@@ -11,7 +11,7 @@
 //!
 //! ### Start
 //!
-//! Wraps a [`InitiateAuth`](https://docs.aws.amazon.com/cognito-user-identity-pools/latest/APIReference/API_InitiateAuth.html) API call.
+//! Wraps an [`InitiateAuth`](https://docs.aws.amazon.com/cognito-user-identity-pools/latest/APIReference/API_InitiateAuth.html) API call.
 //!
 //! To initiate an authentication session, the request body must be in the
 //! following form which is a serialized representation of
@@ -81,7 +81,7 @@
 //!   - `ANSWER`: `publicKey`
 //!
 //! A successful response will be in the following form which is a serialized
-//! representation of a subset of [`AuthenticationResult`].
+//! representation of a [`AuthenticationResult`].
 //!
 //! ```json
 //! {
@@ -94,7 +94,41 @@
 //!
 //! ### Refresh Tokens
 //!
-//! TBD
+//! Wraps an [`InitiateAuth`](https://docs.aws.amazon.com/cognito-user-identity-pools/latest/APIReference/API_InitiateAuth.html) API call for refreshing tokens.
+//!
+//! To refresh tokens, the request body must be in the following form which is
+//! a serialized representation of [`CognitoAction::Refresh`]:
+//!
+//! ```json
+//! {
+//!   "refresh": {
+//!     "refreshToken": "RefreshToken"
+//!   }
+//! }
+//! ```
+//!
+//! `refreshToken` must be a valid refresh token issued by the Cognito user
+//! pool.
+//!
+//! The following inputs will be passed to the `InitiateAuth` API:
+//! - `ClientId`: value of the `USER_POOL_CLIENT_ID` environment variable
+//! - `AuthFlow`: `"REFRESH_TOKEN_AUTH"`
+//! - `AuthParameters`:
+//!   - `REFRESH_TOKEN`: `refreshToken`
+//!
+//! A successful response will be in the following form which is a serialized
+//! representation of a [`AuthenticationResult`].
+//!
+//! ```json
+//! {
+//!   "accessToken": "AccessToken",
+//!   "expiresIn": 123,
+//!   "idToken": "IdToken",
+//!   "refreshToken": "RrefreshToken"
+//! }
+//! ```
+//!
+//! `refreshToken` is the same as the input.
 
 use aws_sdk_cognitoidentityprovider::{
     operation::{
@@ -144,7 +178,7 @@ impl SharedState {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 enum CognitoAction {
-    /// Start an authentication session.
+    /// Starts an authentication session.
     #[serde(rename_all = "camelCase")]
     Start {
         /// User ID to authenticate, which was issued by Passquito.
@@ -152,6 +186,12 @@ enum CognitoAction {
     },
     /// Finishes an authentication session.
     Finish(FinishPayload),
+    /// Refreshes tokens.
+    #[serde(rename_all = "camelCase")]
+    Refresh {
+        /// Refresh token issued by the Cognito user pool.
+        refresh_token: String,
+    },
 }
 
 /// Answer to an authentication session.
@@ -255,6 +295,10 @@ async fn function_handler(
         }
         CognitoAction::Finish(payload) => {
             let res = finish_authentication(shared_state, payload).await;
+            res.and_then(|res| serde_json::to_value(res).map_err(Into::into))
+        }
+        CognitoAction::Refresh { refresh_token } => {
+            let res = refresh_tokens(shared_state, refresh_token).await;
             res.and_then(|res| serde_json::to_value(res).map_err(Into::into))
         }
     }.map_err(|e| {
@@ -362,6 +406,28 @@ async fn finish_authentication(
     let result = res.authentication_result
         .ok_or_else(|| "authentication result must be set")?;
     info!("token type: {:?}", result.token_type);
+    Ok(result.into())
+}
+
+async fn refresh_tokens(
+    shared_state: Arc<SharedState>,
+    refresh_token: String,
+) -> Result<AuthenticationResult, ErrorResponse> {
+    info!("refresh_tokens: {refresh_token}");
+
+    let res = shared_state.cognito.initiate_auth()
+        .client_id(&shared_state.user_pool_client_id)
+        .auth_flow(AuthFlowType::RefreshTokenAuth)
+        .auth_parameters("REFRESH_TOKEN", &refresh_token)
+        .send()
+        .await?;
+
+    let mut result = res.authentication_result
+        .ok_or_else(|| "authentication result must be set")?;
+    info!("token type: {:?}", result.token_type);
+    // refresh token is not returend from the API and has to be reused
+    result.refresh_token = Some(refresh_token);
+
     Ok(result.into())
 }
 

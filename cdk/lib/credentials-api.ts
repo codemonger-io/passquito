@@ -384,6 +384,27 @@ export class CredentialsApi extends Construct {
         },
       },
     );
+    // - refresh token
+    const refreshTokenModel = this.credentialsApi.addModel(
+      'RefreshTokenModel',
+      {
+        description: 'Refresh token.',
+        contentType: 'application/json',
+        schema: {
+          description: 'Refresh token.',
+          schema: apigw.JsonSchemaVersion.DRAFT4,
+          title: 'refreshToken',
+          type: apigw.JsonSchemaType.OBJECT,
+          properties: {
+            refreshToken: {
+              description: 'Refresh token issued by the Cognito user pool.',
+              type: apigw.JsonSchemaType.STRING,
+            },
+          },
+          required: ['refreshToken'],
+        },
+      },
+    );
 
     // user pool authorizer
     const authorizer = augmentAuthorizer(
@@ -738,7 +759,61 @@ export class CredentialsApi extends Construct {
         ]),
       },
     );
-    // TODO: /authentication/refresh
+    // /authentication/refresh
+    const authenticationRefresh = authentication.addResource('refresh');
+    // - POST
+    authenticationRefresh.addMethod(
+      'POST',
+      new apigw.LambdaIntegration(this.cognitoFacadeLambda, {
+        proxy: false,
+        passthroughBehavior: apigw.PassthroughBehavior.NEVER,
+        requestTemplates: {
+          'application/json': composeMappingTemplate([
+            ['refresh', composeMappingTemplate([
+              ['refreshToken', '$input.json("$.refreshToken")'],
+            ])]
+          ]),
+        },
+        integrationResponses: makeIntegrationResponsesAllowCors([
+          {
+            statusCode: '400',
+            selectionPattern: makeSelectionPattern('BadRequest'),
+          },
+          {
+            statusCode: '401',
+            selectionPattern: makeSelectionPattern('Unauthorized'),
+          },
+          ...common5xxResponses.integrationResponses,
+          {
+            statusCode: '200',
+          },
+        ]),
+      }),
+      {
+        description: 'Refresh the ID and access tokens with the refresh token.',
+        requestModels: {
+          'application/json': refreshTokenModel,
+        },
+        methodResponses: makeMethodResponsesAllowCors([
+          {
+            statusCode: '200',
+            description: 'Successfully refreshed the tokens.',
+            responseModels: {
+              'application/json': authenticationResultModel,
+            },
+          },
+          {
+            statusCode: '400',
+            description: 'Request payload is invalid.',
+          },
+          {
+            statusCode: '401',
+            description: 'Failed to refresh the tokens. Refresh token is likely invalid.',
+          },
+          ...common5xxResponses.methodResponses,
+        ]),
+      },
+    );
 
     // secured endpoints
     const secured = root.addResource('secured');
