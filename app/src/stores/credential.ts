@@ -16,6 +16,33 @@ export type CredentialState =
   | 'authenticated'
   | 'unauthenticated';
 
+/**
+ * Minimum refresh interval of ID and access tokens in milliseconds.
+ *
+ * @remarks
+ *
+ * To prevent tokens from being refreshed too frequently.
+ * You should configure the duration of tokens longer than this value plus
+ * `TOKEN_REFRESH_MARGIN_IN_MS`.
+ *
+ * @beta
+ */
+export const MIN_TOKEN_REFRESH_INTERVAL_IN_MS = 5 * 60 * 1000; // 5 minutes
+
+/**
+ * Margin period in milliseconds for refreshing ID and access tokens before
+ * they expire.
+ *
+ * @remarks
+ *
+ * To mitigate the risk of getting unauthorized errors due to expired tokens.
+ * You should configure the duration of tokens longer than this value plus
+ * `MIN_TOKEN_REFRESH_INTERVAL_IN_MS`.
+ *
+ * @beta
+ */
+export const TOKEN_REFRESH_MARGIN_IN_MS = 2 * 60 * 1000; // 2 minutes
+
 export const useCredentialStore = defineStore('credential', () => {
   // current state
   const state = ref<CredentialState>('indeterminate');
@@ -41,6 +68,41 @@ export const useCredentialStore = defineStore('credential', () => {
     }
     return tokens.value?.idToken;
   });
+
+  // refresh token
+  // NOTE: `null` unless the state is 'authenticated'
+  //       check `state` prior to using this value to avoid a glitch in UI.
+  const refreshToken = computed(() => {
+    if (state.value !== 'authenticated') {
+      return null;
+    }
+    return tokens.value?.refreshToken;
+  });
+
+  // time to refresh the ID and access tokens.
+  // NOTE: `null` if tokens are unavailable.
+  const timeToRefreshTokens = computed(() => {
+    const activatedAt = tokens.value?.activatedAt;
+    const expiresIn = tokens.value?.expiresIn;
+    if (activatedAt == null || expiresIn == null) {
+      return null;
+    }
+    const expiresAt = activatedAt + expiresIn * 1000;
+    return Math.max(
+      activatedAt + MIN_TOKEN_REFRESH_INTERVAL_IN_MS,
+      expiresAt - TOKEN_REFRESH_MARGIN_IN_MS,
+    );
+  });
+
+  // if the ID and access tokens should be refreshed.
+  // NOTE: `false` if tokens are unavailable.
+  const shouldRefreshTokens = () => {
+    const timeToRefresh = timeToRefreshTokens.value;
+    if (timeToRefresh == null) {
+      return false;
+    }
+    return Date.now() >= timeToRefresh;
+  };
 
   // username associated with the current credential
   // TODO: obtain from the credential
@@ -102,8 +164,11 @@ export const useCredentialStore = defineStore('credential', () => {
     displayName,
     idToken,
     isCrossDevice,
+    refreshToken,
     saveTokens,
+    shouldRefreshTokens,
     state,
+    timeToRefreshTokens,
     username,
   };
 });
