@@ -42,15 +42,34 @@ interface CredentialCreationOptions {
 }
 
 /**
- * Cognito tokens.
+ * Raw cognito tokens.
  *
  * @beta
  */
-export interface CognitoTokens {
+export interface RawCognitoTokens {
   idToken: string;
   accessToken: string;
   refreshToken: string;
+  expiresIn: number;
 }
+
+/**
+ * Cognito tokens with an appointed expiration time.
+ *
+ * @beta
+ */
+export type CognitoTokens = RawCognitoTokens & {
+  /**
+   * Activation time represented as the number of milliseconds elapsed since
+   * 00:00:00 on January 1, 1970 in UTC.
+   *
+   * @remarks
+   *
+   * Expiration time of tokens is approximately this value plus `expiresIn` x
+   * 1000.
+   */
+  activatedAt: number;
+};
 
 /**
  * Checks if passkey registration is supported on the current device.
@@ -441,10 +460,10 @@ async function authenticatePublicKeyCredential(credential: PublicKeyCredential):
       }),
     });
     const tokens = await finishRes.json();
-    if (!isCognitoTokens(tokens)) {
+    if (!isRawCognitoTokens(tokens)) {
       throw new Error('invalid Cognito tokens');
     }
-    return tokens;
+    return activateCognitoTokens(tokens);
   } else {
     const endpoint =
       `${credentialsApiUrl.replace(/\/$/, '')}/discoverable/finish`;
@@ -508,23 +527,70 @@ function encodeAuthenticatorAssertionResponse(
 }
 
 /**
+ * Refreshes ID and access tokens with a given refresh token.
+ *
+ * @beta
+ */
+export async function refreshTokens(refreshToken: string): Promise<CognitoTokens | undefined> {
+  const endpoint = `${credentialsApiUrl.replace(/\/$/, '')}/authentication/refresh`;
+  const res = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ refreshToken }),
+  });
+  // TODO: handle errors
+  const tokens = await res.json();
+  if (!isRawCognitoTokens(tokens)) {
+    return undefined;
+  }
+  return activateCognitoTokens(tokens);
+}
+
+/**
+ * Returns if a given value is a `RawCognitoTokens`.
+ *
+ * @beta
+ */
+export function isRawCognitoTokens(value: unknown): value is RawCognitoTokens {
+  if (value == null || typeof value !== 'object') {
+    return false;
+  }
+  const maybeTokens = value as RawCognitoTokens;
+  return typeof maybeTokens.idToken === 'string' &&
+    typeof maybeTokens.accessToken === 'string' &&
+    typeof maybeTokens.refreshToken === 'string' &&
+    typeof maybeTokens.expiresIn === 'number';
+}
+
+/**
  * Returns if a given value is a `CognitoTokens`.
  *
  * @beta
  */
 export function isCognitoTokens(value: unknown): value is CognitoTokens {
-  if (value == null || typeof value !== 'object') {
+  if (!isRawCognitoTokens(value)) {
     return false;
   }
   const maybeTokens = value as CognitoTokens;
-  if (
-    typeof maybeTokens.idToken !== 'string' ||
-    typeof maybeTokens.accessToken !== 'string' ||
-    typeof maybeTokens.refreshToken !== 'string'
-  ) {
-    return false;
-  }
-  return true;
+  return typeof maybeTokens.activatedAt === 'number';
+}
+
+/**
+ * Activates a given `RawCognitoTokens` and obtains a `CognitoTokens`.
+ *
+ * @remarks
+ *
+ * You should call this function as soon as you obtain Cognito tokens.
+ *
+ * @beta
+ */
+export function activateCognitoTokens(tokens: RawCognitoTokens): CognitoTokens {
+  return {
+    ...tokens,
+    activatedAt: Date.now(),
+  };
 }
 
 /**
