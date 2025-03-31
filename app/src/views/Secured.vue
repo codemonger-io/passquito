@@ -5,6 +5,7 @@ import { useRouter } from 'vue-router';
 
 import { credentialsApiUrl } from '../auth-config';
 import { useCredentialStore } from '../stores/credential';
+import { refreshTokens as doRefreshTokens } from '../utils/passquito';
 
 // router
 const router = useRouter();
@@ -32,6 +33,25 @@ watch(
 const STATUS_CODES = ['OK', 'Unauthorized', 'Error'];
 type StatusCode = typeof STATUS_CODES[number];
 
+// refreshes tokens
+//
+// returns if tokens are successfully refreshed.
+// may throw an error.
+const refreshTokens = async () => {
+  console.log('refreshing tokens...');
+  const refreshToken = credentialStore.refreshToken;
+  if (refreshToken == null) {
+    return false;
+  }
+  const newTokens = await doRefreshTokens(refreshToken);
+  if (newTokens == null) {
+    return false;
+  }
+  console.log('refreshed tokens:', newTokens);
+  credentialStore.saveTokens(newTokens);
+  return true;
+};
+
 // obtains the secured message when the ID token is ready.
 const securedMessage = ref<string | undefined>();
 const lastStatus = ref<StatusCode>('OK');
@@ -42,6 +62,21 @@ watch(
       return;
     }
     securedMessage.value = undefined;
+    // refreshes tokens if they are expiring or expired.
+    if (credentialStore.shouldRefreshTokens()) {
+      try {
+        if (!await refreshTokens()) {
+          lastStatus.value = 'Unauthorized';
+          return;
+        }
+        // this watcher will be triggered again with the new ID token
+        return;
+      } catch (err) {
+        console.error(err);
+        lastStatus.value = 'Error';
+        return;
+      }
+    }
     const url = `${credentialsApiUrl}secured`;
     try {
       const res = await fetch(url, {
