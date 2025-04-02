@@ -238,6 +238,27 @@ export function doAuthenticationCeremony() {
   };
 }
 
+/**
+ * Conducts an authentication ceremony for a given user.
+ *
+ * @beta
+ */
+export function doAuthenticationCeremonyForUser(userId: string) {
+  let abortController: AbortController | undefined = new AbortController();
+  const credentials = doAbortableAuthenticationCeremonyForUser(userId, abortController).finally(() => {
+    abortController = undefined;
+  });
+  return {
+    abort: () => {
+      if (abortController != null) {
+        abortController.abort();
+        abortController = undefined;
+      }
+    },
+    credentials,
+  };
+}
+
 // obtains the public key credential creation options
 //
 // throws if an error occurs.
@@ -399,9 +420,23 @@ async function doAbortableAuthenticationCeremony(abortController: AbortControlle
     signal: abortController.signal,
   });
   console.log('assertion:', credential);
-  return await authenticatePublicKeyCredential(
+  return await authenticateDiscoverablePublicKeyCredential(
     credential as PublicKeyCredential,
   );
+}
+
+// conducts an authentication ceremony for a given user with a given AbortController.
+async function doAbortableAuthenticationCeremonyForUser(userId: string, abortController: AbortController) {
+  const session = await startAuthenticationSessionForUser(userId);
+  const credentialRequestOptions = decodeCredentialRequestOptions(session.credentialRequestOptions);
+  console.log('credential request options:', credentialRequestOptions);
+  const credential = await navigator.credentials.get({
+    ...credentialRequestOptions,
+    mediation: 'conditional',
+    signal: abortController.signal,
+  });
+  console.log('assertion:', credential);
+  return await finishAuthenticationSession(session, credential as PublicKeyCredential);
 }
 
 // obtains the public key credential request options
@@ -450,8 +485,8 @@ function decodePublicKeyCredentialRequestOptions(publicKey: any) {
   } as PublicKeyCredentialRequestOptions;
 }
 
-// authenticates a given public key credential.
-async function authenticatePublicKeyCredential(credential: PublicKeyCredential): Promise<Credentials> {
+// authenticates a given public key credential in a discoverable manner.
+async function authenticateDiscoverablePublicKeyCredential(credential: PublicKeyCredential): Promise<Credentials> {
   const encodedCredential = encodePublicKeyCredentialForAuthentication(credential);
   console.log('encoded credential:', encodedCredential);
   const publicKeyInfo = extractPublicKeyInfo(encodedCredential);
@@ -504,6 +539,51 @@ async function authenticatePublicKeyCredential(credential: PublicKeyCredential):
       tokens: await res.json(),
     };
   }
+}
+
+// starts an authentication session.
+async function startAuthenticationSessionForUser(userId: string) {
+  const res = await fetch(`${credentialsApiUrl.replace(/\/$/, '')}/authentication/start`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ userId }),
+  });
+  return await res.json();
+}
+
+// authenticates a given public key credential.
+async function finishAuthenticationSession(
+  session: any,
+  credential: PublicKeyCredential,
+): Promise<Credentials> {
+  const encodedCredential = encodePublicKeyCredentialForAuthentication(credential);
+  console.log('encoded credential:', encodedCredential);
+  const userId = encodedCredential.response.userHandle;
+  if (userId == null) {
+    throw new Error("authenticator must return userHandle");
+  }
+  const publicKeyInfo = extractPublicKeyInfo(encodedCredential);
+  const res = await fetch(`${credentialsApiUrl.replace(/\/$/, '')}/authentication/finish`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      sessionId: session.sessionId,
+      userId,
+      publicKey: encodedCredential,
+    }),
+  });
+  const tokens = await res.json();
+  if (!isRawCognitoTokens(tokens)) {
+    throw new Error('invalid Cognito tokens');
+  }
+  return {
+    publicKeyInfo,
+    tokens: activateCognitoTokens(tokens),
+  };
 }
 
 // encodes `PublicKeyCredential` for an authentication API request body.
