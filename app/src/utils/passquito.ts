@@ -68,8 +68,29 @@ export type CognitoTokens = RawCognitoTokens & {
    * Expiration time of tokens is approximately this value plus `expiresIn` x
    * 1000.
    */
-  activatedAt: number;
+  activatedAt: number,
 };
+
+/**
+ * Information about a public key.
+ *
+ * @beta
+ */
+export interface PublicKeyInfo {
+  id: string;
+  userHandle?: string | null;
+  authenticatorAttachment?: string | null;
+}
+
+/**
+ * Cognito tokens and the key info.
+ *
+ * @beta
+ */
+export interface Credentials {
+  publicKeyInfo: PublicKeyInfo;
+  tokens: CognitoTokens;
+}
 
 /**
  * Checks if passkey registration is supported on the current device.
@@ -203,7 +224,7 @@ export async function doRegistrationCeremonyForVerifiedUser(userInfo: VerifiedUs
  */
 export function doAuthenticationCeremony() {
   let abortController: AbortController | undefined = new AbortController();
-  const tokens = doAbortableAuthenticationCeremony(abortController).finally(() => {
+  const credentials = doAbortableAuthenticationCeremony(abortController).finally(() => {
     abortController = undefined;
   });
   return {
@@ -213,7 +234,7 @@ export function doAuthenticationCeremony() {
         abortController = undefined;
       }
     },
-    tokens,
+    credentials,
   };
 }
 
@@ -430,9 +451,10 @@ function decodePublicKeyCredentialRequestOptions(publicKey: any) {
 }
 
 // authenticates a given public key credential.
-async function authenticatePublicKeyCredential(credential: PublicKeyCredential): Promise<CognitoTokens> {
+async function authenticatePublicKeyCredential(credential: PublicKeyCredential): Promise<Credentials> {
   const encodedCredential = encodePublicKeyCredentialForAuthentication(credential);
   console.log('encoded credential:', encodedCredential);
+  const publicKeyInfo = extractPublicKeyInfo(encodedCredential);
   if (isCognito) {
     const userHandle = encodedCredential.response.userHandle;
     if (userHandle == null) {
@@ -463,7 +485,10 @@ async function authenticatePublicKeyCredential(credential: PublicKeyCredential):
     if (!isRawCognitoTokens(tokens)) {
       throw new Error('invalid Cognito tokens');
     }
-    return activateCognitoTokens(tokens);
+    return {
+      publicKeyInfo,
+      tokens: activateCognitoTokens(tokens),
+    };
   } else {
     const endpoint =
       `${credentialsApiUrl.replace(/\/$/, '')}/discoverable/finish`;
@@ -474,7 +499,10 @@ async function authenticatePublicKeyCredential(credential: PublicKeyCredential):
       },
       body: JSON.stringify(encodedCredential),
     });
-    return await res.json();
+    return {
+      publicKeyInfo,
+      tokens: await res.json(),
+    };
   }
 }
 
@@ -489,6 +517,7 @@ function encodePublicKeyCredentialForAuthentication(publicKey: PublicKeyCredenti
     response: encodeAuthenticatorAssertionResponse(
       publicKey.response as AuthenticatorAssertionResponse,
     ),
+    authenticatorAttachment: publicKey.authenticatorAttachment,
     extensions: publicKey.getClientExtensionResults(),
   };
 }
@@ -526,6 +555,17 @@ function encodeAuthenticatorAssertionResponse(
   };
 }
 
+type EncodedPublicKeyCredential = ReturnType<typeof encodePublicKeyCredentialForAuthentication>;
+
+// Extracts public key information from an encoded public key credential.
+function extractPublicKeyInfo(publicKey: EncodedPublicKeyCredential): PublicKeyInfo {
+  return {
+    id: publicKey.id,
+    userHandle: publicKey.response.userHandle,
+    authenticatorAttachment: publicKey.authenticatorAttachment,
+  };
+}
+
 /**
  * Refreshes ID and access tokens with a given refresh token.
  *
@@ -546,6 +586,28 @@ export async function refreshTokens(refreshToken: string): Promise<CognitoTokens
     return undefined;
   }
   return activateCognitoTokens(tokens);
+}
+
+/**
+ * Returns if a given value is a `PublicKeyInfo`.
+ *
+ * @beta
+ */
+export function isPublicKeyInfo(value: unknown): value is PublicKeyInfo {
+  if (value == null || typeof value !== 'object') {
+    return false;
+  }
+  const maybeKeyInfo = value as PublicKeyInfo;
+  if (typeof maybeKeyInfo.id !== 'string') {
+    return false;
+  }
+  if (maybeKeyInfo.userHandle != null && typeof maybeKeyInfo.userHandle !== 'string') {
+    return false;
+  }
+  if (maybeKeyInfo.authenticatorAttachment != null && typeof maybeKeyInfo.authenticatorAttachment !== 'string') {
+    return false;
+  }
+  return true;
 }
 
 /**

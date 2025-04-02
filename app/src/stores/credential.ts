@@ -2,7 +2,8 @@ import { StorageSerializers, useStorage } from '@vueuse/core';
 import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
 
-import { type CognitoTokens, isCognitoTokens } from '../utils/passquito';
+import { isCognitoTokens, isPublicKeyInfo } from '../utils/passquito';
+import type { CognitoTokens, PublicKeyInfo } from '../utils/passquito';
 import { makeValidatingSerializer } from '../utils/serializer';
 
 // possible states of the credential.
@@ -46,6 +47,18 @@ export const TOKEN_REFRESH_MARGIN_IN_MS = 2 * 60 * 1000; // 2 minutes
 export const useCredentialStore = defineStore('credential', () => {
   // current state
   const state = ref<CredentialState>('indeterminate');
+
+  // public key info which is persisted
+  const publicKeyInfo = useStorage<PublicKeyInfo>(
+    'passquitoPublicKeyInfo',
+    null,
+    undefined,
+    {
+      // explicit serializer is required if the default is null
+      // https://vueuse.org/core/useStorage/#custom-serialization
+      serializer: makeValidatingSerializer(isPublicKeyInfo),
+    }
+  );
 
   // Cogito tokens which are persisted
   const tokens = useStorage<CognitoTokens>(
@@ -111,9 +124,10 @@ export const useCredentialStore = defineStore('credential', () => {
   // TODO: obtain from the credential
   const displayName = ref<string | undefined>();
 
-  // whether the credential is authenticated in a cross-device manner
-  // TODO: obtain from the credential
-  const isCrossDevice = ref<boolean>(true);
+  // whether the credential has been authenticated in a cross-device manner
+  const isCrossDevice = computed(() => {
+    return publicKeyInfo.value?.authenticatorAttachment === 'cross-platform';
+  });
 
   // asks for the credential.
   //
@@ -145,6 +159,11 @@ export const useCredentialStore = defineStore('credential', () => {
     }
   };
 
+  // saves a given public key info.
+  const savePublicKeyInfo = (newKeyInfo: PublicKeyInfo | null) => {
+    publicKeyInfo.value = newKeyInfo;
+  };
+
   // saves given Cognito tokens.
   // also updates `state`:
   // → 'authenticated' if `newTokens` is not null
@@ -165,6 +184,7 @@ export const useCredentialStore = defineStore('credential', () => {
     idToken,
     isCrossDevice,
     refreshToken,
+    savePublicKeyInfo,
     saveTokens,
     shouldRefreshTokens,
     state,

@@ -50,11 +50,12 @@ watch(
       return;
     }
     abortAuthentication.value('starting authentication');
-    const { abort, tokens: futureTokens } = doAuthenticationCeremony();
+    const { abort, credentials: futureCredentials } = doAuthenticationCeremony();
     abortAuthentication.value = abort;
     try {
-      const tokens = await futureTokens;
-      console.log('authenticated:', tokens);
+      const { publicKeyInfo, tokens } = await futureCredentials;
+      console.log('authenticated:', publicKeyInfo, tokens);
+      credentialStore.savePublicKeyInfo(publicKeyInfo);
       credentialStore.saveTokens(tokens);
       router.back();
     } catch (err) {
