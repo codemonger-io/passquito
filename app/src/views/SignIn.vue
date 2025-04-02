@@ -7,7 +7,11 @@ import { RouterLink, useRouter } from 'vue-router';
 import { useWebauthn } from '../composables/webauthn';
 import { useCredentialStore } from '../stores/credential';
 import { usePasskeyCapabilityStore } from '../stores/passkey-capability';
-import { doAuthenticationCeremony, getErrorName } from '../utils/passquito';
+import {
+  doAuthenticationCeremony,
+  doAuthenticationCeremonyForUser,
+  getErrorName
+} from '../utils/passquito';
 
 // router
 //
@@ -50,7 +54,10 @@ watch(
       return;
     }
     abortAuthentication.value('starting authentication');
-    const { abort, credentials: futureCredentials } = doAuthenticationCeremony();
+    const userId = credentialStore.userId;
+    const { abort, credentials: futureCredentials } = userId != null
+      ? doAuthenticationCeremonyForUser(userId)
+      : doAuthenticationCeremony();
     abortAuthentication.value = abort;
     try {
       const { publicKeyInfo, tokens } = await futureCredentials;
