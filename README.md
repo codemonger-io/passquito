@@ -11,11 +11,42 @@ Features:
 - [AWS Cognito](https://aws.amazon.com/cognito/) Lambda triggers
 - &#x1F4A9; Ugly codebase
 
-## Simplified usage scenarios
+## Usage scenarios in a nutshell
 
 ### Registration
 
-TBD
+1. A *user* signs up to *your app*.
+
+2. *Your app* starts a *registration session* by sending a request to the *registration start endpoint* (`POST /registration/start`).
+
+3. *Your app* requests the *user* to create a *passkey*.
+
+4. The *user* creates a *passkey* and signs the *challenge* associated with the *registration session* → the *signature*.
+
+5. The *user* provides the *public key* of the *passkey* and the *signature* to *your app*.
+
+6. *Your app* finishes the *registration session* by sending a request to the *registration finish endpoint* (`POST /registration/finish`).
+
+7. The *registration finish endpoint* stores the *public key* in the *credential store* for future authentication of the *user*.
+
+Sequence diagram:
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant YourApp
+    participant RegistrationStartEndpoint
+    participant RegistrationFinishEndpoint
+    participant CredentialStore
+
+    User-)YourApp: Sign up
+    YourApp-)RegistrationStartEndpoint: POST /registration/start
+    YourApp-)User: Request to create a passkey
+    User-)User: Create a passkey and sign the challenge
+    User-)YourApp: Public key, signature
+    YourApp-)RegistrationFinishEndpoint: POST /registration/finish
+    RegistrationFinishEndpoint-)CredentialStore: Store the public key of the passkey
+```
 
 ### Authentication
 
