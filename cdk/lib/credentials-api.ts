@@ -428,7 +428,7 @@ export class CredentialsApi extends Construct {
         } as const,
         {
           statusCode: '500',
-          selectionPattern: makeSelectionPattern('BadConfiguration|Unhandled'),
+          selectionPattern: makeSelectionPattern('(BadConfiguration|Unhandled)'),
         } as const,
       ] as const,
       methodResponses: [
