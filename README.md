@@ -23,11 +23,13 @@ Features:
 
 4. The *user* creates a *passkey* and signs the *challenge* associated with the *registration session* → the *signature*.
 
-5. The *user* provides the *public key* of the *passkey* and the *signature* to *your app*.
+5. The *user* provides *your app* with a *public key credential* which includes the *public key* of the *passkey* and the *signature*.
 
 6. *Your app* finishes the *registration session* by sending a request to the *registration finish endpoint* (`POST /registration/finish`).
 
-7. The *registration finish endpoint* stores the *public key* in the *credential store* for future authentication of the *user*.
+7. The *registration finish endpoint* verifies the *public key credential*.
+
+8. The *registration finish endpoint* stores the *public key* in the *credential store* for future authentication of the *user*.
 
 Sequence diagram:
 
@@ -43,14 +45,56 @@ sequenceDiagram
     YourApp-)RegistrationStartEndpoint: POST /registration/start
     YourApp-)User: Request to create a passkey
     User-)User: Create a passkey and sign the challenge
-    User-)YourApp: Public key, signature
+    User-)YourApp: Public key credential
     YourApp-)RegistrationFinishEndpoint: POST /registration/finish
+    RegistrationFinishEndpoint-)RegistrationFinishEndpoint: Verifies the public key credential
     RegistrationFinishEndpoint-)CredentialStore: Store the public key of the passkey
 ```
 
 ### Authentication
 
-TBD
+1. A *user* opens *your app*.
+
+2. *Your app* starts a *discoverable authentication session* by sending a request to the *discoverable endpoint* (`POST /authentication/discover`).
+
+3. *Your app* requests the *user* to select a *passkey* that is associated with *your app*.
+
+4. The *user* selects a *passkey* and signs the *challenge* associated with the *discoverable authentication session* → the *signature*.
+
+5. The *user* provides *your app* with a *public key credential* which includes the *key ID* of the *passkey* and the *signature*.
+
+6. *Your app* initiates a *Cognito authentication session* by sending a request to the *authentication start endpoint* (`POST /authentication/start`) but **ignores the challenge returned from this endpoint**.
+
+7. *Your app* finishes the *Cognito authentication session* by sending the *challenge* and the *public key credential* to the *authentication finish endpoint* (`POST /authentication/finish`).
+
+8. The *authentication finish endpoint* restores the *public key* associated with the *key ID* from the *credential store*.
+
+9. The *authentication finish endpoint* verifies the *public key credential*.
+
+9. The *authentication finish endpoint* issues *Cognito tokens* to *your app*.
+
+Sequence diagram:
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant YourApp
+    participant DiscoverableEndpoint
+    participant AuthenticationStartEndpoint
+    participant AuthenticationFinishEndpoint
+    participant CredentialStore
+
+    User-)YourApp: Open
+    YourApp-)DiscoverableEndpoint: POST /authentication/discover
+    YourApp-)User: Request to select a passkey
+    User-)User: Select a passkey and sign the challenge
+    User-)YourApp: Public key credential
+    YourApp-)AuthenticationStartEndpoint: POST /authentication/start
+    YourApp-)AuthenticationFinishEndpoint: POST /authentication/finish
+    AuthenticationFinishEndpoint-)CredentialStore: Restore the public key
+    AuthenticationFinishEndpoint-)AuthenticationFinishEndpoint: Verifies the public key credential
+    AuthenticationFinishEndpoint-)YourApp: Cognito tokens
+```
 
 ## Detailed usage scenarios
 
