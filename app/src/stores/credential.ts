@@ -72,6 +72,10 @@ export const useCredentialStore = defineStore('credential', () => {
     }
   );
 
+  // user ID
+  // NOTE: `null` or `undefined` if the public key info is unavailable.
+  const userId = computed(() => publicKeyInfo.value?.userHandle);
+
   // ID token
   // NOTE: `null` unless the state is 'authenticated'
   //       check `state` prior to using this value to avoid a glitch in UI.
@@ -189,6 +193,7 @@ export const useCredentialStore = defineStore('credential', () => {
     shouldRefreshTokens,
     state,
     timeToRefreshTokens,
+    userId,
     username,
   };
 });
