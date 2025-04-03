@@ -521,7 +521,6 @@ sequenceDiagram
     deactivate DiscoverableEndpoint
 
     YourApp-)Authenticator: Initiate a discoverable credential request
-    activate Authenticator
     deactivate YourApp
 
     Authenticator-)User: Ask to select a passkey
@@ -531,7 +530,6 @@ sequenceDiagram
     Authenticator->>Authenticator: Sign the challenge
     Authenticator-)YourApp: Public key credential
     activate YourApp
-    deactivate Authenticator
 
     YourApp->>YourApp: Extract the user ID
     YourApp->>AuthenticationStartEndpoint: POST /authentication/start
@@ -585,7 +583,7 @@ sequenceDiagram
 
 ##### Cross-device authentication
 
-A *user* may sign in to *your app* with a *passkey* in another device through cross-device authentication.
+A *user* may sign in to *your app* with a *passkey* stored in another device through cross-device authentication.
 In cross-device authentication, Step 8 through Step 12 will be replaced with the following steps:
 
 1. The *user* selects authentication with *another device*.
@@ -635,7 +633,162 @@ sequenceDiagram
 
 #### Authentication of a specific user
 
-This is not precisely a passkey authentication, but a passwordless authentication.
+1. A *user* has previously signed in to *your app* with a *passkey*.
+
+2. *Your app* shows a web page for a *user* to sign in.
+
+3. *Your app* restores the *user ID* of the *user* from the browser storage; e.g., the local storage.
+
+4. *Your app* POSTs the *user ID* to the *authentication start endpoint* (`/authentication/start`).
+
+5. The *authentication start endpoint* calls the *InitiateAuth* AWS Cognito API with the following parameters:
+   - `AuthFlow`: `"CUSTOM_AUTH"`
+   - `AuthParameters`:
+     - `USERNAME`: *user ID*
+
+6. *AWS Cognito* invokes the *define auth challenge trigger*.
+
+7. The *define auth challenge trigger* initiates a custom authentication flow.
+
+8. *AWS Cognito* invokes the *create auth challenge trigger*.
+
+9. The *create auth challenge trigger* lists the *public keys* associated with the *user ID* in the *credential store* → *registered public keys*.
+
+10. The *create auth challenge trigger* creates a *public key credential request options* which include a *challenge*, a *relying party ID*, and the *registered public keys*.
+
+11. The *create auth challenge trigger* returns the *public key credential request options* to *AWS Cognito*.
+
+12. *AWS Cognito* returns a *session ID* and the *public key credential request options* to the *authentication start endpoint*.
+
+13. The *authentication start endpoint* returns the *session ID* and the *public key credential request options* to *your app*.
+
+14. *Your app* initiates a credential request with the *public key credential request options*.
+
+15. *User's authenticator* asks the *user* to select a *passkey* from those associated with the *relying party ID* and the *registered public keys* in *user's authenticator*.
+
+    A *passkey* includes a key pair of a *private key* and a *public key*.
+
+16. The *user* selects a *passkey*.
+
+17. *User's authenticator* asks the *user* to authorize the user of the *passkey*.
+
+18. The *user* authorizes the use of the *passkey*; e.g., using biometrics.
+
+19. *User's authenticator* signs the *challenge* with the *private key* → the *signature*.
+
+20. *User's authenticator* returns a *public key credential* which includes the *public key* and the *signature* to *your app*.
+
+21. *Your app* POSTs the following parameters to the *authentication finish endpoint* (`/authentication/finish`):
+    - *session ID*
+    - *public key credential*
+    - *user ID*
+
+22. The *authentication finish endpoint* calls the *RespondToAuthChallenge* AWS Cognito API with the following parameters:
+    - `ChallengeName`: `"CUSTOM_CHALLENGE"`
+    - `Session`: *session ID*
+    - `ChallengeResponses`:
+      - `USERNAME`: *user ID*
+      - `ANSWER`: *public key credential*
+
+23. *AWS Cognito* invokes the *verify auth challenge trigger*.
+
+24. The *verify auth challenge trigger* verifies the *public key credential*.
+
+    The following parameters are involved in the verification:
+    - *challenge*
+    - *registered public keys*
+    - *signature*
+
+25. The *verify auth challenge trigger* updates the used *public key* in the *credential store* if necessary.
+
+26. The *verify auth challenge trigger* accepts the *public key credential*.
+
+27. *AWS Cognito* returns tokens to the *authentication finish endpoint*.
+
+    The *tokens* consist of:
+    - *access token*
+    - *ID token*
+    - *refresh token*
+
+28. The *authentication finish endpoint* returns the *tokens* to *your app*.
+
+Sequence diagram:
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant Authenticator
+    participant YourApp
+    participant AuthenticationStartEndpoint
+    participant AuthenticationFinishEndpoint
+    participant Cognito
+    participant DefineAuthChallenge
+    participant CreateAuthChallenge
+    participant VerifyAuthChallenge
+    participant CredentialStore
+
+    User-)YourApp: Sign in
+
+    YourApp-)User: Show the sign-in page
+    activate YourApp
+
+    YourApp->>YourApp: Restore the user ID
+    YourApp->>AuthenticationStartEndpoint: POST /authentication/start
+    activate AuthenticationStartEndpoint
+    AuthenticationStartEndpoint->>Cognito: InitiateAuth
+    activate Cognito
+    Cognito->>DefineAuthChallenge: Invoke
+    activate DefineAuthChallenge
+    DefineAuthChallenge-->>Cognito: Initiate a custom authentication flow
+    deactivate DefineAuthChallenge
+    Cognito->>CreateAuthChallenge: Invoke
+    activate CreateAuthChallenge
+    CreateAuthChallenge->>CredentialStore: Query public keys
+    activate CredentialStore
+    CredentialStore-->>CreateAuthChallenge: Registered public keys
+    deactivate CredentialStore
+    CreateAuthChallenge->>CreateAuthChallenge: Create a public key credential request options
+    CreateAuthChallenge-->>Cognito: Public key credential request options
+    deactivate CreateAuthChallenge
+    Cognito-->>AuthenticationStartEndpoint: Session ID, public key credential request options
+    deactivate Cognito
+    AuthenticationStartEndpoint-->>YourApp: Session ID, public key credential request options
+    deactivate AuthenticationStartEndpoint
+
+    YourApp-)Authenticator: Initiate a credential request
+    deactivate YourApp
+
+    Authenticator-)User: Ask to select a passkey
+    User-)Authenticator: Select a passkey
+    Authenticator-)User: Ask to authorize the use of the passkey
+    User-)Authenticator: Authorize the use of the passkey
+    Authenticator->>Authenticator: Sign the challenge
+    Authenticator-)YourApp: Public key credential
+    activate YourApp
+
+    YourApp->>AuthenticationFinishEndpoint: POST /authentication/finish
+    activate AuthenticationFinishEndpoint
+    AuthenticationFinishEndpoint->>Cognito: RespondToAuthChallenge
+    activate Cognito
+    Cognito->>VerifyAuthChallenge: Invoke
+    activate VerifyAuthChallenge
+    VerifyAuthChallenge->>VerifyAuthChallenge: Verify the public key credential
+    opt The public key has been updated
+        VerifyAuthChallenge->>CredentialStore: Update the public key
+        activate CredentialStore
+        CredentialStore-->>VerifyAuthChallenge: OK
+        deactivate CredentialStore
+    end
+    VerifyAuthChallenge-->>Cognito: Accept
+    deactivate VerifyAuthChallenge
+    Cognito-->>AuthenticationFinishEndpoint: Tokens
+    deactivate Cognito
+    AuthenticationFinishEndpoint-->>YourApp: Tokens
+    deactivate AuthenticationFinishEndpoint
+
+    YourApp-)User: OK
+    deactivate YourApp
+```
 
 ## License
 
