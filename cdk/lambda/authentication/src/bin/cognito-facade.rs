@@ -318,6 +318,11 @@ async fn start_authentication(
     user_id: String,
 ) -> Result<AuthenticationSession, ErrorResponse> {
     info!("start_authentication: {user_id}");
+
+    if user_id.is_empty() {
+        return Err(ErrorResponse::bad_request("user ID must not be empty"));
+    }
+
     let res = shared_state.cognito.initiate_auth()
         .client_id(&shared_state.user_pool_client_id)
         .auth_flow(AuthFlowType::CustomAuth)
@@ -376,6 +381,11 @@ async fn finish_authentication(
     payload: FinishPayload,
 ) -> Result<AuthenticationResult, ErrorResponse> {
     info!("finish_authentication: {}", payload.user_id);
+
+    if payload.user_id.is_empty() {
+        return Err(ErrorResponse::bad_request("user ID must not be empty"));
+    }
+
     let res = shared_state.cognito.respond_to_auth_challenge()
         .client_id(&shared_state.user_pool_client_id)
         .challenge_name(ChallengeNameType::CustomChallenge)
@@ -706,6 +716,25 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn start_authentication_empty_user_id() {
+        let cognito = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::cognito::initiate_auth_ok());
+
+        let shared_state = SharedStateBuilder::default()
+            .cognito(self::mocks::cognito::new_client(cognito))
+            .build()
+            .unwrap();
+        let shared_state = Arc::new(shared_state);
+
+        let err = start_authentication(
+            shared_state,
+            "".to_string(),
+        ).await.unwrap_err();
+        assert!(matches!(err, ErrorResponse::BadRequest(_)));
+    }
+
+    #[tokio::test]
     async fn start_authentication_cognito_initiate_auth_not_authorized() {
         let cognito = MockResponseInterceptor::new()
             .rule_mode(RuleMode::MatchAny)
@@ -900,6 +929,29 @@ mod tests {
         assert_eq!(result.id_token, Some("IdToken".to_string()));
         assert_eq!(result.refresh_token, Some("RefreshToken".to_string()));
         assert_eq!(result.expires_in, 3600);
+    }
+
+    #[tokio::test]
+    async fn finish_authentication_empty_user_id() {
+        let cognito = MockResponseInterceptor::new()
+            .rule_mode(RuleMode::MatchAny)
+            .with_rule(&self::mocks::cognito::respond_to_auth_challenge_ok());
+
+        let shared_state = SharedStateBuilder::default()
+            .cognito(self::mocks::cognito::new_client(cognito))
+            .build()
+            .unwrap();
+        let shared_state = Arc::new(shared_state);
+
+        let err = finish_authentication(
+            shared_state,
+            FinishPayload {
+                session_id: "ABCDEFGHI".to_string(),
+                user_id: "".to_string(),
+                public_key: serde_json::from_str(self::mocks::webauthn::OK_PUBLIC_KEY_CREDENTIAL).unwrap(),
+            },
+        ).await.unwrap_err();
+        assert!(matches!(err, ErrorResponse::BadRequest(_)));
     }
 
     #[tokio::test]
