@@ -473,6 +473,12 @@ where
         };
     } else {
         info!("Cognito initiated challenge");
+        // Q. Should we make sure that `credential` is actually in our
+        //    credential store?
+        // A. I do not think so. Because `auth_state` should retain the
+        //    list of credentials we offered to the challenger from the create
+        //    auth challenge trigger.
+
         // challenge offered by InitiateAuth
         let auth_state: PasskeyAuthentication = event
             .get_private_challenge_parameter(CHALLENGE_PARAMETER_NAME)?
