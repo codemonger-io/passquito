@@ -580,7 +580,7 @@ where
         .or(Err("malformed displayName in session"))?;
     // generates a random password that is never used
     let mut password = [0u8; 24];
-    getrandom::getrandom(&mut password)?;
+    getrandom::fill(&mut password)?;
     let password = base64url.encode(&password);
     // finds the Cognito user, or creates a new Cognito user
     let cognito_user = match shared_state.cognito

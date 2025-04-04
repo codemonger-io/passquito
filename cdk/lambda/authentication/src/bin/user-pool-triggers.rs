@@ -235,7 +235,7 @@ where
             let mut credential_id: Vec<u8> = Vec::with_capacity(20);
             credential_id.extend_from_slice(&hash.as_ref()[0..20]);
             let mut challenge = vec![0u8; 32];
-            getrandom::getrandom(&mut challenge)?;
+            getrandom::fill(&mut challenge)?;
             let rcr = RequestChallengeResponse {
                 public_key: PublicKeyCredentialRequestOptions {
                     rp_id: shared_state.rp_id.clone(),
