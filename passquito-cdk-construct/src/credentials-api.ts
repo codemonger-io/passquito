@@ -62,7 +62,7 @@ export class CredentialsApi extends Construct {
       sessionStore,
       userPool,
     } = props;
-    const manifestPath = path.join('lambda', 'authentication', 'Cargo.toml');
+    const manifestPath = path.join(__dirname, 'lambda', 'authentication', 'Cargo.toml');
     const registrationBasePath = `${basePath.replace(/\/$/, '')}/registration/`;
     const discoverableBasePath = `${basePath.replace(/\/$/, '')}/discoverable/`;
     const securedBasePath = `${basePath.replace(/\/$/, '')}/secured`;

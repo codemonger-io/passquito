@@ -95,7 +95,7 @@ export class UserPool extends Construct {
       this,
       'CognitoTriggerLambda',
       {
-        manifestPath: path.join('lambda', 'authentication', 'Cargo.toml'),
+        manifestPath: path.join(__dirname, 'lambda', 'authentication', 'Cargo.toml'),
         binaryName: 'user-pool-triggers',
         architecture: lambda.Architecture.ARM_64,
         environment: {
