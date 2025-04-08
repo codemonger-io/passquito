@@ -1,7 +1,11 @@
 import { RemovalPolicy, aws_dynamodb as dynamodb } from 'aws-cdk-lib';
 import { Construct } from 'constructs';
 
-/** CDK construct that provisions the DynamoDB table for sessions. */
+/**
+ * CDK construct that provisions the DynamoDB table for sessions.
+ *
+ * @beta
+ */
 export class SessionStore extends Construct {
   /**
    * DynamoDB table that stores sessions.
@@ -14,7 +18,7 @@ export class SessionStore extends Construct {
    *
    * ### User registration session
    *
-   * - `pk`: "registration#<session ID>"
+   * - `pk`: `"registration#<session ID>"`
    * - `ttl`: 60 seconds after the session was created
    * - `userId`: unique user ID
    * - `userInfo`:

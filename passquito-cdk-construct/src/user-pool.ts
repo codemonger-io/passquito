@@ -12,7 +12,11 @@ import { Construct } from 'constructs';
 import type { Parameters } from './parameters';
 import type { SessionStore } from './session-store';
 
-/** Properties for `UserPool` */
+/**
+ * Properties for {@link UserPool}.
+ *
+ * @beta
+ */
 export interface UserPoolProps {
   /** Parameters in Parameter Store on AWS Systems Manager. */
   readonly parameters: Parameters;
@@ -36,17 +40,19 @@ export interface UserPoolProps {
  *
  * #### User's public key credential
  *
- * - `pk`: "user#<user ID>"
+ * - `pk`: `"user#<user ID>"`
  *     - `<user ID>` is the "base64url"-encoded user handle (unique ID)
- * - `sk`: "credential#<credential ID>"
+ * - `sk`: `"credential#<credential ID>"`
  *     - `<credential ID>` is the "base64url"-encoded credential ID
- * - `credentialId`: "<credential ID>"
+ * - `credentialId`: `"<credential ID>"`
  * - `credential`: serialized JSON representation of [`Passkey`]
  * - `cognitoSub`: Cognito sub ID
- * - `createdAt`: "<yyyy-mm-ddTHH:MM:SS.SSSSSSZ>"
+ * - `createdAt`: `"<yyyy-mm-ddTHH:MM:SS.SSSSSSZ>"`
  *     - timestamp when the credential was registered
- * - `updatedAt`: "<yyyy-mm-ddTHH:MM:SS.SSSSSSZ>"
+ * - `updatedAt`: `"<yyyy-mm-ddTHH:MM:SS.SSSSSSZ>"`
  *     - timestamp when the credential was last updated
+ *
+ * @beta
  */
 export class UserPool extends Construct {
   /** User pool. */
