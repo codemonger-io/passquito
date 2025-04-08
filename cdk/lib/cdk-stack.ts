@@ -4,6 +4,8 @@ import type { Construct } from 'constructs';
 
 import { PassquitoCore } from '@codemonger-io/passquito-cdk-construct';
 
+import { Distribution } from './distribution';
+
 export interface CdkStackProps extends StackProps {
   /**
    * Domain name of the distribution.
@@ -21,6 +23,10 @@ export class CdkStack extends Stack {
 
     const passquito = new PassquitoCore(this, 'Passquito', {
       distributionDomainName: props.distributionDomainName,
+    });
+    const distribution = new Distribution(this, 'Distribution', {
+      appBasePath: '/app',
+      credentialsApi: passquito.credentialsApi,
     });
 
     new CfnOutput(this, 'RpOriginParameterPath', {
@@ -41,15 +47,15 @@ export class CdkStack extends Stack {
     });
     new CfnOutput(this, 'DistributionDomainName', {
       description: 'Distribution domain name',
-      value: passquito.distributionDomainName,
+      value: distribution.distribution.domainName,
     });
     new CfnOutput(this, 'AppUrl', {
       description: 'URL of the app',
-      value: passquito.appUrl,
+      value: distribution.appUrl,
     });
     new CfnOutput(this, 'AppContentsBucketName', {
       description: 'Name of the S3 bucket that stores the app contents',
-      value: passquito.appContentsBucketName,
+      value: distribution.appBucket.bucketName,
     });
   }
 }

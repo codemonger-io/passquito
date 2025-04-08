@@ -7,7 +7,7 @@ import {
 } from 'aws-cdk-lib';
 import { Construct } from 'constructs';
 
-import type { CredentialsApi } from './credentials-api';
+import type { CredentialsApi } from '@codemonger-io/passquito-cdk-construct';
 
 /** Props for `Distribution`. */
 export interface DistributionProps {
