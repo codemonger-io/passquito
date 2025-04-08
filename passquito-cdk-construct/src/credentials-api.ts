@@ -17,7 +17,11 @@ import type { Parameters } from './parameters';
 import type { SessionStore } from './session-store';
 import type { UserPool } from './user-pool';
 
-/** Props for `CredentialsApi`. */
+/**
+ * Props for {@link CredentialsApi}.
+ *
+ * @beta
+ */
 export interface CredentialsApiProps {
   /** Base path where tht API is to be served. */
   readonly basePath: string;
@@ -35,7 +39,11 @@ export interface CredentialsApiProps {
   readonly allowOrigins: string[];
 }
 
-/** CDK construct that provisions the Credentials API. */
+/**
+ * CDK construct that provisions the Credentials API.
+ *
+ * @beta
+ */
 export class CredentialsApi extends Construct {
   /** Lambda function for registration. */
   readonly registrationLambda: lambda.IFunction;
