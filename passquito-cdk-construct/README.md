@@ -46,7 +46,7 @@ Public key credentials are associated with [user pool](#user-pool) users.
 
 ### Credentials API
 
-An API Gateway REST API that provides endpoints for registration, and authentication.
+An API Gateway REST API that provides endpoints for registration and authentication.
 The authentication endpoints wrap the Cognito API calls.
 Endpoints are implemented as [Lambda](https://docs.aws.amazon.com/lambda/latest/dg/welcome.html) functions.
 
