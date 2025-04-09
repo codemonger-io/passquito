@@ -1,6 +1,6 @@
 {
   "name": "cdk",
-  "private": "true",
+  "private": true,
   "version": "0.1.0",
   "packageManager": "pnpm@10.7.1",
   "bin": {
