@@ -23,7 +23,7 @@ import type { UserPool } from './user-pool';
  * @beta
  */
 export interface CredentialsApiProps {
-  /** Base path where tht API is to be served. */
+  /** Base path where the API is to be served. */
   readonly basePath: string;
 
   /** Parameters in Parameter Store on AWS Systems Manager. */
