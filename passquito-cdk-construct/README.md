@@ -29,7 +29,7 @@ export class CdkStack extends Stack {
 
 ### Configuring relying party
 
-You have to configure the origin URL of the [WebAuthn relying party](https://www.w3.org/TR/webauthn-3/#webauthn-relying-party) in the following parameter in [Systems Manager Parameter Store](https://docs.aws.amazon.com/systems-manager/latest/userguide/systems-manager-parameter-store.html):
+You have to configure the origin URL of the [WebAuthn Relying Party](https://www.w3.org/TR/webauthn-3/#webauthn-relying-party) in the following parameter in [Systems Manager Parameter Store](https://docs.aws.amazon.com/systems-manager/latest/userguide/systems-manager-parameter-store.html):
 - `/passkey-test/RP_ORIGIN`
 
 ## Passquito core resources
