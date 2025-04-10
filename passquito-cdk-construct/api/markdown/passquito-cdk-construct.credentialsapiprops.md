@@ -76,7 +76,7 @@ string
 
 </td><td>
 
-**_(BETA)_** Base path where tht API is to be served.
+**_(BETA)_** Base path where the API is to be served.
 
 
 </td></tr>

@@ -7,7 +7,7 @@
 > This API is provided as a beta preview for developers and may change based on feedback that we receive. Do not use this API in a production environment.
 > 
 
-Base path where tht API is to be served.
+Base path where the API is to be served.
 
 **Signature:**
 
