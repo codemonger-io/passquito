@@ -22,7 +22,8 @@
   ],
   "packageManager": "pnpm@10.7.1",
   "scripts": {
-    "build": "rimraf dist && run-s build:js build:dts",
+    "build": "rimraf dist && run-s build:noclean",
+    "build:noclean": "run-s build:js build:dts",
     "build:js": "rollup -c",
     "build:dts": "rimraf dist/dts && tsc -b tsconfig.types.json --force && api-extractor run --local",
     "doc": "api-documenter markdown --input-folder temp --output-folder api/markdown",
