@@ -27,7 +27,7 @@ export interface PassquitoCoreProps {
  * @beta
  */
 export class PassquitoCore extends Construct {
-  /** Parameters in Systems Manager Parameter Store (SSMPS). */
+  /** Parameters in Systems Manager (SSM) Parameter Store. */
   readonly parameters: Parameters;
 
   /** Session store resources. */
@@ -64,7 +64,7 @@ export class PassquitoCore extends Construct {
     });
   }
 
-  /** Path to the SSMPS parameter that stores the relying party origin (in a URL form). */
+  /** Path to the SSM Parameter Store parameter that stores the relying party origin (in a URL form). */
   get rpOriginParameterPath(): string {
     return this.parameters.rpOriginParameter.parameterName;
   }

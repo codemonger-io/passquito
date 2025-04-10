@@ -132,7 +132,7 @@ Parameters
 
 </td><td>
 
-**_(BETA)_** Parameters in Systems Manager Parameter Store (SSMPS).
+**_(BETA)_** Parameters in Systems Manager (SSM) Parameter Store.
 
 
 </td></tr>
@@ -153,7 +153,7 @@ string
 
 </td><td>
 
-**_(BETA)_** Path to the SSMPS parameter that stores the relying party origin (in a URL form).
+**_(BETA)_** Path to the SSM Parameter Store parameter that stores the relying party origin (in a URL form).
 
 
 </td></tr>

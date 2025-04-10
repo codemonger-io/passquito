@@ -7,7 +7,7 @@
 > This API is provided as a beta preview for developers and may change based on feedback that we receive. Do not use this API in a production environment.
 > 
 
-Path to the SSMPS parameter that stores the relying party origin (in a URL form).
+Path to the SSM Parameter Store parameter that stores the relying party origin (in a URL form).
 
 **Signature:**
 
