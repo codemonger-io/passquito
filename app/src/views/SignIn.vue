@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { BButton, BField, BInput } from 'buefy';
-import { Base64 } from 'js-base64';
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { RouterLink, useRouter } from 'vue-router';
 

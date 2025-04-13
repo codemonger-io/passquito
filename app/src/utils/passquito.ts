@@ -1,6 +1,14 @@
-import { Base64 } from 'js-base64';
+import { parseCreationOptionsFromJSON } from '@github/webauthn-json/browser-ponyfill';
+import {
+  bufferToBase64url,
+  convert,
+  getRequestFromJSON,
+  schema,
+  type PublicKeyCredentialWithAssertionJSON,
+  type PublicKeyCredentialWithAttestationJSON,
+} from '@github/webauthn-json/extended';
 
-import { credentialsApiUrl, isCognito, userPoolClientId } from '../auth-config';
+import { credentialsApiUrl, isCognito } from '../auth-config';
 
 /**
  * User information for registration.
@@ -32,13 +40,6 @@ export interface VerifiedUserInfo {
 interface RegistrationSession {
   sessionId: string;
   options: CredentialCreationOptions;
-}
-
-// options given to `navigator.credentials.create()`.
-//
-// we are not interested in the fields other than `publicKey`.
-interface CredentialCreationOptions {
-  publicKey: PublicKeyCredentialCreationOptions;
 }
 
 /**
@@ -274,7 +275,7 @@ async function startRegistration(userInfo: UserInfo): Promise<RegistrationSessio
   const session = await res.json();
   return {
     sessionId: session.sessionId as string,
-    options: decodeCredentialCreationOptions(session.credentialCreationOptions),
+    options: parseCreationOptionsFromJSON(session.credentialCreationOptions),
   };
 }
 
@@ -294,7 +295,7 @@ async function startRegistrationForVerifiedUser(userInfo: VerifiedUserInfo): Pro
   const session = await res.json();
   return {
     sessionId: session.sessionId as string,
-    options: decodeCredentialCreationOptions(session.credentialCreationOptions),
+    options: parseCreationOptionsFromJSON(session.credentialCreationOptions),
   };
 }
 
@@ -325,91 +326,6 @@ async function registerPublicKeyCredential(
   }
 }
 
-// decodes `CredentialCreationOptions` in a registration start API response.
-//
-// converts "base64url"-encoded values into `Uint8Array`s.
-function decodeCredentialCreationOptions(options: any): CredentialCreationOptions {
-  return {
-    publicKey: decodePublicKeyCredentialCreationOptions(options.publicKey),
-  };
-}
-
-// decodes `PublicKeyCredentialCreationOptions` in a registration start API
-// response.
-//
-// converts "base64url"-encoded values into `Uint8Array`s.
-function decodePublicKeyCredentialCreationOptions(publicKey: any) {
-  return {
-    ...publicKey,
-    user: decodePublicKeyCredentialUserEntity(publicKey.user),
-    challenge: Base64.toUint8Array(publicKey.challenge),
-    ...(
-      publicKey.excludeCredentials
-        ? {
-            excludeCredentials: publicKey.excludeCredentials.map(
-              decodePublicKeyCredentialDescriptor,
-            )
-          }
-        : {}
-    ),
-  } as PublicKeyCredentialCreationOptions;
-}
-
-// decodes `PublicKeyCredentialUserEntity` in a registration start API response.
-//
-// converts "base64url"-encoded `id` into `Uint8Array`.
-function decodePublicKeyCredentialUserEntity(user: any) {
-  return {
-    ...user,
-    id: Base64.toUint8Array(user.id),
-  } as PublicKeyCredentialUserEntity;
-}
-
-// decodes `PublicKeyCredentialDescriptor`.
-//
-// converts "base64url"-encoded `id` into `Uint8Array`.
-function decodePublicKeyCredentialDescriptor(descriptor: any) {
-  return {
-    ...descriptor,
-    id: Base64.toUint8Array(descriptor.id),
-  } as PublicKeyCredentialDescriptor;
-}
-
-// encodes `PublicKeyCrendential` for a registration API request body.
-//
-// "base64url"-encodes `ArrayBuffer`s.
-function encodePublicKeyCredentialForCreation(publicKey: PublicKeyCredential) {
-  return {
-    id: publicKey.id,
-    type: publicKey.type,
-    rawId: Base64.fromUint8Array(new Uint8Array(publicKey.rawId), true),
-    response: encodeAuthenticatorAttestationResponse(
-      publicKey.response as AuthenticatorAttestationResponse,
-    ),
-    extensions: publicKey.getClientExtensionResults(),
-  };
-}
-
-// encodes `AuthenticatorAttestationResponse` for a registration finish API
-// request body.
-//
-// "base64url"-encodes `clientDataJSON`, and `attestationObject`.
-function encodeAuthenticatorAttestationResponse(
-  response: AuthenticatorAttestationResponse,
-) {
-  return {
-    clientDataJSON: Base64.fromUint8Array(
-      new Uint8Array(response.clientDataJSON),
-      true,
-    ),
-    attestationObject: Base64.fromUint8Array(
-      new Uint8Array(response.attestationObject),
-      true,
-    ),
-    transports: response.getTransports(),
-  };
-}
-
 // conducts an authentication ceremony with a give AbortController.
 async function doAbortableAuthenticationCeremony(abortController: AbortController) {
   const options = await getCredentialRequestOptions();
@@ -428,7 +344,7 @@ async function doAbortableAuthenticationCeremony(abortController: AbortControlle
 // conducts an authentication ceremony for a given user with a given AbortController.
 async function doAbortableAuthenticationCeremonyForUser(userId: string, abortController: AbortController) {
   const session = await startAuthenticationSessionForUser(userId);
-  const credentialRequestOptions = decodeCredentialRequestOptions(session.credentialRequestOptions);
+  const credentialRequestOptions = getRequestFromJSON(session.credentialRequestOptions);
   console.log('credential request options:', credentialRequestOptions);
   const credential = await navigator.credentials.get({
     ...credentialRequestOptions,
@@ -454,35 +370,7 @@ async function getCredentialRequestOptions(username?: string) {
       method: 'POST',
     });
   }
-  return decodeCredentialRequestOptions(await res.json());
-}
-
-// decodes `CredentialRequestOptions`.
-//
-// converts "base64url"-encoded values into `Uint8Array`s.
-function decodeCredentialRequestOptions(options: any) {
-  return {
-    publicKey: decodePublicKeyCredentialRequestOptions(options.publicKey),
-  };
-}
-
-// decodes `PublicKeyCredentialRequestOptions`.
-//
-// converts "base64url"-encoded values into `Uint8Array`s.
-function decodePublicKeyCredentialRequestOptions(publicKey: any) {
-  return {
-    ...publicKey,
-    challenge: Base64.toUint8Array(publicKey.challenge),
-    ...(
-      publicKey.allowCredentials
-        ? {
-          allowCredentials: publicKey
-            .allowCredentials
-            .map(decodePublicKeyCredentialDescriptor)
-        }
-        : {}
-    ),
-  } as PublicKeyCredentialRequestOptions;
+  return getRequestFromJSON(await res.json());
 }
 
 // authenticates a given public key credential in a discoverable manner.
@@ -586,59 +474,30 @@ async function finishAuthenticationSession(
   };
 }
 
+// encodes `PublicKeyCredential` for a registration API request body.
+//
+// "base64url"-encodes `ArrayBuffer`s.
+function encodePublicKeyCredentialForCreation(publicKey: PublicKeyCredential): PublicKeyCredentialWithAttestationJSON {
+  return convert(
+    bufferToBase64url,
+    schema.publicKeyCredentialWithAttestation,
+    publicKey,
+  );
+}
+
 // encodes `PublicKeyCredential` for an authentication API request body.
 //
 // "base64url"-encodes `ArrayBuffer`s.
-function encodePublicKeyCredentialForAuthentication(publicKey: PublicKeyCredential) {
-  return {
-    id: publicKey.id,
-    type: publicKey.type,
-    rawId: Base64.fromUint8Array(new Uint8Array(publicKey.rawId), true),
-    response: encodeAuthenticatorAssertionResponse(
-      publicKey.response as AuthenticatorAssertionResponse,
-    ),
-    authenticatorAttachment: publicKey.authenticatorAttachment,
-    extensions: publicKey.getClientExtensionResults(),
-  };
+function encodePublicKeyCredentialForAuthentication(publicKey: PublicKeyCredential): PublicKeyCredentialWithAssertionJSON {
+  return convert(
+    bufferToBase64url,
+    schema.publicKeyCredentialWithAssertion,
+    publicKey,
+  );
 }
-
-// encodes `AuthenticatorAssertionResponse` for an API request body.
-//
-// "base64url"-encodes:
-// - `clientDataJSON`
-// - `authenticatorData`
-// - `signature`
-// - `userHandle`
-function encodeAuthenticatorAssertionResponse(
-  response: AuthenticatorAssertionResponse,
-) {
-  return {
-    clientDataJSON: Base64.fromUint8Array(
-      new Uint8Array(response.clientDataJSON),
-      true,
-    ),
-    authenticatorData: Base64.fromUint8Array(
-      new Uint8Array(response.authenticatorData),
-      true,
-    ),
-    signature: Base64.fromUint8Array(new Uint8Array(response.signature), true),
-    ...(
-      response.userHandle != null
-        ? {
-          userHandle: Base64.fromUint8Array(
-            new Uint8Array(response.userHandle),
-            true,
-          ),
-        }
-        : {}
-    ),
-  };
-}
-
-type EncodedPublicKeyCredential = ReturnType<typeof encodePublicKeyCredentialForAuthentication>;
 
 // Extracts public key information from an encoded public key credential.
-function extractPublicKeyInfo(publicKey: EncodedPublicKeyCredential): PublicKeyInfo {
+function extractPublicKeyInfo(publicKey: PublicKeyCredentialWithAssertionJSON): PublicKeyInfo {
   return {
     id: publicKey.id,
     userHandle: publicKey.response.userHandle,

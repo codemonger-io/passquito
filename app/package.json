@@ -14,9 +14,9 @@
   },
   "dependencies": {
     "@aws-sdk/client-cognito-identity-provider": "^3.437.0",
+    "@github/webauthn-json": "^2.1.1",
     "@vueuse/core": "^12.8.2",
     "buefy": "npm:@ntohq/buefy-next@0.2.0",
-    "js-base64": "^3.7.5",
     "pinia": "^2.1.6",
     "vue": "^3.3.4",
     "vue-router": "^4.2.4"

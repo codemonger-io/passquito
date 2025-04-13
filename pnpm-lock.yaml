@@ -136,6 +136,16 @@ importers:
         specifier: ~5.2.2
         version: 5.2.2
 
+  passquito-client-js:
+    dependencies:
+      '@github/webauthn-json':
+        specifier: ^2.1.1
+        version: 2.1.1
+    devDependencies:
+      typescript:
+        specifier: ~5.2.2
+        version: 5.2.2
+
 packages:
 
   '@ampproject/remapping@2.3.0':
@@ -578,6 +588,10 @@ packages:
     engines: {node: '>=18'}
     cpu: [x64]
     os: [win32]
+
+  '@github/webauthn-json@2.1.1':
+    resolution: {integrity: sha512-XrftRn4z75SnaJOmZQbt7Mk+IIjqVHw+glDGOxuHwXkZBZh/MBoRS7MHjSZMDaLhT4RjN2VqiEU7EOYleuJWSQ==}
+    hasBin: true
 
   '@isaacs/cliui@8.0.2':
     resolution: {integrity: sha512-O8jcjabXaleOG9DQ0+ARXWZBTfnP4WNAqzuiJK7ll44AmxGKv/J2M4TPjxjY3znBCfvBXFzucm1twdyFybFqEA==}
@@ -3121,6 +3135,8 @@ snapshots:
 
   '@esbuild/win32-x64@0.25.2':
     optional: true
+
+  '@github/webauthn-json@2.1.1': {}
 
   '@isaacs/cliui@8.0.2':
     dependencies:
