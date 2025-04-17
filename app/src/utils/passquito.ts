@@ -9,32 +9,9 @@ import {
 } from '@github/webauthn-json/extended';
 
 import { credentialsApiUrl, isCognito } from '../auth-config';
-
-/**
- * User information for registration.
- *
- * @beta
- */
-export interface UserInfo {
-  /** Username. */
-  username: string;
-
-  /** Display name. */
-  displayName: string;
-}
-
-/**
- * User information for invited registration.
- *
- * @beta
- */
-export interface VerifiedUserInfo {
-  /** ID token of the verified user. */
-  idToken: string;
-
-  /** User information. */
-  userInfo: UserInfo;
-}
+import type { CredentialsApi } from './credentials-api';
+import type { CognitoTokens, UserInfo, VerifiedUserInfo } from './passquito-types';
+export type { CognitoTokens } from './passquito-types';
 
 // passkey registration session.
 interface RegistrationSession {
@@ -42,35 +19,8 @@ interface RegistrationSession {
   options: CredentialCreationOptions;
 }
 
-/**
- * Raw cognito tokens.
- *
- * @beta
- */
-export interface RawCognitoTokens {
-  idToken: string;
-  accessToken: string;
-  refreshToken: string;
-  expiresIn: number;
-}
-
-/**
- * Cognito tokens with an appointed expiration time.
- *
- * @beta
- */
-export type CognitoTokens = RawCognitoTokens & {
-  /**
-   * Activation time represented as the number of milliseconds elapsed since
-   * 00:00:00 on January 1, 1970 in UTC.
-   *
-   * @remarks
-   *
-   * Expiration time of tokens is approximately this value plus `expiresIn` x
-   * 1000.
-   */
-  activatedAt: number,
-};
+/** Raw Cognito tokens. */
+export type RawCognitoTokens = Omit<CognitoTokens, 'activatedAt'>;
 
 /**
  * Information about a public key.
@@ -92,6 +42,114 @@ export interface Credentials {
   publicKeyInfo: PublicKeyInfo;
   tokens: CognitoTokens;
 }
+
+// global Credentials API object.
+const credentialsApi: CredentialsApi = {
+  async startRegistration(userInfo: UserInfo) {
+    const endpoint = `${credentialsApiUrl.replace(/\/$/, '')}/registration/start`;
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(userInfo),
+    });
+    const session = await res.json();
+    return {
+      sessionId: session.sessionId,
+      credentialCreationOptions: parseCreationOptionsFromJSON(session.credentialCreationOptions),
+    };
+  },
+  async startRegistrationForVerifiedUser(userInfo: VerifiedUserInfo) {
+    const endpoint = `${credentialsApiUrl.replace(/\/$/, '')}/registration/start-verified`;
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': userInfo.idToken,
+      },
+      body: JSON.stringify(userInfo.userInfo),
+    });
+    return await res.json();
+  },
+  async finishRegistration(sessionId: string, credential: PublicKeyCredential) {
+    const endpoint = `${credentialsApiUrl.replace(/\/$/, '')}/registration/finish`;
+    const encodedCredential = encodePublicKeyCredentialForCreation(credential);
+    console.log('encoded credential:', encodedCredential);
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        sessionId,
+        publicKeyCredential: encodedCredential,
+      }),
+    });
+    if (!res.ok) {
+      throw new Error(
+        `credential registration failed with ${res.status}: ${await res.text()}`,
+      );
+    }
+  },
+  async getDiscoverableCredentialRequestOptions() {
+    const endpoint =
+      `${credentialsApiUrl.replace(/\/$/, '')}/authentication/discover`;
+    const res = await fetch(endpoint, {
+      method: 'POST',
+    });
+    return getRequestFromJSON(await res.json());
+  },
+  async startAuthentication(userId: string) {
+    const res = await fetch(`${credentialsApiUrl.replace(/\/$/, '')}/authentication/start`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ userId }),
+    });
+    const session = await res.json();
+    return {
+      sessionId: session.sessionId,
+      credentialRequestOptions: getRequestFromJSON(session.credentialRequestOptions),
+    };
+  },
+  async finishAuthentication(sessionId: string, userId: string, credential: PublicKeyCredential) {
+    const encodedCredential = encodePublicKeyCredentialForAuthentication(credential);
+    const res = await fetch(`${credentialsApiUrl.replace(/\/$/, '')}/authentication/finish`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        sessionId,
+        userId,
+        publicKey: encodedCredential,
+      }),
+    });
+    const tokens = await res.json();
+    if (!isRawCognitoTokens(tokens)) {
+      throw new Error('invalid Cognito tokens');
+    }
+    return activateCognitoTokens(tokens);
+  },
+  async refreshTokens(refreshToken: string) {
+    const endpoint = `${credentialsApiUrl.replace(/\/$/, '')}/authentication/refresh`;
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ refreshToken }),
+    });
+    // TODO: handle errors
+    const tokens = await res.json();
+    if (!isRawCognitoTokens(tokens)) {
+      return undefined;
+    }
+    return activateCognitoTokens(tokens);
+  },
+};
 
 /**
  * Checks if passkey registration is supported on the current device.
@@ -145,6 +203,8 @@ export async function checkPasskeyRegistrationSupported(): Promise<boolean> {
  * References:
  * - <https://web.dev/articles/passkey-form-autofill>
  * - <https://www.w3.org/TR/webauthn-3/>
+ *
+ * @beta
  */
 export async function checkPasskeyAuthenticationSupported(): Promise<boolean> {
   if (!window.PublicKeyCredential) {
@@ -201,6 +261,8 @@ export async function doRegistrationCeremony(userInfo: UserInfo) {
  * References:
  * - <https://web.dev/articles/passkey-registration>
  * - <https://www.w3.org/TR/webauthn-3/#sctn-registering-a-new-credential>
+ *
+ * @beta
  */
 export async function doRegistrationCeremonyForVerifiedUser(userInfo: VerifiedUserInfo) {
   const { sessionId, options } = await startRegistrationForVerifiedUser(userInfo);
@@ -264,18 +326,10 @@ export function doAuthenticationCeremonyForUser(userId: string) {
 //
 // throws if an error occurs.
 async function startRegistration(userInfo: UserInfo): Promise<RegistrationSession> {
-  const endpoint = `${credentialsApiUrl.replace(/\/$/, '')}/registration/start`;
-  const res = await fetch(endpoint, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(userInfo),
-  });
-  const session = await res.json();
+  const session = await credentialsApi.startRegistration(userInfo);
   return {
-    sessionId: session.sessionId as string,
-    options: parseCreationOptionsFromJSON(session.credentialCreationOptions),
+    sessionId: session.sessionId,
+    options: session.credentialCreationOptions,
   };
 }
 
@@ -283,19 +337,10 @@ async function startRegistration(userInfo: UserInfo): Promise<RegistrationSessio
 //
 // throws if an error occurs.
 async function startRegistrationForVerifiedUser(userInfo: VerifiedUserInfo): Promise<RegistrationSession> {
-  const endpoint = `${credentialsApiUrl.replace(/\/$/, '')}/registration/start-verified`;
-  const res = await fetch(endpoint, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': userInfo.idToken,
-    },
-    body: JSON.stringify(userInfo.userInfo),
-  });
-  const session = await res.json();
+  const session = await credentialsApi.startRegistrationForVerifiedUser(userInfo);
   return {
-    sessionId: session.sessionId as string,
-    options: parseCreationOptionsFromJSON(session.credentialCreationOptions),
+    sessionId: session.sessionId,
+    options: session.credentialCreationOptions,
   };
 }
 
@@ -306,24 +351,7 @@ async function registerPublicKeyCredential(
   sessionId: string,
   credential: PublicKeyCredential,
 ) {
-  const endpoint = `${credentialsApiUrl.replace(/\/$/, '')}/registration/finish`;
-  const encodedCredential = encodePublicKeyCredentialForCreation(credential);
-  console.log('encoded credential:', encodedCredential);
-  const res = await fetch(endpoint, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      sessionId,
-      publicKeyCredential: encodedCredential,
-    }),
-  });
-  if (!res.ok) {
-    throw new Error(
-      `credential registration failed with ${res.status}: ${await res.text()}`,
-    );
-  }
+  await credentialsApi.finishRegistration(sessionId, credential);
 }
 
 // conducts an authentication ceremony with a give AbortController.
@@ -344,7 +372,7 @@ async function doAbortableAuthenticationCeremony(abortController: AbortControlle
 // conducts an authentication ceremony for a given user with a given AbortController.
 async function doAbortableAuthenticationCeremonyForUser(userId: string, abortController: AbortController) {
   const session = await startAuthenticationSessionForUser(userId);
-  const credentialRequestOptions = getRequestFromJSON(session.credentialRequestOptions);
+  const { credentialRequestOptions } = session;
   console.log('credential request options:', credentialRequestOptions);
   const credential = await navigator.credentials.get({
     ...credentialRequestOptions,
@@ -359,18 +387,13 @@ async function doAbortableAuthenticationCeremonyForUser(userId: string, abortCon
 //
 // throws if an error occurs.
 async function getCredentialRequestOptions(username?: string) {
-  let res;
+  // let res;
   if (username != null) {
     // TODO: ask Cognito for sign-in of a specific user
     throw new Error("not implemented yet");
   } else {
-    const endpoint =
-      `${credentialsApiUrl.replace(/\/$/, '')}/authentication/discover`;
-    res = await fetch(endpoint, {
-      method: 'POST',
-    });
+    return await credentialsApi.getDiscoverableCredentialRequestOptions();
   }
-  return getRequestFromJSON(await res.json());
 }
 
 // authenticates a given public key credential in a discoverable manner.
@@ -383,34 +406,13 @@ async function authenticateDiscoverablePublicKeyCredential(credential: PublicKey
     if (userHandle == null) {
       throw new Error("authenticator must return userHandle");
     }
-    const startRes = await fetch(`${credentialsApiUrl.replace(/\/$/, '')}/authentication/start`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ userId: userHandle }),
-    });
-    const session = await startRes.json();
+    const session = await credentialsApi.startAuthentication(userHandle);
     console.log('initiated authentication session:', session);
     // ignores challenge parameters for discoverable credentials
-    const finishRes = await fetch(`${credentialsApiUrl.replace(/\/$/, '')}/authentication/finish`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        sessionId: session.sessionId,
-        userId: userHandle,
-        publicKey: encodedCredential,
-      }),
-    });
-    const tokens = await finishRes.json();
-    if (!isRawCognitoTokens(tokens)) {
-      throw new Error('invalid Cognito tokens');
-    }
+    const tokens = await credentialsApi.finishAuthentication(session.sessionId, userHandle, credential);
     return {
       publicKeyInfo,
-      tokens: activateCognitoTokens(tokens),
+      tokens,
     };
   } else {
     const endpoint =
@@ -431,14 +433,7 @@ async function authenticateDiscoverablePublicKeyCredential(credential: PublicKey
 
 // starts an authentication session.
 async function startAuthenticationSessionForUser(userId: string) {
-  const res = await fetch(`${credentialsApiUrl.replace(/\/$/, '')}/authentication/start`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ userId }),
-  });
-  return await res.json();
+  return await credentialsApi.startAuthentication(userId);
 }
 
 // authenticates a given public key credential.
@@ -453,24 +448,10 @@ async function finishAuthenticationSession(
     throw new Error("authenticator must return userHandle");
   }
   const publicKeyInfo = extractPublicKeyInfo(encodedCredential);
-  const res = await fetch(`${credentialsApiUrl.replace(/\/$/, '')}/authentication/finish`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      sessionId: session.sessionId,
-      userId,
-      publicKey: encodedCredential,
-    }),
-  });
-  const tokens = await res.json();
-  if (!isRawCognitoTokens(tokens)) {
-    throw new Error('invalid Cognito tokens');
-  }
+  const tokens = await credentialsApi.finishAuthentication(session.sessionId, userId, credential);
   return {
     publicKeyInfo,
-    tokens: activateCognitoTokens(tokens),
+    tokens,
   };
 }
 
@@ -511,20 +492,7 @@ function extractPublicKeyInfo(publicKey: PublicKeyCredentialWithAssertionJSON): 
  * @beta
  */
 export async function refreshTokens(refreshToken: string): Promise<CognitoTokens | undefined> {
-  const endpoint = `${credentialsApiUrl.replace(/\/$/, '')}/authentication/refresh`;
-  const res = await fetch(endpoint, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ refreshToken }),
-  });
-  // TODO: handle errors
-  const tokens = await res.json();
-  if (!isRawCognitoTokens(tokens)) {
-    return undefined;
-  }
-  return activateCognitoTokens(tokens);
+  return await credentialsApi.refreshTokens(refreshToken);
 }
 
 /**
