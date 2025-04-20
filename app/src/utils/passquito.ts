@@ -10,6 +10,7 @@ import {
 
 import { credentialsApiUrl, isCognito } from '../auth-config';
 import type { CredentialsApi } from './credentials-api';
+import { CredentialsApiImpl } from './credentials-api-impl';
 import type { CognitoTokens, UserInfo, VerifiedUserInfo } from './passquito-types';
 export type { CognitoTokens } from './passquito-types';
 
@@ -18,9 +19,6 @@ interface RegistrationSession {
   sessionId: string;
   options: CredentialCreationOptions;
 }
-
-/** Raw Cognito tokens. */
-export type RawCognitoTokens = Omit<CognitoTokens, 'activatedAt'>;
 
 /**
  * Information about a public key.
@@ -44,112 +42,7 @@ export interface Credentials {
 }
 
 // global Credentials API object.
-const credentialsApi: CredentialsApi = {
-  async startRegistration(userInfo: UserInfo) {
-    const endpoint = `${credentialsApiUrl.replace(/\/$/, '')}/registration/start`;
-    const res = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(userInfo),
-    });
-    const session = await res.json();
-    return {
-      sessionId: session.sessionId,
-      credentialCreationOptions: parseCreationOptionsFromJSON(session.credentialCreationOptions),
-    };
-  },
-  async startRegistrationForVerifiedUser(userInfo: VerifiedUserInfo) {
-    const endpoint = `${credentialsApiUrl.replace(/\/$/, '')}/registration/start-verified`;
-    const res = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': userInfo.idToken,
-      },
-      body: JSON.stringify(userInfo.userInfo),
-    });
-    return await res.json();
-  },
-  async finishRegistration(sessionId: string, credential: PublicKeyCredential) {
-    const endpoint = `${credentialsApiUrl.replace(/\/$/, '')}/registration/finish`;
-    const encodedCredential = encodePublicKeyCredentialForCreation(credential);
-    console.log('encoded credential:', encodedCredential);
-    const res = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        sessionId,
-        publicKeyCredential: encodedCredential,
-      }),
-    });
-    if (!res.ok) {
-      throw new Error(
-        `credential registration failed with ${res.status}: ${await res.text()}`,
-      );
-    }
-  },
-  async getDiscoverableCredentialRequestOptions() {
-    const endpoint =
-      `${credentialsApiUrl.replace(/\/$/, '')}/authentication/discover`;
-    const res = await fetch(endpoint, {
-      method: 'POST',
-    });
-    return getRequestFromJSON(await res.json());
-  },
-  async startAuthentication(userId: string) {
-    const res = await fetch(`${credentialsApiUrl.replace(/\/$/, '')}/authentication/start`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ userId }),
-    });
-    const session = await res.json();
-    return {
-      sessionId: session.sessionId,
-      credentialRequestOptions: getRequestFromJSON(session.credentialRequestOptions),
-    };
-  },
-  async finishAuthentication(sessionId: string, userId: string, credential: PublicKeyCredential) {
-    const encodedCredential = encodePublicKeyCredentialForAuthentication(credential);
-    const res = await fetch(`${credentialsApiUrl.replace(/\/$/, '')}/authentication/finish`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        sessionId,
-        userId,
-        publicKey: encodedCredential,
-      }),
-    });
-    const tokens = await res.json();
-    if (!isRawCognitoTokens(tokens)) {
-      throw new Error('invalid Cognito tokens');
-    }
-    return activateCognitoTokens(tokens);
-  },
-  async refreshTokens(refreshToken: string) {
-    const endpoint = `${credentialsApiUrl.replace(/\/$/, '')}/authentication/refresh`;
-    const res = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ refreshToken }),
-    });
-    // TODO: handle errors
-    const tokens = await res.json();
-    if (!isRawCognitoTokens(tokens)) {
-      return undefined;
-    }
-    return activateCognitoTokens(tokens);
-  },
-};
+const credentialsApi = new CredentialsApiImpl(credentialsApiUrl);
 
 /**
  * Checks if passkey registration is supported on the current device.
@@ -455,17 +348,6 @@ async function finishAuthenticationSession(
   };
 }
 
-// encodes `PublicKeyCredential` for a registration API request body.
-//
-// "base64url"-encodes `ArrayBuffer`s.
-function encodePublicKeyCredentialForCreation(publicKey: PublicKeyCredential): PublicKeyCredentialWithAttestationJSON {
-  return convert(
-    bufferToBase64url,
-    schema.publicKeyCredentialWithAttestation,
-    publicKey,
-  );
-}
-
 // encodes `PublicKeyCredential` for an authentication API request body.
 //
 // "base64url"-encodes `ArrayBuffer`s.
@@ -518,48 +400,19 @@ export function isPublicKeyInfo(value: unknown): value is PublicKeyInfo {
 }
 
 /**
- * Returns if a given value is a `RawCognitoTokens`.
- *
- * @beta
- */
-export function isRawCognitoTokens(value: unknown): value is RawCognitoTokens {
-  if (value == null || typeof value !== 'object') {
-    return false;
-  }
-  const maybeTokens = value as RawCognitoTokens;
-  return typeof maybeTokens.idToken === 'string' &&
-    typeof maybeTokens.accessToken === 'string' &&
-    typeof maybeTokens.refreshToken === 'string' &&
-    typeof maybeTokens.expiresIn === 'number';
-}
-
-/**
  * Returns if a given value is a `CognitoTokens`.
  *
  * @beta
  */
 export function isCognitoTokens(value: unknown): value is CognitoTokens {
-  if (!isRawCognitoTokens(value)) {
+  if (value == null || typeof value !== 'object') {
     return false;
   }
   const maybeTokens = value as CognitoTokens;
-  return typeof maybeTokens.activatedAt === 'number';
-}
-
-/**
- * Activates a given `RawCognitoTokens` and obtains a `CognitoTokens`.
- *
- * @remarks
- *
- * You should call this function as soon as you obtain Cognito tokens.
- *
- * @beta
- */
-export function activateCognitoTokens(tokens: RawCognitoTokens): CognitoTokens {
-  return {
-    ...tokens,
-    activatedAt: Date.now(),
-  };
+  return typeof maybeTokens.idToken === 'string' &&
+    typeof maybeTokens.accessToken === 'string' &&
+    typeof maybeTokens.refreshToken === 'string' &&
+    typeof maybeTokens.activatedAt === 'number';
 }
 
 /**
