@@ -4,6 +4,7 @@ import { onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 
 import { useCredentialStore } from '../stores/credential';
+import { useCredentialsApiStore } from '../stores/credentials-api';
 import { usePasskeyCapabilityStore } from '../stores/passkey-capability';
 import {
   doRegistrationCeremonyForVerifiedUser,
@@ -20,6 +21,9 @@ const passkeyCapabilityStore = usePasskeyCapabilityStore();
 onMounted(() => {
   passkeyCapabilityStore.askForCapabilities();
 });
+
+// credentials API access
+const credentialsApiStore = useCredentialsApiStore();
 
 // credential
 const credentialStore = useCredentialStore();
@@ -69,13 +73,16 @@ const onSubmit = async () => {
   try {
     console.log('starting registration...');
     // TODO: deal with a token expiration
-    await doRegistrationCeremonyForVerifiedUser({
-      idToken,
-      userInfo: {
-        username: username.value,
-        displayName: displayName.value,
-      }
-    });
+    await doRegistrationCeremonyForVerifiedUser(
+      credentialsApiStore.api,
+      {
+        idToken,
+        userInfo: {
+          username: username.value,
+          displayName: displayName.value,
+        }
+      },
+    );
     console.log('finished registration!');
   } catch (err) {
     if (getErrorName(err) === 'InvalidStateError') {
