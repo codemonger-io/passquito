@@ -41,9 +41,6 @@ export interface Credentials {
   tokens: CognitoTokens;
 }
 
-// global Credentials API object.
-const credentialsApi = new CredentialsApiImpl(credentialsApiUrl);
-
 /**
  * Checks if passkey registration is supported on the current device.
  *
@@ -132,15 +129,18 @@ export async function checkPasskeyAuthenticationSupported(): Promise<boolean> {
  *
  * @beta
  */
-export async function doRegistrationCeremony(userInfo: UserInfo) {
-    const { sessionId, options } = await startRegistration(userInfo);
+export async function doRegistrationCeremony(
+  credentialsApi: CredentialsApi,
+  userInfo: UserInfo,
+) {
+    const { sessionId, options } = await startRegistration(credentialsApi, userInfo);
     console.log('CredentialCreationOptions:', options);
     const credential = await navigator.credentials.create(options);
     if (credential == null) {
       throw new Error('failed to create a new credential');
     }
     console.log('registering new credential:', credential);
-    await registerPublicKeyCredential(sessionId, credential as PublicKeyCredential);
+    await registerPublicKeyCredential(credentialsApi, sessionId, credential as PublicKeyCredential);
 }
 
 /**
@@ -157,15 +157,19 @@ export async function doRegistrationCeremony(userInfo: UserInfo) {
  *
  * @beta
  */
-export async function doRegistrationCeremonyForVerifiedUser(userInfo: VerifiedUserInfo) {
-  const { sessionId, options } = await startRegistrationForVerifiedUser(userInfo);
+export async function doRegistrationCeremonyForVerifiedUser(
+  credentialsApi: CredentialsApi,
+  userInfo: VerifiedUserInfo,
+) {
+  const { sessionId, options } =
+    await startRegistrationForVerifiedUser(credentialsApi,userInfo);
   console.log('CredentialCreationOptions:', options);
   const credential = await navigator.credentials.create(options);
   if (credential == null) {
     throw new Error('failed to create a new credential');
   }
   console.log('registering new credential:', credential);
-  await registerPublicKeyCredential(sessionId, credential as PublicKeyCredential);
+  await registerPublicKeyCredential(credentialsApi, sessionId, credential as PublicKeyCredential);
 }
 
 /**
@@ -178,9 +182,9 @@ export async function doRegistrationCeremonyForVerifiedUser(userInfo: VerifiedUs
  *
  * @beta
  */
-export function doAuthenticationCeremony() {
+export function doAuthenticationCeremony(credentialsApi: CredentialsApi) {
   let abortController: AbortController | undefined = new AbortController();
-  const credentials = doAbortableAuthenticationCeremony(abortController).finally(() => {
+  const credentials = doAbortableAuthenticationCeremony(credentialsApi, abortController).finally(() => {
     abortController = undefined;
   });
   return {
@@ -199,9 +203,12 @@ export function doAuthenticationCeremony() {
  *
  * @beta
  */
-export function doAuthenticationCeremonyForUser(userId: string) {
+export function doAuthenticationCeremonyForUser(
+  credentialsApi: CredentialsApi,
+  userId: string,
+) {
   let abortController: AbortController | undefined = new AbortController();
-  const credentials = doAbortableAuthenticationCeremonyForUser(userId, abortController).finally(() => {
+  const credentials = doAbortableAuthenticationCeremonyForUser(credentialsApi, userId, abortController).finally(() => {
     abortController = undefined;
   });
   return {
@@ -218,7 +225,10 @@ export function doAuthenticationCeremonyForUser(userId: string) {
 // obtains the public key credential creation options
 //
 // throws if an error occurs.
-async function startRegistration(userInfo: UserInfo): Promise<RegistrationSession> {
+async function startRegistration(
+  credentialsApi: CredentialsApi,
+  userInfo: UserInfo,
+): Promise<RegistrationSession> {
   const session = await credentialsApi.startRegistration(userInfo);
   return {
     sessionId: session.sessionId,
@@ -229,7 +239,10 @@ async function startRegistration(userInfo: UserInfo): Promise<RegistrationSessio
 // obtains the public key credential creation options for a verified user
 //
 // throws if an error occurs.
-async function startRegistrationForVerifiedUser(userInfo: VerifiedUserInfo): Promise<RegistrationSession> {
+async function startRegistrationForVerifiedUser(
+  credentialsApi: CredentialsApi,
+  userInfo: VerifiedUserInfo,
+): Promise<RegistrationSession> {
   const session = await credentialsApi.startRegistrationForVerifiedUser(userInfo);
   return {
     sessionId: session.sessionId,
@@ -241,6 +254,7 @@ async function startRegistrationForVerifiedUser(userInfo: VerifiedUserInfo): Pro
 //
 // throws if an error occurs.
 async function registerPublicKeyCredential(
+  credentialsApi: CredentialsApi,
   sessionId: string,
   credential: PublicKeyCredential,
 ) {
@@ -248,8 +262,11 @@ async function registerPublicKeyCredential(
 }
 
 // conducts an authentication ceremony with a give AbortController.
-async function doAbortableAuthenticationCeremony(abortController: AbortController) {
-  const options = await getCredentialRequestOptions();
+async function doAbortableAuthenticationCeremony(
+  credentialsApi:CredentialsApi,
+  abortController: AbortController,
+) {
+  const options = await getCredentialRequestOptions(credentialsApi);
   console.log('credential request options:', options);
   const credential = await navigator.credentials.get({
     ...options,
@@ -258,13 +275,18 @@ async function doAbortableAuthenticationCeremony(abortController: AbortControlle
   });
   console.log('assertion:', credential);
   return await authenticateDiscoverablePublicKeyCredential(
+    credentialsApi,
     credential as PublicKeyCredential,
   );
 }
 
 // conducts an authentication ceremony for a given user with a given AbortController.
-async function doAbortableAuthenticationCeremonyForUser(userId: string, abortController: AbortController) {
-  const session = await startAuthenticationSessionForUser(userId);
+async function doAbortableAuthenticationCeremonyForUser(
+  credentialsApi: CredentialsApi,
+  userId: string,
+  abortController: AbortController,
+) {
+  const session = await startAuthenticationSessionForUser(credentialsApi, userId);
   const { credentialRequestOptions } = session;
   console.log('credential request options:', credentialRequestOptions);
   const credential = await navigator.credentials.get({
@@ -273,13 +295,16 @@ async function doAbortableAuthenticationCeremonyForUser(userId: string, abortCon
     signal: abortController.signal,
   });
   console.log('assertion:', credential);
-  return await finishAuthenticationSession(session, credential as PublicKeyCredential);
+  return await finishAuthenticationSession(credentialsApi, session, credential as PublicKeyCredential);
 }
 
 // obtains the public key credential request options
 //
 // throws if an error occurs.
-async function getCredentialRequestOptions(username?: string) {
+async function getCredentialRequestOptions(
+  credentialsApi: CredentialsApi,
+  username?: string,
+) {
   // let res;
   if (username != null) {
     // TODO: ask Cognito for sign-in of a specific user
@@ -290,7 +315,10 @@ async function getCredentialRequestOptions(username?: string) {
 }
 
 // authenticates a given public key credential in a discoverable manner.
-async function authenticateDiscoverablePublicKeyCredential(credential: PublicKeyCredential): Promise<Credentials> {
+async function authenticateDiscoverablePublicKeyCredential(
+  credentialsApi: CredentialsApi,
+  credential: PublicKeyCredential,
+): Promise<Credentials> {
   const encodedCredential = encodePublicKeyCredentialForAuthentication(credential);
   console.log('encoded credential:', encodedCredential);
   const publicKeyInfo = extractPublicKeyInfo(encodedCredential);
@@ -325,12 +353,16 @@ async function authenticateDiscoverablePublicKeyCredential(credential: PublicKey
 }
 
 // starts an authentication session.
-async function startAuthenticationSessionForUser(userId: string) {
+async function startAuthenticationSessionForUser(
+  credentialsApi: CredentialsApi,
+  userId: string,
+) {
   return await credentialsApi.startAuthentication(userId);
 }
 
 // authenticates a given public key credential.
 async function finishAuthenticationSession(
+  credentialsApi: CredentialsApi,
   session: any,
   credential: PublicKeyCredential,
 ): Promise<Credentials> {
@@ -373,7 +405,10 @@ function extractPublicKeyInfo(publicKey: PublicKeyCredentialWithAssertionJSON): 
  *
  * @beta
  */
-export async function refreshTokens(refreshToken: string): Promise<CognitoTokens | undefined> {
+export async function refreshTokens(
+  credentialsApi: CredentialsApi,
+  refreshToken: string,
+): Promise<CognitoTokens | undefined> {
   return await credentialsApi.refreshTokens(refreshToken);
 }
 

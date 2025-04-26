@@ -5,6 +5,7 @@ import { RouterLink, useRouter } from 'vue-router';
 
 import { useWebauthn } from '../composables/webauthn';
 import { useCredentialStore } from '../stores/credential';
+import { useCredentialsApiStore } from '../stores/credentials-api';
 import { usePasskeyCapabilityStore } from '../stores/passkey-capability';
 import {
   doAuthenticationCeremony,
@@ -20,6 +21,9 @@ const router = useRouter();
 
 // passkey capabilities
 const passkeyCapabilityStore = usePasskeyCapabilityStore();
+
+// Credentials API access
+const credentialsApiStore = useCredentialsApiStore();
 
 // credential
 const credentialStore = useCredentialStore();
@@ -55,8 +59,8 @@ watch(
     abortAuthentication.value('starting authentication');
     const userId = credentialStore.userId;
     const { abort, credentials: futureCredentials } = userId != null
-      ? doAuthenticationCeremonyForUser(userId)
-      : doAuthenticationCeremony();
+      ? doAuthenticationCeremonyForUser(credentialsApiStore.api, userId)
+      : doAuthenticationCeremony(credentialsApiStore.api);
     abortAuthentication.value = abort;
     try {
       const { publicKeyInfo, tokens } = await futureCredentials;
