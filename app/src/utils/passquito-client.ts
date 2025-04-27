@@ -82,26 +82,16 @@ export class PassquitoClient {
    * @remarks
    *
    * While the authentication ceremony itself is conducted in an asynchronous
-   * manner, this function synchronously returns a getter of the
-   * `AbortController` and a `Promise` of the credentials.
+   * manner, this function synchronously returns a function to abort the
+   * ceremony and a `Promise` of the credentials.
    *
    * Reference:
    * - <https://www.w3.org/TR/webauthn-3/#sctn-verifying-assertion>
    */
   doAuthenticationCeremony() {
-    let abortController: AbortController | undefined = new AbortController();
-    const credentials = this.doAbortableAuthenticationCeremony(abortController).finally(() => {
-      abortController = undefined;
+    return runAbortableAuthentication((abortController) => {
+      return this.doAbortableAuthenticationCeremony(abortController);
     });
-    return {
-      abort: () => {
-        if (abortController != null) {
-          abortController.abort();
-          abortController = undefined;
-        }
-      },
-      credentials,
-    };
   }
 
   /**
@@ -110,23 +100,13 @@ export class PassquitoClient {
    * @remarks
    *
    * While the authentication ceremony itself is conducted in an asynchronous
-   * manner, this function synchronously returns a getter of the
-   * `AbortController` and a `Promise` of the credentials.
+   * manner, this function synchronously returns a function to abort the
+   * ceremony and a `Promise` of the credentials.
    */
   doAuthenticationCeremonyForUser(userId: string) {
-    let abortController: AbortController | undefined = new AbortController();
-    const credentials = this.doAbortableAuthenticationCeremonyForUser(userId, abortController).finally(() => {
-      abortController = undefined;
+    return runAbortableAuthentication((abortController) => {
+      return this.doAbortableAuthenticationCeremonyForUser(userId, abortController);
     });
-    return {
-      abort: () => {
-        if (abortController != null) {
-          abortController.abort();
-          abortController = undefined;
-        }
-      },
-      credentials,
-    };
   }
 
   // conducts an authentication ceremony with a given AbortController.
@@ -205,6 +185,28 @@ export class PassquitoClient {
       tokens,
     };
   }
+}
+
+// runs an abortable authentication operation.
+//
+// this function synchronously returns a function to abort the operation and
+// a `Promise` of the credentials.
+function runAbortableAuthentication(
+  authenticate: (a: AbortController) => Promise<Credentials>,
+) {
+  let abortController: AbortController | undefined = new AbortController();
+  const credentials = authenticate(abortController).finally(() => {
+    abortController = undefined;
+  });
+  return {
+    abort: () => {
+      if (abortController != null) {
+        abortController.abort();
+        abortController = undefined;
+      }
+    },
+    credentials,
+  };
 }
 
 // extracts public key information from an encoded public key credential.
