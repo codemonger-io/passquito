@@ -156,9 +156,8 @@ export class PassquitoClient {
   private async authenticateDiscoverablePublicKeyCredential(
     credential: PublicKeyCredential,
   ): Promise<Credentials> {
-    const encodedCredential = encodePublicKeyCredentialForAuthentication(credential);
-    const publicKeyInfo = extractPublicKeyInfo(encodedCredential);
-    const userHandle = encodedCredential.response.userHandle;
+    const publicKeyInfo = extractPublicKeyInfo(credential);
+    const { userHandle } = publicKeyInfo;
     if (userHandle == null) {
       throw new Error("authenticator must return userHandle");
     }
@@ -199,15 +198,14 @@ export class PassquitoClient {
     session: any,
     credential: PublicKeyCredential,
   ): Promise<Credentials> {
-    const encodedCredential = encodePublicKeyCredentialForAuthentication(credential);
-    const userId = encodedCredential.response.userHandle;
-    if (userId == null) {
+    const publicKeyInfo = extractPublicKeyInfo(credential);
+    const { userHandle } = publicKeyInfo;
+    if (userHandle == null) {
       throw new Error("authenticator must return userHandle");
     }
-    const publicKeyInfo = extractPublicKeyInfo(encodedCredential);
     const tokens = await this.credentialsApi.finishAuthentication(
       session.sessionId,
-      userId,
+      userHandle,
       credential,
     );
     return {
@@ -217,23 +215,12 @@ export class PassquitoClient {
   }
 }
 
-// encodes `PublicKeyCredential` for an authentication API request body.
-//
-// "base64url"-encodes `ArrayBuffer`s.
-function encodePublicKeyCredentialForAuthentication(publicKey: PublicKeyCredential): PublicKeyCredentialWithAssertionJSON {
-  return convert(
-    bufferToBase64url,
-    schema.publicKeyCredentialWithAssertion,
-    publicKey,
-  );
-}
-
 // extracts public key information from an encoded public key credential.
-function extractPublicKeyInfo(publicKey: PublicKeyCredentialWithAssertionJSON): PublicKeyInfo {
+function extractPublicKeyInfo(publicKey: PublicKeyCredential): PublicKeyInfo {
+  const { userHandle } = publicKey.response as AuthenticatorAssertionResponse;
   return {
     id: publicKey.id,
-    userHandle: publicKey.response.userHandle,
+    userHandle: userHandle != null ? bufferToBase64url(userHandle) : null,
     authenticatorAttachment: publicKey.authenticatorAttachment,
   };
 }
-
