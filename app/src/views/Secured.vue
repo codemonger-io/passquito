@@ -5,13 +5,13 @@ import { useRouter } from 'vue-router';
 
 import { credentialsApiUrl } from '../auth-config';
 import { useCredentialStore } from '../stores/credential';
-import { usePassquitoClientStore } from '../stores/passquito-client';
+import { useCredentialsApiStore } from '../stores/credentials-api';
 
 // router
 const router = useRouter();
 
-// Passquito client
-const passquitoClientStore = usePassquitoClientStore();
+// Credentials API access
+const credentialsApiStore = useCredentialsApiStore();
 
 // credential
 const credentialStore = useCredentialStore();
@@ -46,7 +46,7 @@ const refreshTokens = async () => {
   if (refreshToken == null) {
     return false;
   }
-  const newTokens = await passquitoClientStore.api.refreshTokens(refreshToken);
+  const newTokens = await credentialsApiStore.api.refreshTokens(refreshToken);
   if (newTokens == null) {
     return false;
   }
