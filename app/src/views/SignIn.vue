@@ -5,13 +5,9 @@ import { RouterLink, useRouter } from 'vue-router';
 
 import { useWebauthn } from '../composables/webauthn';
 import { useCredentialStore } from '../stores/credential';
-import { useCredentialsApiStore } from '../stores/credentials-api';
 import { usePasskeyCapabilityStore } from '../stores/passkey-capability';
-import {
-  doAuthenticationCeremony,
-  doAuthenticationCeremonyForUser,
-  getErrorName
-} from '../utils/passquito';
+import { usePassquitoClientStore } from '../stores/passquito-client';
+import { getErrorName } from '../utils/passquito';
 
 // router
 //
@@ -22,8 +18,8 @@ const router = useRouter();
 // passkey capabilities
 const passkeyCapabilityStore = usePasskeyCapabilityStore();
 
-// Credentials API access
-const credentialsApiStore = useCredentialsApiStore();
+// Passquito client
+const passquitoClientStore = usePassquitoClientStore();
 
 // credential
 const credentialStore = useCredentialStore();
@@ -59,8 +55,8 @@ watch(
     abortAuthentication.value('starting authentication');
     const userId = credentialStore.userId;
     const { abort, credentials: futureCredentials } = userId != null
-      ? doAuthenticationCeremonyForUser(credentialsApiStore.api, userId)
-      : doAuthenticationCeremony(credentialsApiStore.api);
+      ? passquitoClientStore.client.doAuthenticationCeremonyForUser(userId)
+      : passquitoClientStore.client.doAuthenticationCeremony();
     abortAuthentication.value = abort;
     try {
       const { publicKeyInfo, tokens } = await futureCredentials;
