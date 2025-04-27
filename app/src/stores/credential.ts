@@ -2,8 +2,8 @@ import { StorageSerializers, useStorage } from '@vueuse/core';
 import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
 
-import { isCognitoTokens, isPublicKeyInfo } from '../utils/passquito';
-import type { CognitoTokens, PublicKeyInfo } from '../utils/passquito';
+import { isCognitoTokens, isPublicKeyInfo } from '../utils/passquito-types';
+import type { CognitoTokens, PublicKeyInfo } from '../utils/passquito-types';
 import { makeValidatingSerializer } from '../utils/serializer';
 
 // possible states of the credential.

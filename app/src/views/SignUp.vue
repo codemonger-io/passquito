@@ -3,9 +3,8 @@ import { BButton, BField, BInput, BNotification } from 'buefy';
 import { computed, onMounted, ref } from 'vue';
 import { RouterLink, useRouter } from 'vue-router';
 
-import { useCredentialsApiStore } from '../stores/credentials-api';
 import { usePasskeyCapabilityStore } from '../stores/passkey-capability';
-import { doRegistrationCeremony } from '../utils/passquito';
+import { usePassquitoClientStore } from '../stores/passquito-client';
 
 defineProps({
   message: String
@@ -21,8 +20,8 @@ const router = useRouter();
 // passkey capabilities
 const passkeyCapabilityStore = usePasskeyCapabilityStore();
 
-// Credentials API access
-const credentialsApiStore = useCredentialsApiStore();
+// Passquito client
+const passquitoClientStore = usePassquitoClientStore();
 
 // checks if passkeys are supported 
 onMounted(async () => {
@@ -36,13 +35,10 @@ const displayName = ref('');
 const onSubmit = async () => {
   try {
     console.log('starting registration...');
-    await doRegistrationCeremony(
-      credentialsApiStore.api,
-      {
-        username: username.value,
-        displayName: displayName.value,
-      },
-    );
+    await passquitoClientStore.client.doRegistrationCeremony({
+      username: username.value,
+      displayName: displayName.value,
+    });
     console.log('finished registration!');
     router.push({ name: 'secured' });
   } catch(err) {

@@ -30,6 +30,22 @@ export interface VerifiedUserInfo {
 }
 
 /**
+ * Information about a public key.
+ *
+ * @beta
+ */
+export interface PublicKeyInfo {
+  /** Unique ID of the public key. */
+  id: string;
+
+  /** User handle. Should be the Passquito user ID. */
+  userHandle?: string | null;
+
+  /** Authenticator attachment status. */
+  authenticatorAttachment?: string | null;
+}
+
+/**
  * Cognito tokens.
  *
  * @beta
@@ -57,4 +73,42 @@ export interface CognitoTokens {
    * 1000.
    */
   activatedAt: number;
+}
+
+/**
+ * Returns if a given value is a {@link PublicKeyInfo}.
+ *
+ * @beta
+ */
+export function isPublicKeyInfo(value: unknown): value is PublicKeyInfo {
+  if (value == null || typeof value !== 'object') {
+    return false;
+  }
+  const maybeKeyInfo = value as PublicKeyInfo;
+  if (typeof maybeKeyInfo.id !== 'string') {
+    return false;
+  }
+  if (maybeKeyInfo.userHandle != null && typeof maybeKeyInfo.userHandle !== 'string') {
+    return false;
+  }
+  if (maybeKeyInfo.authenticatorAttachment != null && typeof maybeKeyInfo.authenticatorAttachment !== 'string') {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Returns if a given value is a {@link CognitoTokens}.
+ *
+ * @beta
+ */
+export function isCognitoTokens(value: unknown): value is CognitoTokens {
+  if (value == null || typeof value !== 'object') {
+    return false;
+  }
+  const maybeTokens = value as CognitoTokens;
+  return typeof maybeTokens.idToken === 'string' &&
+    typeof maybeTokens.accessToken === 'string' &&
+    typeof maybeTokens.refreshToken === 'string' &&
+    typeof maybeTokens.activatedAt === 'number';
 }
