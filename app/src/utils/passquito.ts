@@ -1,24 +1,3 @@
-import { parseCreationOptionsFromJSON } from '@github/webauthn-json/browser-ponyfill';
-import {
-  bufferToBase64url,
-  convert,
-  getRequestFromJSON,
-  schema,
-  type PublicKeyCredentialWithAssertionJSON,
-  type PublicKeyCredentialWithAttestationJSON,
-} from '@github/webauthn-json/extended';
-
-import { credentialsApiUrl, isCognito } from '../auth-config';
-import type { CredentialsApi } from './credentials-api';
-import { CredentialsApiImpl } from './credentials-api-impl';
-import type { CognitoTokens, UserInfo, VerifiedUserInfo } from './passquito-types';
-
-// passkey registration session.
-interface RegistrationSession {
-  sessionId: string;
-  options: CredentialCreationOptions;
-}
-
 /**
  * Checks if passkey registration is supported on the current device.
  *
