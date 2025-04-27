@@ -1,12 +1,4 @@
-import { parseCreationOptionsFromJSON } from '@github/webauthn-json/browser-ponyfill';
-import {
-  bufferToBase64url,
-  convert,
-  getRequestFromJSON,
-  schema,
-  type PublicKeyCredentialWithAssertionJSON,
-  type PublicKeyCredentialWithAttestationJSON,
-} from '@github/webauthn-json/extended';
+import { bufferToBase64url } from '@github/webauthn-json/extended';
 
 import type { CredentialsApi } from './credentials-api';
 import type {
