@@ -1,6 +1,6 @@
 import { bufferToBase64url } from '@github/webauthn-json/extended';
 
-import type { CredentialsApi } from './credentials-api';
+import type { CredentialsApi, RegistrationSession } from './credentials-api';
 import type {
   CognitoTokens,
   PublicKeyInfo,
@@ -41,15 +41,9 @@ export class PassquitoClient {
    * - <https://www.w3.org/TR/webauthn-3/#sctn-registering-a-new-credential>
    */
   async doRegistrationCeremony(userInfo: UserInfo) {
-      const session = await this.credentialsApi.startRegistration(userInfo);
-      const credential = await navigator.credentials.create(session.credentialCreationOptions);
-      if (credential == null) {
-        throw new Error('failed to create a new credential');
-      }
-      await this.credentialsApi.finishRegistration(
-        session.sessionId,
-        credential as PublicKeyCredential,
-      );
+    await this.runRegistrationSession(
+      await this.credentialsApi.startRegistration(userInfo),
+    );
   }
 
   /**
@@ -65,7 +59,13 @@ export class PassquitoClient {
    * - <https://www.w3.org/TR/webauthn-3/#sctn-registering-a-new-credential>
    */
   async doRegistrationCeremonyForVerifiedUser(userInfo: VerifiedUserInfo) {
-    const session = await this.credentialsApi.startRegistrationForVerifiedUser(userInfo);
+    await this.runRegistrationSession(
+      await this.credentialsApi.startRegistrationForVerifiedUser(userInfo),
+    );
+  }
+
+  // runs a given registration session.
+  private async runRegistrationSession(session: RegistrationSession) {
     const credential = await navigator.credentials.create(session.credentialCreationOptions);
     if (credential == null) {
       throw new Error('failed to create a new credential');
