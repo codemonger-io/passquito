@@ -118,25 +118,19 @@ export class PassquitoClient {
       ...options,
       mediation: 'conditional',
       signal: abortController.signal,
-    });
-    return await this.authenticateDiscoverablePublicKeyCredential(
-      credential as PublicKeyCredential,
-    );
-  }
-
-  // authenticates a given public key credential in a discoverable manner.
-  private async authenticateDiscoverablePublicKeyCredential(
-    credential: PublicKeyCredential,
-  ): Promise<Credentials> {
+    }) as (PublicKeyCredential | null);
+    if (credential == null) {
+      throw new Error('public key credential must be provided');
+    }
     const publicKeyInfo = extractPublicKeyInfo(credential);
     const { userHandle } = publicKeyInfo;
     if (userHandle == null) {
-      throw new Error("authenticator must return userHandle");
+      throw new Error('authenticator must return userHandle');
     }
-    const session = await this.credentialsApi.startAuthentication(userHandle);
-    // ignores challenge parameters for discoverable credentials
+    const { sessionId } = await this.credentialsApi.startAuthentication(userHandle);
+    // ignores other parameters for discoverable credentials
     const tokens = await this.credentialsApi.finishAuthentication(
-      session.sessionId,
+      sessionId,
       userHandle,
       credential,
     );
@@ -153,35 +147,21 @@ export class PassquitoClient {
     abortController: AbortController,
   ) {
     const session = await this.credentialsApi.startAuthentication(userId);
-    const { credentialRequestOptions } = session;
     const credential = await navigator.credentials.get({
-      ...credentialRequestOptions,
+      ...session.credentialRequestOptions,
       mediation: 'conditional',
       signal: abortController.signal,
-    });
-    return await this.finishAuthenticationSession(
-      session,
-      credential as PublicKeyCredential,
-    );
-  }
-
-  // authenticates a given public key credential.
-  private async finishAuthenticationSession(
-    session: any,
-    credential: PublicKeyCredential,
-  ): Promise<Credentials> {
-    const publicKeyInfo = extractPublicKeyInfo(credential);
-    const { userHandle } = publicKeyInfo;
-    if (userHandle == null) {
-      throw new Error("authenticator must return userHandle");
+    }) as (PublicKeyCredential | null);
+    if (credential == null) {
+      throw new Error('public key credential must be provided');
     }
     const tokens = await this.credentialsApi.finishAuthentication(
       session.sessionId,
-      userHandle,
+      userId,
       credential,
     );
     return {
-      publicKeyInfo,
+      publicKeyInfo: extractPublicKeyInfo(credential),
       tokens,
     };
   }
