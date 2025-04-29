@@ -14,7 +14,7 @@
   },
   "dependencies": {
     "@aws-sdk/client-cognito-identity-provider": "^3.437.0",
-    "@codemonger-io/passquito-client-js": "../passquito-client-js",
+    "@codemonger-io/passquito-client-js": "workspace:*",
     "@github/webauthn-json": "^2.1.1",
     "@vueuse/core": "^12.8.2",
     "buefy": "npm:@ntohq/buefy-next@0.2.0",
@@ -35,9 +35,9 @@
     "eslint": "^8.49.0",
     "eslint-plugin-vue": "^9.17.0",
     "jsdom": "^22.1.0",
-    "npm-run-all2": "^6.0.6",
+    "npm-run-all2": "catalog:",
     "prettier": "^3.0.3",
-    "typescript": "~5.2.0",
+    "typescript": "catalog:",
     "vite": "^4.4.9",
     "vitest": "^0.34.4",
     "vue-tsc": "^1.8.11"
