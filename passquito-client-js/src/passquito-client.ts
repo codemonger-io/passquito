@@ -6,7 +6,7 @@ import type {
   PublicKeyInfo,
   UserInfo,
   VerifiedUserInfo,
-} from './passquito-types';
+} from './types';
 
 /**
  * Cognito tokens and the key info.
@@ -37,8 +37,8 @@ export class PassquitoClient {
    * @remarks
    *
    * References:
-   * - <https://web.dev/articles/passkey-registration>
-   * - <https://www.w3.org/TR/webauthn-3/#sctn-registering-a-new-credential>
+   * - https://web.dev/articles/passkey-registration
+   * - https://www.w3.org/TR/webauthn-3/#sctn-registering-a-new-credential
    */
   async doRegistrationCeremony(userInfo: UserInfo) {
     await this.runRegistrationSession(
@@ -55,8 +55,8 @@ export class PassquitoClient {
    * authentication and wants to register a new device (credential).
    *
    * References:
-   * - <https://web.dev/articles/passkey-registration>
-   * - <https://www.w3.org/TR/webauthn-3/#sctn-registering-a-new-credential>
+   * - https://web.dev/articles/passkey-registration
+   * - https://www.w3.org/TR/webauthn-3/#sctn-registering-a-new-credential
    */
   async doRegistrationCeremonyForVerifiedUser(userInfo: VerifiedUserInfo) {
     await this.runRegistrationSession(
@@ -86,7 +86,7 @@ export class PassquitoClient {
    * ceremony and a `Promise` of the credentials.
    *
    * Reference:
-   * - <https://www.w3.org/TR/webauthn-3/#sctn-verifying-assertion>
+   * - https://www.w3.org/TR/webauthn-3/#sctn-verifying-assertion
    */
   doAuthenticationCeremony() {
     return runAbortableAuthentication((abortController) => {

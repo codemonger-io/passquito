@@ -9,11 +9,7 @@ import {
 } from '@github/webauthn-json/extended';
 
 import type { CredentialsApi } from './credentials-api';
-import type {
-  CognitoTokens,
-  UserInfo,
-  VerifiedUserInfo,
-} from './passquito-types';
+import type { CognitoTokens, UserInfo, VerifiedUserInfo } from './types';
 
 // raw Cognito tokens returned from the API
 type RawCognitoTokens = Omit<CognitoTokens, 'activatedAt'>;

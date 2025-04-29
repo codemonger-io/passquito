@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
 
-import { PassquitoClient } from '../utils/passquito-client';
+import { PassquitoClient } from '@codemonger-io/passquito-client-js';
 
 import { useCredentialsApiStore } from './credentials-api';
 

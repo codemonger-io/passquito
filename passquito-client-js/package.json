@@ -1,0 +1,41 @@
+{
+  "name": "@codemonger-io/passquito-client-js",
+  "version": "0.0.1",
+  "description": "Passquito client for JavaScript on browsers",
+  "license": "MIT",
+  "author": "Kikuo Emoto <kemoto@codemonger.io>",
+  "keywords": [
+    "passkey"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/codemonger-io/passquito.git"
+  },
+  "packageManager": "pnpm@10.7.1",
+  "main": "dist/passquito-client-js.mjs",
+  "types": "dist/passquito-client-js.d.ts",
+  "files": [
+    "dist/*.mjs",
+    "dist/*.d.ts"
+  ],
+  "scripts": {
+    "type-check": "tsc --noEmit",
+    "build": "rimraf dist && run-s build:js build:dts",
+    "build:js": "rollup -c",
+    "build:dts": "rimraf dist/dts && tsc -b tsconfig.types.json --force && api-extractor run --local",
+    "doc": "api-documenter markdown --input-folder temp --output-folder api/markdown",
+    "prepare": "run-s build"
+  },
+  "devDependencies": {
+    "@microsoft/api-documenter": "^7.26.19",
+    "@microsoft/api-extractor": "^7.52.3",
+    "npm-run-all2": "^7.0.2",
+    "rimraf": "^6.0.1",
+    "rollup": "^4.39.0",
+    "rollup-plugin-esbuild": "^6.2.1",
+    "typescript": "~5.2.2"
+  },
+  "dependencies": {
+    "@github/webauthn-json": "^2.1.1"
+  }
+}
