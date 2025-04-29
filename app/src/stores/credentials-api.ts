@@ -1,8 +1,9 @@
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
 
+import { CredentialsApiImpl } from '@codemonger-io/passquito-client-js';
+
 import { credentialsApiUrl } from '../auth-config';
-import { CredentialsApiImpl } from '../utils/credentials-api-impl';
 
 export const useCredentialsApiStore = defineStore('credentials-api', () => {
   // credentials API

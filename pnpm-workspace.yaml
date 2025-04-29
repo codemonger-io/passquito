@@ -1,5 +1,9 @@
 packages:
   # core library
   - passquito-cdk-construct
+  # client library for JavaScript on a browser
+  - passquito-client-js
   # example CDK app
   - cdk
+  # example web app
+  - app

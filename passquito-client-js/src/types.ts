@@ -3,7 +3,8 @@
  *
  * @remarks
  *
- * Neither `username` nor `displayName` have to be unique.
+ * Neither {@link UserInfo.username|username} nor
+ * {@link UserInfo.displayName|displayName} have to be unique.
  * They are for display purposes only.
  *
  * @beta
@@ -64,13 +65,13 @@ export interface CognitoTokens {
   expiresIn: number;
 
   /**
-   * Activation time represented as the number of milliseconds since 00:00:00
-   * on January 1, 1970 in UTC.
+   * Activation time represented as the number of milliseconds elapsed since
+   * 00:00:00 on January 1, 1970 in UTC.
    *
    * @remarks
    *
-   * Expiration time of tokens is approximately this value plus `expiresIn` ×
-   * 1000.
+   * Expiration time of tokens is approximately this value plus
+   * {@link CognitoTokens.expiresIn|expiresIn} × 1000.
    */
   activatedAt: number;
 }

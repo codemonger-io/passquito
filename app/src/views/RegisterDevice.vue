@@ -6,7 +6,7 @@ import { useRouter } from 'vue-router';
 import { useCredentialStore } from '../stores/credential';
 import { usePasskeyCapabilityStore } from '../stores/passkey-capability';
 import { usePassquitoClientStore } from '../stores/passquito-client';
-import { getErrorName } from '../utils/passquito';
+import { getErrorName } from '../utils/errors';
 
 // router
 const router = useRouter();

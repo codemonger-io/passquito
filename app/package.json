@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "@aws-sdk/client-cognito-identity-provider": "^3.437.0",
+    "@codemonger-io/passquito-client-js": "../passquito-client-js",
     "@github/webauthn-json": "^2.1.1",
     "@vueuse/core": "^12.8.2",
     "buefy": "npm:@ntohq/buefy-next@0.2.0",
