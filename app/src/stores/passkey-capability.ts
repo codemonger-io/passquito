@@ -1,6 +1,11 @@
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
 
+import {
+  checkPasskeyAuthenticationSupported,
+  checkPasskeyRegistrationSupported,
+} from '@codemonger-io/passquito-client-js';
+
 export const usePasskeyCapabilityStore = defineStore('passkey-capability', () => {
   // whether capabilities are indeterminate
   // (not asked for, or being asked for)
@@ -28,39 +33,12 @@ export const usePasskeyCapabilityStore = defineStore('passkey-capability', () =>
       return;
     }
     _isAskingForCapabilities.value = true;
-    // authentication is available if a conditional mediation is available
-    // registration is available if both conditional mediation and user
-    // verifying platform authenticator are available
     // no capabilities by default
     isAuthenticationSupported.value = false;
     isRegistrationSupported.value = false;
     try {
-      if (!window.PublicKeyCredential) {
-        console.warn('no PublicKeyCredential');
-        return;
-      }
-      // asks the authentication capability
-      if (typeof window.PublicKeyCredential.isConditionalMediationAvailable !== 'function') {
-        console.warn('no isConditionalMediationAvailable');
-        return;
-      }
-      isAuthenticationSupported.value =
-        await window.PublicKeyCredential.isConditionalMediationAvailable();
-      if (!isAuthenticationSupported.value) {
-        console.warn('not isConditionalMediationAvailable');
-        return;
-      }
-      // asks the registration capability
-      if (typeof window.PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable !== 'function') {
-        console.warn('no isUserVerifyingPlatformAuthenticatorAvailable');
-        return;
-      }
-      isRegistrationSupported.value =
-        await window.PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
-      if (!isRegistrationSupported.value) {
-        console.warn('not isUserVerifyingPlatformAuthenticatorAvailable');
-        return;
-      }
+      isAuthenticationSupported.value = await checkPasskeyAuthenticationSupported();
+      isRegistrationSupported.value = await checkPasskeyRegistrationSupported();
     } catch (err) {
       console.error(err);
     } finally {
