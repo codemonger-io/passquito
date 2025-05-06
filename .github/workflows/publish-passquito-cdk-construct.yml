@@ -29,7 +29,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.node-version }}
-          cache: pnpm
+          # cache: pnpm
           registry-url: 'https://npm.pkg.github.com'
 
       # appends the short commit hash to the version
