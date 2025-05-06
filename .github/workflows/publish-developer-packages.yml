@@ -1,0 +1,17 @@
+name: Publish developer packages
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish-passquito-cdk-construct:
+    uses: ./.github/workflows/publish-passquito-cdk-construct.yml
+
+    secrets:
+      package-reader-pat: ${{ secrets.PACKAGE_READER_PAT }}
