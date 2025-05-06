@@ -1,0 +1,73 @@
+name: Publish passquito-cdk-construct
+
+on:
+  workflow_call:
+    secrets:
+      package-reader-pat:
+        description: "GitHub personal access token (PAT) which has at least the 'read:packages' scope to read packages from GitHub Packages."
+        required: true
+
+env:
+  node-version: 22.x
+  pnpm-version: 10
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Get short commit hash
+        run: echo "SHORT_COMMIT_HASH=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
+
+      # pnpm has to be installed prior to running actions/setup-node
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.pnpm-version }}
+          run_install: false
+
+      - name: Setup Node.js ${{ env.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.node-version }}
+          cache: pnpm
+          registry-url: 'https://npm.pkg.github.com'
+
+      # appends the short commit hash to the version
+      # 1. reads package.json
+      # 2. replaces version in package.json
+      - name: Extract package information
+        id: package_info
+        # uses the exact commit to prevent harmful updates
+        uses: jaywcjlove/github-action-package@f6a7afaf74f96a166243f05560d5af4bd4eaa570
+        with:
+          path: passquito-cdk-construct/package.json
+      - name: Append short commit hash to version
+        # uses the exact commit to prevent harmful updates
+        uses: jaywcjlove/github-action-package@f6a7afaf74f96a166243f05560d5af4bd4eaa570
+        with:
+          path: passquito-cdk-construct/package.json
+          version: ${{ steps.package_info.outputs.version }}-${{ env.SHORT_COMMIT_HASH }}
+
+      - name: Install dependencies
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.package-reader-pat }}
+        run: pnpm install
+
+      - name: Build distribution
+        run: pnpm run -r --filter "${{ steps.package_info.outputs.name }}" build
+
+      - name: Publish package
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          pnpm publish -r \
+            --filter "${{ steps.package_info.outputs.name }}" \
+            --no-git-checks
