@@ -49,7 +49,7 @@ jobs:
           version: ${{ steps.package_info.outputs.version }}-${{ env.SHORT_COMMIT_HASH }}
 
       - name: Install dependencies
-        run: pnpm install --ignore-scripts
+        run: pnpm install
 
       - name: Build distribution
         run: pnpm run -r --filter "${{ steps.package_info.outputs.name }}" build
