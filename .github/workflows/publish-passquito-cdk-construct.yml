@@ -51,10 +51,13 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Build distribution
+        run: pnpm run -r --filter "${{ steps.package_info.outputs.name }}" build
+
       - name: Publish package
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          pnpm publish \
-            --filter "@codemonger-io/passquito-cdk-construct" \
+          pnpm publish -r \
+            --filter "${{ steps.package_info.output.name }}" \
             --no-git-checks
