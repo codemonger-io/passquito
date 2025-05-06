@@ -1,0 +1,12 @@
+name: Publish developer packages
+
+on:
+  push:
+    branches:
+      - dev
+
+jobs:
+  publish-passquito-cdk-construct:
+    runs-on: ubuntu-latest
+
+    uses: ./.github/workflows/publish-passquito-cdk-construct.yml
