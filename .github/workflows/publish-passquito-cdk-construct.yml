@@ -5,7 +5,7 @@ on:
 
 env:
   node-version: 22.x
-  pnpm-version: 10
+  pnpm-version: 10.7
 
 jobs:
   publish:
