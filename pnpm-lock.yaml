@@ -181,27 +181,27 @@ importers:
 
   passquito-cdk-construct:
     dependencies:
+      '@codemonger-io/cdk-cors-utils':
+        specifier: 0.4.0-8678c3d
+        version: 0.4.0-8678c3d(aws-cdk-lib@2.188.0(constructs@10.4.2))
+      '@codemonger-io/cdk-ghost-string-parameter':
+        specifier: 0.2.0-9e4f21e
+        version: 0.2.0-9e4f21e(aws-cdk-lib@2.188.0(constructs@10.4.2))(constructs@10.4.2)
+      '@codemonger-io/cdk-rest-api-with-spec':
+        specifier: 0.3.0-fc7e7de
+        version: 0.3.0-fc7e7de
+      '@codemonger-io/mapping-template-compose':
+        specifier: 0.2.0-aecf920
+        version: 0.2.0-aecf920
       aws-cdk-lib:
         specifier: '>=2.0.0'
         version: 2.188.0(constructs@10.4.2)
       cargo-lambda-cdk:
         specifier: 'catalog:'
         version: 0.0.33(aws-cdk-lib@2.188.0(constructs@10.4.2))(constructs@10.4.2)
-      cdk-ghost-string-parameter:
-        specifier: github:codemonger-io/cdk-ghost-string-parameter#v0.1.0
-        version: https://codeload.github.com/codemonger-io/cdk-ghost-string-parameter/tar.gz/93b085e8873d19a8eb8bbdc134290cbef45b8c8e(aws-cdk-lib@2.188.0(constructs@10.4.2))(constructs@10.4.2)
-      cdk-rest-api-with-spec:
-        specifier: github:codemonger-io/cdk-rest-api-with-spec#v0.2.3
-        version: https://codeload.github.com/codemonger-io/cdk-rest-api-with-spec/tar.gz/45bf3dd6de66664f8b9c134690f61a8944b4cebc
-      cdk2-cors-utils:
-        specifier: github:codemonger-io/cdk-cors-utils#v0.3.0
-        version: https://codeload.github.com/codemonger-io/cdk-cors-utils/tar.gz/a21eb69a74043042d10a8499cc123577d9ac8c1b(aws-cdk-lib@2.188.0(constructs@10.4.2))
       constructs:
         specifier: '>=10.0.0'
         version: 10.4.2
-      mapping-template-compose:
-        specifier: github:codemonger-io/mapping-template-compose#v0.1.1
-        version: https://codeload.github.com/codemonger-io/mapping-template-compose/tar.gz/cf37f9a7251db631f788f450d637c79a5562f488
     devDependencies:
       '@microsoft/api-documenter':
         specifier: 'catalog:'
@@ -633,6 +633,27 @@ packages:
 
   '@bcoe/v8-coverage@0.2.3':
     resolution: {integrity: sha512-0hYQ8SB4Db5zvZB4axdMHGwEaQjkZzFjQiN9LVYvIFB2nSUHW9tYpxWriPrWDASIxiaXax83REcLxuSdnGPZtw==}
+
+  '@codemonger-io/cdk-cors-utils@0.4.0-8678c3d':
+    resolution: {integrity: sha512-z+Gs2ioXaPE85sAgfkBTQzdrkgy2aSRPDLFJSx/vOYY7klqcxRR9WGOPmHbBfz7UvPPDsGFFx+7VQ3xeulNBnQ==, tarball: https://npm.pkg.github.com/download/@codemonger-io/cdk-cors-utils/0.4.0-8678c3d/58c448b96eef7e33d403074c181fcaa44f18bdfd}
+    engines: {node: '>=12.0.0'}
+    peerDependencies:
+      aws-cdk-lib: '>=2.0.0'
+
+  '@codemonger-io/cdk-ghost-string-parameter@0.2.0-9e4f21e':
+    resolution: {integrity: sha512-8h2nxSnLmJX2L5M3XodSQ5JcIzW2k+Vx0I3FYX/P/J6vltSOyauaWMojlu8AZYgIDoP6uaXugqMLT17/xgQ7yA==, tarball: https://npm.pkg.github.com/download/@codemonger-io/cdk-ghost-string-parameter/0.2.0-9e4f21e/a889f87b8cf8a7b70b763a62528c95a5da954a2a}
+    engines: {node: '>=12.0.0'}
+    peerDependencies:
+      aws-cdk-lib: ^2.0
+      constructs: ^10.0
+
+  '@codemonger-io/cdk-rest-api-with-spec@0.3.0-fc7e7de':
+    resolution: {integrity: sha512-lFH5JT8UtRHXfhkLUzQcJcKHyucf4r/hCeuO3OTuZlIPbSXif4OqAfMuGi/7808jUULtxhjeDgw6tGSfo9YEzg==, tarball: https://npm.pkg.github.com/download/@codemonger-io/cdk-rest-api-with-spec/0.3.0-fc7e7de/290923236432f17a30f882841492d7f3e7f9e26c}
+    engines: {node: '>=12.0'}
+
+  '@codemonger-io/mapping-template-compose@0.2.0-aecf920':
+    resolution: {integrity: sha512-O+JNLjzK4sbps1mI60GwOfef3/alRXYqKeLnUVc7cNeY72AuYjTYFGAJAPlumT5SopuGfCviZ4tThABScQKN2A==, tarball: https://npm.pkg.github.com/download/@codemonger-io/mapping-template-compose/0.2.0-aecf920/9501a5b477f9a6ffe5111b43513df5276a3185fe}
+    engines: {node: '>=12.0.0'}
 
   '@cspotcode/source-map-support@0.8.1':
     resolution: {integrity: sha512-IchNf6dN4tHoMFIn/7OE8LWZ19Y6q/67Bmf6vnGREv8RSbBVb9LPJxEcnwrcwX6ixSvaiGoomAUvu4YSxXrVgw==}
@@ -1947,26 +1968,6 @@ packages:
     bundledDependencies:
       - js-toml
 
-  cdk-ghost-string-parameter@https://codeload.github.com/codemonger-io/cdk-ghost-string-parameter/tar.gz/93b085e8873d19a8eb8bbdc134290cbef45b8c8e:
-    resolution: {tarball: https://codeload.github.com/codemonger-io/cdk-ghost-string-parameter/tar.gz/93b085e8873d19a8eb8bbdc134290cbef45b8c8e}
-    version: 0.1.0
-    engines: {node: '>=12.0.0'}
-    peerDependencies:
-      aws-cdk-lib: ^2.0
-      constructs: ^10.0
-
-  cdk-rest-api-with-spec@https://codeload.github.com/codemonger-io/cdk-rest-api-with-spec/tar.gz/45bf3dd6de66664f8b9c134690f61a8944b4cebc:
-    resolution: {tarball: https://codeload.github.com/codemonger-io/cdk-rest-api-with-spec/tar.gz/45bf3dd6de66664f8b9c134690f61a8944b4cebc}
-    version: 0.2.3
-    engines: {node: '>=12.0'}
-
-  cdk2-cors-utils@https://codeload.github.com/codemonger-io/cdk-cors-utils/tar.gz/a21eb69a74043042d10a8499cc123577d9ac8c1b:
-    resolution: {tarball: https://codeload.github.com/codemonger-io/cdk-cors-utils/tar.gz/a21eb69a74043042d10a8499cc123577d9ac8c1b}
-    version: 0.3.0
-    engines: {node: '>=12.0.0'}
-    peerDependencies:
-      aws-cdk-lib: '>=2.0.0'
-
   chai@4.5.0:
     resolution: {integrity: sha512-RITGBfijLkBddZvnn8jdqoTypxvqbOLYQkGGxXzeFjVHvudaPw0HNFD9x928/eUwYWd2dPCugVqspGALTZZQKw==}
     engines: {node: '>=4'}
@@ -2909,11 +2910,6 @@ packages:
 
   makeerror@1.0.12:
     resolution: {integrity: sha512-JmqCvUhmt43madlpFzG4BQzG2Z3m6tvQDNKdClZnO3VbIudJYmxsT0FNJMeiB2+JTSlTQTSbU8QdesVmwJcmLg==}
-
-  mapping-template-compose@https://codeload.github.com/codemonger-io/mapping-template-compose/tar.gz/cf37f9a7251db631f788f450d637c79a5562f488:
-    resolution: {tarball: https://codeload.github.com/codemonger-io/mapping-template-compose/tar.gz/cf37f9a7251db631f788f450d637c79a5562f488}
-    version: 0.1.1
-    engines: {node: '>=12.0.0'}
 
   math-intrinsics@1.1.0:
     resolution: {integrity: sha512-/IXtbwEk5HTPyEwyKX6hGkYXxM9nbj64B+ilVJnC/R6B0pH5G4V3b0pVbL7DBj4tkhBAppbQUlf6F6Xl9LHu1g==}
@@ -4688,6 +4684,21 @@ snapshots:
 
   '@bcoe/v8-coverage@0.2.3': {}
 
+  '@codemonger-io/cdk-cors-utils@0.4.0-8678c3d(aws-cdk-lib@2.188.0(constructs@10.4.2))':
+    dependencies:
+      aws-cdk-lib: 2.188.0(constructs@10.4.2)
+
+  '@codemonger-io/cdk-ghost-string-parameter@0.2.0-9e4f21e(aws-cdk-lib@2.188.0(constructs@10.4.2))(constructs@10.4.2)':
+    dependencies:
+      aws-cdk-lib: 2.188.0(constructs@10.4.2)
+      constructs: 10.4.2
+
+  '@codemonger-io/cdk-rest-api-with-spec@0.3.0-fc7e7de':
+    dependencies:
+      openapi3-ts: 2.0.2
+
+  '@codemonger-io/mapping-template-compose@0.2.0-aecf920': {}
+
   '@cspotcode/source-map-support@0.8.1':
     dependencies:
       '@jridgewell/trace-mapping': 0.3.9
@@ -6188,19 +6199,6 @@ snapshots:
       aws-cdk-lib: 2.188.0(constructs@10.4.2)
       constructs: 10.4.2
 
-  cdk-ghost-string-parameter@https://codeload.github.com/codemonger-io/cdk-ghost-string-parameter/tar.gz/93b085e8873d19a8eb8bbdc134290cbef45b8c8e(aws-cdk-lib@2.188.0(constructs@10.4.2))(constructs@10.4.2):
-    dependencies:
-      aws-cdk-lib: 2.188.0(constructs@10.4.2)
-      constructs: 10.4.2
-
-  cdk-rest-api-with-spec@https://codeload.github.com/codemonger-io/cdk-rest-api-with-spec/tar.gz/45bf3dd6de66664f8b9c134690f61a8944b4cebc:
-    dependencies:
-      openapi3-ts: 2.0.2
-
-  cdk2-cors-utils@https://codeload.github.com/codemonger-io/cdk-cors-utils/tar.gz/a21eb69a74043042d10a8499cc123577d9ac8c1b(aws-cdk-lib@2.188.0(constructs@10.4.2)):
-    dependencies:
-      aws-cdk-lib: 2.188.0(constructs@10.4.2)
-
   chai@4.5.0:
     dependencies:
       assertion-error: 1.1.0
@@ -7428,8 +7426,6 @@ snapshots:
   makeerror@1.0.12:
     dependencies:
       tmpl: 1.0.5
-
-  mapping-template-compose@https://codeload.github.com/codemonger-io/mapping-template-compose/tar.gz/cf37f9a7251db631f788f450d637c79a5562f488: {}
 
   math-intrinsics@1.1.0: {}
 
