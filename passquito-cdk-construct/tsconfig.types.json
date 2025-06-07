@@ -6,5 +6,6 @@
     "emitDeclarationOnly": true,
     "stripInternal": true,
     "declarationDir": "dist/dts"
-  }
+  },
+  "exclude": ["test"]
 }
