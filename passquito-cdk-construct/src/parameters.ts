@@ -1,4 +1,4 @@
-import { GhostStringParameter } from 'cdk-ghost-string-parameter';
+import { GhostStringParameter } from '@codemonger-io/cdk-ghost-string-parameter';
 import { Construct } from 'constructs';
 
 /**
