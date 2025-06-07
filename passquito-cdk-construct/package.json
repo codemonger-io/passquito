@@ -51,11 +51,11 @@
     "typescript": "catalog:"
   },
   "dependencies": {
-    "cargo-lambda-cdk": "catalog:",
-    "cdk-ghost-string-parameter": "github:codemonger-io/cdk-ghost-string-parameter#v0.1.0",
-    "cdk-rest-api-with-spec": "github:codemonger-io/cdk-rest-api-with-spec#v0.2.3",
-    "cdk2-cors-utils": "github:codemonger-io/cdk-cors-utils#v0.3.0",
-    "mapping-template-compose": "github:codemonger-io/mapping-template-compose#v0.1.1"
+    "@codemonger-io/cdk-cors-utils": "0.4.0-8678c3d",
+    "@codemonger-io/cdk-ghost-string-parameter": "0.2.0-9e4f21e",
+    "@codemonger-io/cdk-rest-api-with-spec": "0.3.0-fc7e7de",
+    "@codemonger-io/mapping-template-compose": "0.2.0-aecf920",
+    "cargo-lambda-cdk": "catalog:"
   },
   "peerDependencies": {
     "aws-cdk-lib": ">=2.0.0",
