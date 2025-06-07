@@ -15,3 +15,9 @@ jobs:
 
     secrets:
       package-reader-pat: ${{ secrets.PACKAGE_READER_PAT }}
+
+  publish-passquito-client-js:
+    uses: ./.github/workflows/publish-passquito-client-js.yml
+
+    secrets:
+      package-reader-pat: ${{ secrets.PACKAGE_READER_PAT }}
