@@ -46,7 +46,7 @@
     "rimraf": "catalog:",
     "rollup": "catalog:",
     "rollup-plugin-esbuild": "catalog:",
-    "ts-jest": "^29.1.1",
+    "ts-jest": "catalog:",
     "ts-node": "catalog:",
     "typescript": "catalog:"
   },
