@@ -117,27 +117,6 @@ string
 </td></tr>
 <tr><td>
 
-[parameters](./passquito-cdk-construct.passquitocore.parameters.md)
-
-
-</td><td>
-
-`readonly`
-
-
-</td><td>
-
-Parameters
-
-
-</td><td>
-
-**_(BETA)_** Parameters in Systems Manager (SSM) Parameter Store.
-
-
-</td></tr>
-<tr><td>
-
 [rpOriginParameterPath](./passquito-cdk-construct.passquitocore.rporiginparameterpath.md)
 
 
@@ -175,6 +154,27 @@ SessionStore
 </td><td>
 
 **_(BETA)_** Session store resources.
+
+
+</td></tr>
+<tr><td>
+
+[ssmParameters](./passquito-cdk-construct.passquitocore.ssmparameters.md)
+
+
+</td><td>
+
+`readonly`
+
+
+</td><td>
+
+[SsmParameters](./passquito-cdk-construct.ssmparameters.md)
+
+
+</td><td>
+
+**_(BETA)_** Parameters in Systems Manager (SSM) Parameter Store.
 
 
 </td></tr>

@@ -59,4 +59,25 @@ string
 
 
 </td></tr>
+<tr><td>
+
+[ssmParametersProps?](./passquito-cdk-construct.passquitocoreprops.ssmparametersprops.md)
+
+
+</td><td>
+
+`readonly`
+
+
+</td><td>
+
+[SsmParametersProps](./passquito-cdk-construct.ssmparametersprops.md)
+
+
+</td><td>
+
+**_(BETA)_** _(Optional)_ Properties for [SsmParameters](./passquito-cdk-construct.ssmparameters.md)<!-- -->.
+
+
+</td></tr>
 </tbody></table>
