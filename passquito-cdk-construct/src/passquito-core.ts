@@ -1,7 +1,7 @@
 import { Construct } from 'constructs';
 
 import { CredentialsApi } from './credentials-api';
-import { Parameters, type ParametersProps } from './parameters';
+import { SsmParameters, type SsmParametersProps } from './ssm-parameters';
 import { SessionStore } from './session-store';
 import { UserPool } from './user-pool';
 
@@ -21,14 +21,14 @@ export interface PassquitoCoreProps {
   readonly distributionDomainName?: string;
 
   /**
-   * Properties for {@link Parameters}.
+   * Properties for {@link SsmParameters}.
    *
    * @remarks
    *
    * You can customize the parameter path for the relying party origin with
    * this option.
    */
-  readonly parametersProps?: ParametersProps;
+  readonly ssmParametersProps?: SsmParametersProps;
 }
 
 /**
@@ -38,7 +38,7 @@ export interface PassquitoCoreProps {
  */
 export class PassquitoCore extends Construct {
   /** Parameters in Systems Manager (SSM) Parameter Store. */
-  readonly parameters: Parameters;
+  readonly ssmParameters: SsmParameters;
 
   /** Session store resources. */
   readonly sessionStore: SessionStore;
@@ -54,15 +54,16 @@ export class PassquitoCore extends Construct {
 
     const { distributionDomainName } = props ?? {};
 
-    this.parameters = new Parameters(this, 'Parameters', props?.parametersProps);
+    this.ssmParameters =
+      new SsmParameters(this, 'SsmParameters', props?.ssmParametersProps);
     this.sessionStore = new SessionStore(this, 'SessionStore');
     this.userPool = new UserPool(this, 'UserPool', {
-      parameters: this.parameters,
+      ssmParameters: this.ssmParameters,
       sessionStore: this.sessionStore,
     });
     this.credentialsApi = new CredentialsApi(this, 'CredentialsApi', {
       basePath: '/auth/credentials/',
-      parameters: this.parameters,
+      ssmParameters: this.ssmParameters,
       sessionStore: this.sessionStore,
       userPool: this.userPool,
       allowOrigins: [
@@ -76,7 +77,7 @@ export class PassquitoCore extends Construct {
 
   /** Path to the SSM Parameter Store parameter that stores the relying party origin (in a URL form). */
   get rpOriginParameterPath(): string {
-    return this.parameters.rpOriginParameterPath;
+    return this.ssmParameters.rpOriginParameterPath;
   }
 
   /** User pool ID. */

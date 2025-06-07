@@ -9,7 +9,7 @@ import {
 import { RustFunction } from 'cargo-lambda-cdk';
 import { Construct } from 'constructs';
 
-import type { Parameters } from './parameters';
+import type { SsmParameters } from './ssm-parameters';
 import type { SessionStore } from './session-store';
 
 /**
@@ -19,7 +19,7 @@ import type { SessionStore } from './session-store';
  */
 export interface UserPoolProps {
   /** Parameters in Parameter Store on AWS Systems Manager. */
-  readonly parameters: Parameters;
+  readonly ssmParameters: SsmParameters;
 
   /** Session store. */
   readonly sessionStore: SessionStore;
@@ -67,7 +67,7 @@ export class UserPool extends Construct {
   constructor(scope: Construct, id: string, props: UserPoolProps) {
     super(scope, id);
 
-    const { parameters, sessionStore } = props;
+    const { ssmParameters, sessionStore } = props;
 
     this.credentialTable = new dynamodb.TableV2(this, 'CredentialTable', {
       partitionKey: {
@@ -107,14 +107,14 @@ export class UserPool extends Construct {
         environment: {
           CREDENTIAL_TABLE_NAME: this.credentialTable.tableName,
           SESSION_TABLE_NAME: sessionStore.sessionTable.tableName,
-          RP_ORIGIN_PARAMETER_PATH: parameters.rpOriginParameter.parameterName,
+          RP_ORIGIN_PARAMETER_PATH: ssmParameters.rpOriginParameter.parameterName,
         },
         memorySize: 128,
         timeout: Duration.seconds(5),
       },
     );
     this.credentialTable.grantReadWriteData(this.userPoolTriggerLambda);
-    parameters.rpOriginParameter.grantRead(this.userPoolTriggerLambda);
+    ssmParameters.rpOriginParameter.grantRead(this.userPoolTriggerLambda);
     sessionStore.sessionTable.grantReadWriteData(this.userPoolTriggerLambda);
 
     this.userPool = new cognito.UserPool(this, 'UserPool', {

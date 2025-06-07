@@ -5,5 +5,5 @@
  */
 
 export * from './credentials-api';
-export * from './parameters';
+export * from './ssm-parameters';
 export * from './passquito-core';

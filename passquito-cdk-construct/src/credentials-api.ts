@@ -13,7 +13,7 @@ import { RestApiWithSpec, augmentAuthorizer } from '@codemonger-io/cdk-rest-api-
 import { Construct } from 'constructs';
 import { composeMappingTemplate } from '@codemonger-io/mapping-template-compose';
 
-import type { Parameters } from './parameters';
+import type { SsmParameters } from './ssm-parameters';
 import type { SessionStore } from './session-store';
 import type { UserPool } from './user-pool';
 
@@ -27,7 +27,7 @@ export interface CredentialsApiProps {
   readonly basePath: string;
 
   /** Parameters in Parameter Store on AWS Systems Manager. */
-  readonly parameters: Parameters;
+  readonly ssmParameters: SsmParameters;
 
   /** Session store. */
   readonly sessionStore: SessionStore;
@@ -66,7 +66,7 @@ export class CredentialsApi extends Construct {
     const {
       allowOrigins,
       basePath,
-      parameters,
+      ssmParameters,
       sessionStore,
       userPool,
     } = props;
@@ -84,12 +84,12 @@ export class CredentialsApi extends Construct {
         SESSION_TABLE_NAME: sessionStore.sessionTable.tableName,
         USER_POOL_ID: userPool.userPoolId,
         CREDENTIAL_TABLE_NAME: userPool.credentialTableName,
-        RP_ORIGIN_PARAMETER_PATH: parameters.rpOriginParameter.parameterName,
+        RP_ORIGIN_PARAMETER_PATH: ssmParameters.rpOriginParameter.parameterName,
       },
       memorySize: 128,
       timeout: Duration.seconds(5),
     });
-    parameters.rpOriginParameter.grantRead(this.registrationLambda);
+    ssmParameters.rpOriginParameter.grantRead(this.registrationLambda);
     sessionStore.sessionTable.grantReadWriteData(this.registrationLambda);
     userPool.credentialTable.grantReadWriteData(this.registrationLambda);
     userPool.userPool.grant(
@@ -106,12 +106,12 @@ export class CredentialsApi extends Construct {
       architecture: lambda.Architecture.ARM_64,
       environment: {
         SESSION_TABLE_NAME: sessionStore.sessionTable.tableName,
-        RP_ORIGIN_PARAMETER_PATH: parameters.rpOriginParameter.parameterName,
+        RP_ORIGIN_PARAMETER_PATH: ssmParameters.rpOriginParameter.parameterName,
       },
       memorySize: 128,
       timeout: Duration.seconds(5),
     });
-    parameters.rpOriginParameter.grantRead(this.discoverableLambda);
+    ssmParameters.rpOriginParameter.grantRead(this.discoverableLambda);
     sessionStore.sessionTable.grantReadWriteData(this.discoverableLambda);
 
     this.cognitoFacadeLambda = new RustFunction(this, 'CognitoFacadeLambda', {
