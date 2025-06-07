@@ -60,7 +60,7 @@ jobs:
       - name: Install dependencies
         env:
           NODE_AUTH_TOKEN: ${{ secrets.package-reader-pat }}
-        run: pnpm install
+        run: pnpm install --filter "${{ steps.package_info.outputs.name }}"
 
       - name: Build distribution
         run: pnpm run -r --filter "${{ steps.package_info.outputs.name }}" build
