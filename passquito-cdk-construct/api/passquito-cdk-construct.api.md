@@ -8,8 +8,8 @@ import { aws_cognito } from 'aws-cdk-lib';
 import { aws_dynamodb } from 'aws-cdk-lib';
 import { aws_lambda } from 'aws-cdk-lib';
 import { Construct } from 'constructs';
-import { GhostStringParameter } from 'cdk-ghost-string-parameter';
-import { RestApiWithSpec } from 'cdk-rest-api-with-spec';
+import { GhostStringParameter } from '@codemonger-io/cdk-ghost-string-parameter';
+import { RestApiWithSpec } from '@codemonger-io/cdk-rest-api-with-spec';
 
 // @beta
 export class CredentialsApi extends Construct {
