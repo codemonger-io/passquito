@@ -2,11 +2,11 @@ import { GhostStringParameter } from '@codemonger-io/cdk-ghost-string-parameter'
 import { Construct } from 'constructs';
 
 /**
- * Props for {@link Parameters}.
+ * Props for {@link SsmParameters}.
  *
  * @beta
  */
-export interface ParametersProps {
+export interface SsmParametersProps {
   /**
    * Group name included in the parameter path.
    * No group segment by default.
@@ -29,18 +29,18 @@ export interface ParametersProps {
  * This construct won't actually provision parameters.
  *
  * The parameter path will be either of:
- * - `/passquito/{config}/RP_ORIGIN` without {@link ParametersProps.group}
- * - `/passquito/{group}/{config}/RP_ORIGIN` with {@link ParametersProps.group}
+ * - `/passquito/{config}/RP_ORIGIN` without {@link SsmParametersProps.group}
+ * - `/passquito/{group}/{config}/RP_ORIGIN` with {@link SsmParametersProps.group}
  *
  * `config` is `"default"` by default.
  *
  * @beta
  */
-export class Parameters extends Construct {
+export class SsmParameters extends Construct {
   /** Origin (URL) of the relying party. */
   readonly rpOriginParameter: GhostStringParameter;
 
-  constructor(scope: Construct, id: string, props: ParametersProps = {}) {
+  constructor(scope: Construct, id: string, props: SsmParametersProps = {}) {
     super(scope, id);
 
     const config = props.config || 'default';
