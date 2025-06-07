@@ -23,6 +23,10 @@ export class CdkStack extends Stack {
 
     const passquito = new PassquitoCore(this, 'Passquito', {
       distributionDomainName: props.distributionDomainName,
+      ssmParametersProps: {
+        group: 'passquito-demo',
+        config: 'development',
+      },
     });
     const distribution = new Distribution(this, 'Distribution', {
       appBasePath: '/app',
