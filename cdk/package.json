@@ -19,7 +19,7 @@
     "aws-cdk": "catalog:",
     "cargo-lambda-cdk": "catalog:",
     "jest": "^29.7.0",
-    "ts-jest": "^29.1.1",
+    "ts-jest": "catalog:",
     "ts-node": "catalog:",
     "typescript": "catalog:"
   },
