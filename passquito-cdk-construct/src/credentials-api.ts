@@ -8,10 +8,10 @@ import { RustFunction } from 'cargo-lambda-cdk';
 import {
   makeIntegrationResponsesAllowCors,
   makeMethodResponsesAllowCors,
-} from 'cdk2-cors-utils';
-import { RestApiWithSpec, augmentAuthorizer } from 'cdk-rest-api-with-spec';
+} from '@codemonger-io/cdk-cors-utils';
+import { RestApiWithSpec, augmentAuthorizer } from '@codemonger-io/cdk-rest-api-with-spec';
 import { Construct } from 'constructs';
-import { composeMappingTemplate } from 'mapping-template-compose';
+import { composeMappingTemplate } from '@codemonger-io/mapping-template-compose';
 
 import type { Parameters } from './parameters';
 import type { SessionStore } from './session-store';
