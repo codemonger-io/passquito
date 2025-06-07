@@ -1,7 +1,7 @@
 import { Construct } from 'constructs';
 
 import { CredentialsApi } from './credentials-api';
-import { Parameters } from './parameters';
+import { Parameters, type ParametersProps } from './parameters';
 import { SessionStore } from './session-store';
 import { UserPool } from './user-pool';
 
@@ -19,6 +19,16 @@ export interface PassquitoCoreProps {
    * May be `undefined` until the stack is first deployed.
    */
   readonly distributionDomainName?: string;
+
+  /**
+   * Properties for {@link Parameters}.
+   *
+   * @remarks
+   *
+   * You can customize the parameter path for the relying party origin with
+   * this option.
+   */
+  readonly parametersProps?: ParametersProps;
 }
 
 /**
@@ -44,7 +54,7 @@ export class PassquitoCore extends Construct {
 
     const { distributionDomainName } = props ?? {};
 
-    this.parameters = new Parameters(this, 'Parameters');
+    this.parameters = new Parameters(this, 'Parameters', props?.parametersProps);
     this.sessionStore = new SessionStore(this, 'SessionStore');
     this.userPool = new UserPool(this, 'UserPool', {
       parameters: this.parameters,
@@ -66,7 +76,7 @@ export class PassquitoCore extends Construct {
 
   /** Path to the SSM Parameter Store parameter that stores the relying party origin (in a URL form). */
   get rpOriginParameterPath(): string {
-    return this.parameters.rpOriginParameter.parameterName;
+    return this.parameters.rpOriginParameterPath;
   }
 
   /** User pool ID. */
