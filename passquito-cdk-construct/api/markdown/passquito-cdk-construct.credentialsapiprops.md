@@ -82,27 +82,6 @@ string
 </td></tr>
 <tr><td>
 
-[parameters](./passquito-cdk-construct.credentialsapiprops.parameters.md)
-
-
-</td><td>
-
-`readonly`
-
-
-</td><td>
-
-Parameters
-
-
-</td><td>
-
-**_(BETA)_** Parameters in Parameter Store on AWS Systems Manager.
-
-
-</td></tr>
-<tr><td>
-
 [sessionStore](./passquito-cdk-construct.credentialsapiprops.sessionstore.md)
 
 
@@ -119,6 +98,27 @@ SessionStore
 </td><td>
 
 **_(BETA)_** Session store.
+
+
+</td></tr>
+<tr><td>
+
+[ssmParameters](./passquito-cdk-construct.credentialsapiprops.ssmparameters.md)
+
+
+</td><td>
+
+`readonly`
+
+
+</td><td>
+
+[SsmParameters](./passquito-cdk-construct.ssmparameters.md)
+
+
+</td><td>
+
+**_(BETA)_** Parameters in Parameter Store on AWS Systems Manager.
 
 
 </td></tr>

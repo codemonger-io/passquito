@@ -41,6 +41,17 @@ Description
 
 
 </td></tr>
+<tr><td>
+
+[SsmParameters](./passquito-cdk-construct.ssmparameters.md)
+
+
+</td><td>
+
+**_(BETA)_** CDK construct that declares parameters in Parameter Store on AWS Systems Manager.
+
+
+</td></tr>
 </tbody></table>
 
 ## Interfaces
@@ -75,6 +86,17 @@ Description
 </td><td>
 
 **_(BETA)_** Props for [PassquitoCore](./passquito-cdk-construct.passquitocore.md)<!-- -->.
+
+
+</td></tr>
+<tr><td>
+
+[SsmParametersProps](./passquito-cdk-construct.ssmparametersprops.md)
+
+
+</td><td>
+
+**_(BETA)_** Props for [SsmParameters](./passquito-cdk-construct.ssmparameters.md)<!-- -->.
 
 
 </td></tr>
