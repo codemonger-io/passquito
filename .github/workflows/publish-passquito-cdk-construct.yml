@@ -61,6 +61,9 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.package-reader-pat }}
         run: pnpm install --filter "${{ steps.package_info.outputs.name }}"
 
+      - name: Run tests
+        run: pnpm run -r --filter "${{ steps.package_info.outputs.name }}" test
+
       - name: Build distribution
         run: pnpm run -r --filter "${{ steps.package_info.outputs.name }}" build
 
