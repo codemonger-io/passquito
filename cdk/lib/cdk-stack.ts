@@ -21,8 +21,15 @@ export class CdkStack extends Stack {
   constructor(scope: Construct, id: string, props: CdkStackProps) {
     super(scope, id, props);
 
+    const { distributionDomainName } = props;
+
     const passquito = new PassquitoCore(this, 'Passquito', {
-      distributionDomainName: props.distributionDomainName,
+      allowOrigins: [
+        'http://localhost:5173',
+        ...(distributionDomainName
+          ? [`https://${distributionDomainName}`]
+          : []),
+      ],
       ssmParametersProps: {
         group: 'passquito-demo',
         config: 'development',
