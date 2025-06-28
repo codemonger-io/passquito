@@ -52,6 +52,7 @@ export class PassquitoCore extends Construct {
 // @beta
 export interface PassquitoCoreProps {
     readonly allowOrigins?: string[];
+    readonly basePath?: string;
     readonly ssmParametersProps?: SsmParametersProps;
 }
 

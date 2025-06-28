@@ -61,6 +61,27 @@ string\[\]
 </td></tr>
 <tr><td>
 
+[basePath?](./passquito-cdk-construct.passquitocoreprops.basepath.md)
+
+
+</td><td>
+
+`readonly`
+
+
+</td><td>
+
+string
+
+
+</td><td>
+
+**_(BETA)_** _(Optional)_ Base path for the Credentials API.
+
+
+</td></tr>
+<tr><td>
+
 [ssmParametersProps?](./passquito-cdk-construct.passquitocoreprops.ssmparametersprops.md)
 
 
