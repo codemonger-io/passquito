@@ -35,7 +35,13 @@ export interface CredentialsApiProps {
   /** User pool. */
   readonly userPool: UserPool;
 
-  /** Origins allowed to access the API. */
+  /**
+   * Origins allowed to access the API.
+   *
+   * @remarks
+   *
+   * No CORS preflight is performed if empty.
+   */
   readonly allowOrigins: string[];
 }
 
@@ -143,12 +149,12 @@ export class CredentialsApi extends Construct {
         version: '0.0.1',
       },
       openApiOutputPath: path.join('openapi', 'credentials-api.json'),
-      defaultCorsPreflightOptions: {
+      defaultCorsPreflightOptions: allowOrigins.length > 0 ? {
         allowHeaders: ['Authorization', 'Content-Type'],
         allowMethods: ['GET', 'POST'],
         allowOrigins,
         maxAge: Duration.days(1),
-      },
+      } : undefined,
       deploy: true,
       deployOptions: {
         description: 'Default deployment',
@@ -162,18 +168,20 @@ export class CredentialsApi extends Construct {
 
     // suppresses CORS errors caused when the gateway responds with errors
     // before reaching the integrations
-    this.credentialsApi.addGatewayResponse('Unauthorized', {
-      type: apigw.ResponseType.DEFAULT_4XX,
-      responseHeaders: {
-        'Access-Control-Allow-Origin': "'*'",
-      },
-    });
-    this.credentialsApi.addGatewayResponse('InternalServerError', {
-      type: apigw.ResponseType.DEFAULT_5XX,
-      responseHeaders: {
-        'Access-Control-Allow-Origin': "'*'",
-      },
-    });
+    if (allowOrigins.length > 0) {
+      this.credentialsApi.addGatewayResponse('Unauthorized', {
+        type: apigw.ResponseType.DEFAULT_4XX,
+        responseHeaders: {
+          'Access-Control-Allow-Origin': "'*'",
+        },
+      });
+      this.credentialsApi.addGatewayResponse('InternalServerError', {
+        type: apigw.ResponseType.DEFAULT_5XX,
+        responseHeaders: {
+          'Access-Control-Allow-Origin': "'*'",
+        },
+      });
+    }
 
     // defines models
     // - new user information
