@@ -12,13 +12,13 @@ import { UserPool } from './user-pool';
  */
 export interface PassquitoCoreProps {
   /**
-   * Domain name of the distribution.
+   * Allow origins for the Credentials API.
    *
    * @remarks
    *
-   * May be `undefined` until the stack is first deployed.
+   * No CORS preflight is performed if omitted.
    */
-  readonly distributionDomainName?: string;
+  readonly allowOrigins?: string[];
 
   /**
    * Properties for {@link SsmParameters}.
@@ -52,7 +52,7 @@ export class PassquitoCore extends Construct {
   constructor(scope: Construct, id: string, props?: PassquitoCoreProps) {
     super(scope, id);
 
-    const { distributionDomainName } = props ?? {};
+    const { allowOrigins } = props ?? {};
 
     this.ssmParameters =
       new SsmParameters(this, 'SsmParameters', props?.ssmParametersProps);
@@ -66,12 +66,7 @@ export class PassquitoCore extends Construct {
       ssmParameters: this.ssmParameters,
       sessionStore: this.sessionStore,
       userPool: this.userPool,
-      allowOrigins: [
-        'http://localhost:5173',
-        ...(distributionDomainName
-          ? [`https://${distributionDomainName}`]
-          : []),
-      ],
+      allowOrigins: allowOrigins ?? [],
     });
   }
 
