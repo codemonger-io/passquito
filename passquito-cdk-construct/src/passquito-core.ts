@@ -16,7 +16,7 @@ export interface PassquitoCoreProps {
    *
    * @remarks
    *
-   * No CORS preflight is performed if omitted.
+   * No CORS preflight is performed if omitted or empty.
    */
   readonly allowOrigins?: string[];
 
