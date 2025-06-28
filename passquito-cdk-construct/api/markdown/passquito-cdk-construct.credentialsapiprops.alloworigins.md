@@ -14,3 +14,8 @@ Origins allowed to access the API.
 ```typescript
 readonly allowOrigins: string[];
 ```
+
+## Remarks
+
+No CORS preflight is performed if empty.
+
