@@ -77,8 +77,6 @@ export class CredentialsApi extends Construct {
       userPool,
     } = props;
     const manifestPath = path.join(__dirname, 'lambda', 'authentication', 'Cargo.toml');
-    const registrationBasePath = `${basePath.replace(/\/$/, '')}/registration/`;
-    const discoverableBasePath = `${basePath.replace(/\/$/, '')}/discoverable/`;
     const securedBasePath = `${basePath.replace(/\/$/, '')}/secured`;
 
     // Lambda functions
@@ -460,7 +458,7 @@ export class CredentialsApi extends Construct {
     } as const;
 
     // gets to the base path
-    const root = props.basePath
+    const root = basePath
       .split('/')
       .filter((p) => p.length > 0)
       .reduce(

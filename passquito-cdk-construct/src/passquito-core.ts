@@ -12,6 +12,18 @@ import { UserPool } from './user-pool';
  */
 export interface PassquitoCoreProps {
   /**
+   * Base path for the Credentials API.
+   *
+   * @remarks
+   *
+   * Must start with a slash (`/`).
+   * A trailing slash is optional.
+   *
+   * `/auth/credentials/` if omitted.
+   */
+  readonly basePath?: string;
+
+  /**
    * Allow origins for the Credentials API.
    *
    * @remarks
@@ -30,6 +42,9 @@ export interface PassquitoCoreProps {
    */
   readonly ssmParametersProps?: SsmParametersProps;
 }
+
+// default base path for the Credentials API.
+const DEFAULT_BASE_PATH = '/auth/credentials/';
 
 /**
  * CDK Construct for the Passquito core resources.
@@ -52,7 +67,7 @@ export class PassquitoCore extends Construct {
   constructor(scope: Construct, id: string, props?: PassquitoCoreProps) {
     super(scope, id);
 
-    const { allowOrigins } = props ?? {};
+    const { allowOrigins, basePath } = props ?? {};
 
     this.ssmParameters =
       new SsmParameters(this, 'SsmParameters', props?.ssmParametersProps);
@@ -62,7 +77,7 @@ export class PassquitoCore extends Construct {
       sessionStore: this.sessionStore,
     });
     this.credentialsApi = new CredentialsApi(this, 'CredentialsApi', {
-      basePath: '/auth/credentials/',
+      basePath: basePath ?? DEFAULT_BASE_PATH,
       ssmParameters: this.ssmParameters,
       sessionStore: this.sessionStore,
       userPool: this.userPool,
