@@ -35,9 +35,9 @@
   "devDependencies": {
     "@microsoft/api-documenter": "catalog:",
     "@microsoft/api-extractor": "catalog:",
-    "@rollup/plugin-commonjs": "^28.0.3",
+    "@rollup/plugin-commonjs": "^28.0.6",
     "@rollup/plugin-node-resolve": "^16.0.1",
-    "@types/jest": "^29.5.5",
+    "@types/jest": "^29.5.14",
     "@types/node": "catalog:",
     "aws-cdk": "catalog:",
     "cpy-cli": "^5.0.0",
@@ -53,7 +53,7 @@
   "dependencies": {
     "@codemonger-io/cdk-cors-utils": "0.4.0-8678c3d",
     "@codemonger-io/cdk-ghost-string-parameter": "0.2.0-9e4f21e",
-    "@codemonger-io/cdk-rest-api-with-spec": "0.3.0-fc7e7de",
+    "@codemonger-io/cdk-rest-api-with-spec": "0.4.0-d1df2b3",
     "@codemonger-io/mapping-template-compose": "0.2.0-aecf920",
     "cargo-lambda-cdk": "catalog:"
   },
