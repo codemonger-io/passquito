@@ -13,7 +13,7 @@ Features:
 
 ## Getting started
 
-Passquito is consisting of two packages:
+Passquito consists of two packages:
 - [`@codemonger-io/passquito-cdk-construct`](./passquito-cdk-construct/) is a CDK construct which describes Passquito core resources on AWS.
 - [`@codemonger-io/passquito-client-js`](./passquito-client-js/) is a JavaScript client library which facilitates the communication with Passquito core resources.
 
