@@ -40,7 +40,7 @@ Description
 </th></tr></thead>
 <tbody><tr><td>
 
-[distributionDomainName?](./passquito-cdk-construct.passquitocoreprops.distributiondomainname.md)
+[allowOrigins?](./passquito-cdk-construct.passquitocoreprops.alloworigins.md)
 
 
 </td><td>
@@ -50,12 +50,12 @@ Description
 
 </td><td>
 
-string
+string\[\]
 
 
 </td><td>
 
-**_(BETA)_** _(Optional)_ Domain name of the distribution.
+**_(BETA)_** _(Optional)_ Allow origins for the Credentials API.
 
 
 </td></tr>
