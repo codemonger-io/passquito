@@ -17,5 +17,5 @@ readonly allowOrigins?: string[];
 
 ## Remarks
 
-No CORS preflight is performed if omitted.
+No CORS preflight is performed if omitted or empty.
 
