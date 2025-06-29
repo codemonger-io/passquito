@@ -35,7 +35,7 @@ catalogs:
       version: 6.2.1
     ts-jest:
       specifier: ^29.4.0
-      version: 29.3.4
+      version: 29.4.0
     ts-node:
       specifier: ^10.9.2
       version: 10.9.2
@@ -191,8 +191,8 @@ importers:
         specifier: 0.2.0-9e4f21e
         version: 0.2.0-9e4f21e(aws-cdk-lib@2.202.0(constructs@10.4.2))(constructs@10.4.2)
       '@codemonger-io/cdk-rest-api-with-spec':
-        specifier: 0.4.0-d1df2b3
-        version: 0.4.0-d1df2b3(aws-cdk-lib@2.202.0(constructs@10.4.2))(constructs@10.4.2)
+        specifier: 0.4.0-7c11d76
+        version: 0.4.0-7c11d76(aws-cdk-lib@2.202.0(constructs@10.4.2))(constructs@10.4.2)
       '@codemonger-io/mapping-template-compose':
         specifier: 0.2.0-aecf920
         version: 0.2.0-aecf920
@@ -672,8 +672,8 @@ packages:
       aws-cdk-lib: ^2.0
       constructs: ^10.0
 
-  '@codemonger-io/cdk-rest-api-with-spec@0.4.0-d1df2b3':
-    resolution: {integrity: sha512-7aoOdeNn/mTKJLyoXGLM8wEijpUWzjwcGaLX262TtBcRZ3R/VFDGXCVSuvpd6iR5X/StNMXIVnTOj32ql/uXnQ==, tarball: https://npm.pkg.github.com/download/@codemonger-io/cdk-rest-api-with-spec/0.4.0-d1df2b3/3da3e4dfa1f0d0485fd20d2470c036a3a233440a}
+  '@codemonger-io/cdk-rest-api-with-spec@0.4.0-7c11d76':
+    resolution: {integrity: sha512-BJfKzIHkeBj5ll2/6RRhtVXs2I5YdFvDO/RFb+J2p05p5Hv4HG1GKqL8F3OeuPkvCuTqcEWv9zEma1qb2aPm/Q==, tarball: https://npm.pkg.github.com/download/@codemonger-io/cdk-rest-api-with-spec/0.4.0-7c11d76/88168e7301f946e5f2f89db3bdf206ce1e48230d}
     engines: {node: '>=12.0'}
     peerDependencies:
       aws-cdk-lib: '>=2.201.0'
@@ -4918,7 +4918,7 @@ snapshots:
       aws-cdk-lib: 2.202.0(constructs@10.4.2)
       constructs: 10.4.2
 
-  '@codemonger-io/cdk-rest-api-with-spec@0.4.0-d1df2b3(aws-cdk-lib@2.202.0(constructs@10.4.2))(constructs@10.4.2)':
+  '@codemonger-io/cdk-rest-api-with-spec@0.4.0-7c11d76(aws-cdk-lib@2.202.0(constructs@10.4.2))(constructs@10.4.2)':
     dependencies:
       aws-cdk-lib: 2.202.0(constructs@10.4.2)
       constructs: 10.4.2
