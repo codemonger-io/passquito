@@ -11,7 +11,7 @@ Instead, _developer packages_ [^1] are available on the npm registry managed by 
 You can find packages [here](https://github.com/codemonger-io/passquito/pkgs/npm/passquito-client-js).
 
 [^1]: A _developer package_ is published to the GitHub npm registry, whenever commits are pushed to the `main` branch of this repository.
-It has a special version number followed by a dash (`-`) plus a short commit hash; e.g., `0.0.1-abc1234` where `abc1234` is the short commit hash (the first 7 characters) of the commit used to build the package (_snapshot_).
+It has a special version number followed by a dash (`-`) plus a short commit hash; e.g., `0.0.2-abc1234` where `abc1234` is the short commit hash (the first 7 characters) of the commit used to build the package (_snapshot_).
 
 #### Configuring a GitHub personal access token
 
