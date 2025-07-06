@@ -12,7 +12,7 @@ Conducts a registration ceremony.
 **Signature:**
 
 ```typescript
-doRegistrationCeremony(userInfo: UserInfo): Promise<void>;
+doRegistrationCeremony(userInfo: UserInfo): Promise<PublicKeyInfo>;
 ```
 
 ## Parameters
@@ -50,7 +50,9 @@ userInfo
 </tbody></table>
 **Returns:**
 
-Promise&lt;void&gt;
+Promise&lt;[PublicKeyInfo](./passquito-client-js.publickeyinfo.md)<!-- -->&gt;
+
+Public key information of the newly registered user.
 
 ## Remarks
 

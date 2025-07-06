@@ -10,7 +10,7 @@
 **Signature:**
 
 ```typescript
-finishRegistration(sessionId: string, credential: PublicKeyCredential): Promise<void>;
+finishRegistration(sessionId: string, credential: PublicKeyCredential): Promise<RegisteredUserInfo>;
 ```
 
 ## Parameters
@@ -62,5 +62,5 @@ PublicKeyCredential
 </tbody></table>
 **Returns:**
 
-Promise&lt;void&gt;
+Promise&lt;[RegisteredUserInfo](./passquito-client-js.registereduserinfo.md)<!-- -->&gt;
 

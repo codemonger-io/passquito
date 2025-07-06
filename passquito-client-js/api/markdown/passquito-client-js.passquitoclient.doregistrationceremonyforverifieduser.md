@@ -12,7 +12,7 @@ Conducts a registration ceremony for a verified user.
 **Signature:**
 
 ```typescript
-doRegistrationCeremonyForVerifiedUser(userInfo: VerifiedUserInfo): Promise<void>;
+doRegistrationCeremonyForVerifiedUser(userInfo: VerifiedUserInfo): Promise<PublicKeyInfo>;
 ```
 
 ## Parameters
@@ -50,7 +50,9 @@ userInfo
 </tbody></table>
 **Returns:**
 
-Promise&lt;void&gt;
+Promise&lt;[PublicKeyInfo](./passquito-client-js.publickeyinfo.md)<!-- -->&gt;
+
+Public key information of the newly registered credential. The unique user ID shall be the same as `userInfo`<!-- -->.
 
 ## Remarks
 

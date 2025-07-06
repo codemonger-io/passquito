@@ -36,7 +36,7 @@ export interface Credentials {
 // @beta
 export interface CredentialsApi {
     finishAuthentication(sessionId: string, userId: string, credential: PublicKeyCredential): Promise<CognitoTokens>;
-    finishRegistration(sessionId: string, credential: PublicKeyCredential): Promise<void>;
+    finishRegistration(sessionId: string, credential: PublicKeyCredential): Promise<RegisteredUserInfo>;
     getDiscoverableCredentialRequestOptions(): Promise<CredentialRequestOptions>;
     refreshTokens(refreshToken: string): Promise<CognitoTokens | undefined>;
     startAuthentication(userId: string): Promise<AuthenticationSession>;
@@ -51,7 +51,7 @@ export class CredentialsApiImpl implements CredentialsApi {
     // (undocumented)
     finishAuthentication(sessionId: string, userId: string, credential: PublicKeyCredential): Promise<CognitoTokens>;
     // (undocumented)
-    finishRegistration(sessionId: string, credential: PublicKeyCredential): Promise<void>;
+    finishRegistration(sessionId: string, credential: PublicKeyCredential): Promise<RegisteredUserInfo>;
     // (undocumented)
     getDiscoverableCredentialRequestOptions(): Promise<CredentialRequestOptions>;
     // (undocumented)
@@ -87,8 +87,8 @@ export class PassquitoClient {
         abort: () => void;
         credentials: Promise<Credentials>;
     };
-    doRegistrationCeremony(userInfo: UserInfo): Promise<void>;
-    doRegistrationCeremonyForVerifiedUser(userInfo: VerifiedUserInfo): Promise<void>;
+    doRegistrationCeremony(userInfo: UserInfo): Promise<PublicKeyInfo>;
+    doRegistrationCeremonyForVerifiedUser(userInfo: VerifiedUserInfo): Promise<PublicKeyInfo>;
 }
 
 // @beta
@@ -96,6 +96,11 @@ export interface PublicKeyInfo {
     authenticatorAttachment?: string | null;
     id: string;
     userHandle?: string | null;
+}
+
+// @beta
+export interface RegisteredUserInfo {
+    userId: string;
 }
 
 // @beta
