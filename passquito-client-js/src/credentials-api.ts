@@ -1,4 +1,9 @@
-import type { CognitoTokens, UserInfo, VerifiedUserInfo } from './types';
+import type {
+  CognitoTokens,
+  RegisteredUserInfo,
+  UserInfo,
+  VerifiedUserInfo,
+} from './types';
 
 /**
  * Registration session.
@@ -48,8 +53,15 @@ export interface CredentialsApi {
    * @param sessionId - Session ID returned from
    *   {@link CredentialsApi.startRegistration|startRegistration} or
    *   {@link CredentialsApi.startRegistrationForVerifiedUser|startRegistrationForVerifiedUser)}.
+   *
+   * @returns
+   *
+   *   Registered user information including the unique user ID issued by Passquito.
    */
-  finishRegistration(sessionId: string, credential: PublicKeyCredential): Promise<void>;
+  finishRegistration(
+    sessionId: string,
+    credential: PublicKeyCredential,
+  ): Promise<RegisteredUserInfo>;
 
   /**
    * Returns a credential request options for a discoverable credential.

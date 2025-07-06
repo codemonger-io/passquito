@@ -31,6 +31,16 @@ export interface VerifiedUserInfo {
 }
 
 /**
+ * Registered user information.
+ *
+ * @beta
+ */
+export interface RegisteredUserInfo {
+  /** Unique ID of the registered user. */
+  userId: string;
+}
+
+/**
  * Information about a public key.
  *
  * @beta
