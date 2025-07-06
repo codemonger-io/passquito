@@ -172,6 +172,17 @@ Description
 </td></tr>
 <tr><td>
 
+[RegisteredUserInfo](./passquito-client-js.registereduserinfo.md)
+
+
+</td><td>
+
+**_(BETA)_** Registered user information.
+
+
+</td></tr>
+<tr><td>
+
 [RegistrationSession](./passquito-client-js.registrationsession.md)
 
 
