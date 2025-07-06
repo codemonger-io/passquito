@@ -9,7 +9,12 @@ import {
 } from '@github/webauthn-json/extended';
 
 import type { CredentialsApi } from './credentials-api';
-import type { CognitoTokens, UserInfo, VerifiedUserInfo } from './types';
+import type {
+  CognitoTokens,
+  RegisteredUserInfo,
+  UserInfo,
+  VerifiedUserInfo,
+} from './types';
 
 // raw Cognito tokens returned from the API
 type RawCognitoTokens = Omit<CognitoTokens, 'activatedAt'>;
@@ -76,6 +81,11 @@ export class CredentialsApiImpl implements CredentialsApi {
         `credential registration failed with ${res.status}: ${await res.text()}`,
       );
     }
+    const userInfo = await res.json();
+    if (!isRegisteredUserInfo(userInfo)) {
+      throw new Error('ivalid user info returned from the registration API');
+    }
+    return userInfo;
   }
 
   async getDiscoverableCredentialRequestOptions() {
@@ -162,6 +172,15 @@ function encodePublicKeyCredentialForAuthentication(
     schema.publicKeyCredentialWithAssertion,
     publicKey,
   );
+}
+
+// returns if a given value is a `RegisteredUserInfo`.
+function isRegisteredUserInfo(value: unknown): value is RegisteredUserInfo {
+  if (value == null || typeof value !== 'object') {
+    return false;
+  }
+  const maybeRegisteredUserInfo = value as RegisteredUserInfo;
+  return typeof maybeRegisteredUserInfo.userId === 'string';
 }
 
 // returns if a given value is a `RawCognitoTokens`.
