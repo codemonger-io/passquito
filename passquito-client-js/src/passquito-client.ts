@@ -45,7 +45,7 @@ export class PassquitoClient {
    *   Public key information of the newly registered user.
    */
   async doRegistrationCeremony(userInfo: UserInfo): Promise<PublicKeyInfo> {
-    return await this.runRegistrationSession(
+    return this.runRegistrationSession(
       await this.credentialsApi.startRegistration(userInfo),
     );
   }
@@ -68,7 +68,7 @@ export class PassquitoClient {
    *   The unique user ID shall be the same as `userInfo`.
    */
   async doRegistrationCeremonyForVerifiedUser(userInfo: VerifiedUserInfo): Promise<PublicKeyInfo> {
-    return await this.runRegistrationSession(
+    return this.runRegistrationSession(
       await this.credentialsApi.startRegistrationForVerifiedUser(userInfo),
     );
   }
@@ -86,7 +86,9 @@ export class PassquitoClient {
       credential,
     );
     const publicKeyInfo = extractPublicKeyInfo(credential);
-    // NOTE: no `userHandle` is available during registration
+    // NOTE: no `userHandle` is available in an attestation (registration)
+    // response, so we substitute it with the user ID obtained from the
+    // Credentials API.
     publicKeyInfo.userHandle = userId;
     return publicKeyInfo;
   }
