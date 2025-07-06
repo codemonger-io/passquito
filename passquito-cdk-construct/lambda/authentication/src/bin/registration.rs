@@ -81,7 +81,7 @@
 //! }
 //! ```
 //!
-//! The response body is an empty text.
+//! The response body is [`RegisteredUserInfo`] in the JSON format.
 
 use aws_sdk_cognitoidentityprovider::types::{
     AttributeType as UserAttributeType,
@@ -252,6 +252,14 @@ pub struct FinishRegistrationSession {
 
     /// Public key credential.
     pub public_key_credential: RegisterPublicKeyCredential,
+}
+
+/// Registered user.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RegisteredUserInfo {
+    /// Unique user ID issued by Passquito.
+    pub user_id: String,
 }
 
 async fn function_handler<Webauthn>(
@@ -506,7 +514,7 @@ where
 async fn finish_registration<Webauthn>(
     shared_state: Arc<SharedState<Webauthn>>,
     session: FinishRegistrationSession,
-) -> Result<(), ErrorResponse>
+) -> Result<RegisteredUserInfo, ErrorResponse>
 where
     Webauthn: WebauthnFinishRegistration,
 {
@@ -679,7 +687,9 @@ where
         // TODO: what if deleting the user fails?
         return Err(e);
     }
-    Ok(())
+    Ok(RegisteredUserInfo {
+        user_id: user_unique_id.to_string(),
+    })
 }
 
 #[tokio::main]
@@ -865,7 +875,13 @@ mod tests {
             serde_json::from_str(&payload).unwrap(),
             lambda_runtime::Context::default(),
         );
-        assert!(function_handler(shared_state, event).await.is_ok());
+        let res = function_handler(shared_state, event).await.unwrap();
+        assert_eq!(
+            res,
+            serde_json::json!({
+                "userId": "8TZ_kg_dp_pr0t7SDvGJiw",
+            })
+        );
     }
 
     #[tokio::test]
@@ -1686,17 +1702,16 @@ mod tests {
             .unwrap();
         let shared_state = Arc::new(shared_state);
 
-        assert!(
-            finish_registration(
-                shared_state,
-                FinishRegistrationSession {
-                    session_id: "dummy-session-id".to_string(),
-                    public_key_credential: serde_json::from_str(
-                        self::mocks::webauthn::OK_REGISTER_PUBLIC_KEY_CREDENTIAL,
-                    ).unwrap(),
-                },
-            ).await.is_ok(),
-        );
+        let res = finish_registration(
+            shared_state,
+            FinishRegistrationSession {
+                session_id: "dummy-session-id".to_string(),
+                public_key_credential: serde_json::from_str(
+                    self::mocks::webauthn::OK_REGISTER_PUBLIC_KEY_CREDENTIAL,
+                ).unwrap(),
+            },
+        ).await.unwrap();
+        assert_eq!(res.user_id, "8TZ_kg_dp_pr0t7SDvGJiw");
     }
 
     #[tokio::test]
@@ -1719,17 +1734,16 @@ mod tests {
             .unwrap();
         let shared_state = Arc::new(shared_state);
 
-        assert!(
-            finish_registration(
-                shared_state,
-                FinishRegistrationSession {
-                    session_id: "dummy-session-id".to_string(),
-                    public_key_credential: serde_json::from_str(
-                        self::mocks::webauthn::OK_REGISTER_PUBLIC_KEY_CREDENTIAL,
-                    ).unwrap(),
-                },
-            ).await.is_ok(),
-        );
+        let res = finish_registration(
+            shared_state,
+            FinishRegistrationSession {
+                session_id: "dummy-session-id".to_string(),
+                public_key_credential: serde_json::from_str(
+                    self::mocks::webauthn::OK_REGISTER_PUBLIC_KEY_CREDENTIAL,
+                ).unwrap(),
+            },
+        ).await.unwrap();
+        assert_eq!(res.user_id, "8TZ_kg_dp_pr0t7SDvGJiw");
     }
 
     #[tokio::test]
