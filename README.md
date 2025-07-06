@@ -19,19 +19,19 @@ Passquito consists of two packages:
 
 ### Steps
 
-1. Add `@codemonger-io/passquito-cdk-construct` to your CDK project (replace `0.0.1-abc1234` with the version you want to install):
+1. Add `@codemonger-io/passquito-cdk-construct` to your CDK project (replace `0.0.3-abc1234` with the version you want to install):
 
     ```sh
-    npm install @codemonger-io/passquito-cdk-construct@0.0.1-abc1234
+    npm install @codemonger-io/passquito-cdk-construct@0.0.3-abc1234
     ```
 
    Note that `@codemonger-io/passquito-cdk-construct` is **only available from the GitHub npm registry** for now.
    Please refer to the [`README` of `@codemonger-io/passquito-cdk-construct`](./passquito-cdk-construct/README.md#installing-the-package) for more details.
 
-2. Add `@codemonger-io/passquito-client-js` to your web application (replace `0.0.1-abc1234` with the version you want to install):
+2. Add `@codemonger-io/passquito-client-js` to your web application (replace `0.0.2-abc1234` with the version you want to install):
 
     ```sh
-    npm install @codemonger-io/passquito-client-js@0.0.1-abc1234
+    npm install @codemonger-io/passquito-client-js@0.0.2-abc1234
     ```
 
    Note that `@codemonger-io/passquito-client-js` is **only available from the GitHub npm registry** for now.
