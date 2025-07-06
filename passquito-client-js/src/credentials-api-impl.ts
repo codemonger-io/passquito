@@ -83,7 +83,7 @@ export class CredentialsApiImpl implements CredentialsApi {
     }
     const userInfo = await res.json();
     if (!isRegisteredUserInfo(userInfo)) {
-      throw new Error('ivalid user info returned from the registration API');
+      throw new Error('invalid user info returned from the registration API');
     }
     return userInfo;
   }
