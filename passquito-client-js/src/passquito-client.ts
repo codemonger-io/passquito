@@ -39,9 +39,13 @@ export class PassquitoClient {
    * References:
    * - https://web.dev/articles/passkey-registration
    * - https://www.w3.org/TR/webauthn-3/#sctn-registering-a-new-credential
+   *
+   * @returns
+   *
+   *   Public key information of the newly registered user.
    */
-  async doRegistrationCeremony(userInfo: UserInfo) {
-    await this.runRegistrationSession(
+  async doRegistrationCeremony(userInfo: UserInfo): Promise<PublicKeyInfo> {
+    return await this.runRegistrationSession(
       await this.credentialsApi.startRegistration(userInfo),
     );
   }
@@ -57,23 +61,34 @@ export class PassquitoClient {
    * References:
    * - https://web.dev/articles/passkey-registration
    * - https://www.w3.org/TR/webauthn-3/#sctn-registering-a-new-credential
+   *
+   * @returns
+   *
+   *   Public key information of the newly registered credential.
+   *   The unique user ID shall be the same as `userInfo`.
    */
-  async doRegistrationCeremonyForVerifiedUser(userInfo: VerifiedUserInfo) {
-    await this.runRegistrationSession(
+  async doRegistrationCeremonyForVerifiedUser(userInfo: VerifiedUserInfo): Promise<PublicKeyInfo> {
+    return await this.runRegistrationSession(
       await this.credentialsApi.startRegistrationForVerifiedUser(userInfo),
     );
   }
 
   // runs a given registration session.
-  private async runRegistrationSession(session: RegistrationSession) {
-    const credential = await navigator.credentials.create(session.credentialCreationOptions);
+  private async runRegistrationSession(session: RegistrationSession): Promise<PublicKeyInfo> {
+    const credential = await navigator.credentials.create(
+      session.credentialCreationOptions,
+    ) as (PublicKeyCredential | null);
     if (credential == null) {
       throw new Error('failed to create a new credential');
     }
-    await this.credentialsApi.finishRegistration(
+    const { userId } = await this.credentialsApi.finishRegistration(
       session.sessionId,
-      credential as PublicKeyCredential,
+      credential,
     );
+    const publicKeyInfo = extractPublicKeyInfo(credential);
+    // NOTE: no `userHandle` is available during registration
+    publicKeyInfo.userHandle = userId;
+    return publicKeyInfo;
   }
 
   /**
@@ -190,6 +205,9 @@ function runAbortableAuthentication(
 }
 
 // extracts public key information from an encoded public key credential.
+//
+// this function should be safe either during registration or authentication,
+// but no `userHandle` is available during registration.
 function extractPublicKeyInfo(publicKey: PublicKeyCredential): PublicKeyInfo {
   const { userHandle } = publicKey.response as AuthenticatorAssertionResponse;
   return {
