@@ -260,6 +260,28 @@ export class CredentialsApi extends Construct {
         },
       },
     );
+    // - registration result
+    const registrationResultModel = this.credentialsApi.addModel(
+      'RegistrationResultModel',
+      {
+        description: 'Registration result.',
+        contentType: 'application/json',
+        schema: {
+          schema: apigw.JsonSchemaVersion.DRAFT4,
+          title: 'registrationResult',
+          description: 'Registration result.',
+          type: apigw.JsonSchemaType.OBJECT,
+          properties: {
+            userId: {
+              description: 'Unique user ID of the registered user.',
+              type: apigw.JsonSchemaType.STRING,
+              example: '0123456789abcdef',
+            },
+          },
+          required: ['userId'],
+        },
+      },
+    );
     // - WebAuthn extension of credentials request options
     //   https://www.w3.org/TR/webauthn-3/#sctn-credentialrequestoptions-extension
     const credentialRequestOptionsModel = this.credentialsApi.addModel(
@@ -610,7 +632,9 @@ export class CredentialsApi extends Construct {
           {
             statusCode: '200',
             description: 'Registration has been successfully finished.',
-            // empty response
+            responseModels: {
+              'application/json': registrationResultModel,
+            },
           },
           {
             statusCode: '400',
