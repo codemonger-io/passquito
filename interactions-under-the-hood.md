@@ -195,7 +195,7 @@ This process supposes that the *user* has a valid *passkey* in another device.
 
 16. *User's authenticator* in the *new device* returns a *public key credential* which includes the *public key* and the *signature* to *your app*.
 
-17. *Your app* POSTs the *session ID* and the *public key credential* to the *resigration finish endpoint* (`/registration/finish`).
+17. *Your app* POSTs the *session ID* and the *public key credential* to the *registration finish endpoint* (`/registration/finish`).
 
 18. The *registration finish endpoint* pops the *registration session* associated with the *session ID* from the *session store*.
 
@@ -301,7 +301,7 @@ Please refer to [Section _Custom authentication challenge Lambda triggers_ in _A
 
 2. *Your app* sends a POST request to the *discoverable endpoint* (`/authentication/discover`).
 
-3. The *discoverable endpoint* creates a *public key credential request options* which include a *challenge* and a *relying party ID*.
+3. The *discoverable endpoint* creates a *public key credential request options* which includes a *challenge* and a *relying party ID*.
 
 4. The *discoverable endpoint* stores a new *discoverable authentication session* in the *session store*.
 
@@ -572,7 +572,7 @@ sequenceDiagram
 
 16. The *user* selects a *passkey*.
 
-17. *User's authenticator* asks the *user* to authorize the user of the *passkey*.
+17. *User's authenticator* asks the *user* to authorize the use of the *passkey*.
 
 18. The *user* authorizes the use of the *passkey*; e.g., using biometrics.
 
