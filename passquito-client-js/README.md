@@ -239,7 +239,7 @@ sequenceDiagram
 
 11. The *Credentials API* verifies the *signature* with the *passkey*.
 
-12. The *Credentials API* issues a *Cognito tokens* to `PassquitoClient`.
+12. The *Credentials API* issues *Cognito tokens* to `PassquitoClient`.
 
 13. `PassquitoClient` returns the *Cognito tokens* to *your app*.
 
