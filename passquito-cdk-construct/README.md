@@ -11,7 +11,7 @@ Instead, _developer packages_ [^1] are available on the npm registry managed by 
 You can find packages [here](https://github.com/codemonger-io/passquito/pkgs/npm/passquito-cdk-construct).
 
 [^1]: A _developer package_ is published to the GitHub npm registry, whenever commits are pushed to the `main` branch of this repository.
-It has a special version number followed by a dash (`-`) plus a short commit hash; e.g., `0.0.3-abc1234` where `abc1234` is the short commit hash (the first 7 characters) of the commit used to build the package (_snapshot_).
+It has a special version number followed by a dash (`-`) plus a short commit hash; e.g., `0.0.4-abc1234` where `abc1234` is the short commit hash (the first 7 characters) of the commit used to build the package (_snapshot_).
 
 #### Configuring a GitHub personal access token
 
@@ -33,10 +33,10 @@ In the root directory of your project, create another `.npmrc` file with the fol
 Then you can install a _developer package_ with the following command:
 
 ```sh
-npm install @codemonger-io/passquito-cdk-construct@0.0.1-abc1234
+npm install @codemonger-io/passquito-cdk-construct@0.0.4-abc1234
 ```
 
-Please replace `0.0.1-abc1234` with the actual version number of the _snapshot_ you want to install, which is available in the [package repository](https://github.com/codemonger-io/passquito/pkgs/npm/passquito-cdk-construct).
+Please replace `0.0.4-abc1234` with the actual version number of the _snapshot_ you want to install, which is available in the [package repository](https://github.com/codemonger-io/passquito/pkgs/npm/passquito-cdk-construct).
 
 ### Example
 
