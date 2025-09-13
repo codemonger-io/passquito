@@ -1,6 +1,6 @@
 {
   "name": "@codemonger-io/passquito-cdk-construct",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "description": "CDK construct of Passquito core resources",
   "license": "MIT",
   "author": "Kikuo Emoto <kemoto@codemonger.io>",
