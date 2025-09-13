@@ -115,7 +115,7 @@ use webauthn_rs::{
         WebauthnError,
     },
 };
-use webauthn_rs_proto::RegisterPublicKeyCredential;
+use webauthn_rs_proto::{RegisterPublicKeyCredential, ResidentKeyRequirement};
 
 use authentication::error_response::ErrorResponse;
 use authentication::parameters::load_relying_party_origin;
@@ -355,6 +355,7 @@ where
         })?;
     // requires a resident key
     if let Some(selection) = ccr.public_key.authenticator_selection.as_mut() {
+        selection.resident_key = Some(ResidentKeyRequirement::Required);
         selection.require_resident_key = true;
     }
     Ok(StartRegistrationSession {
@@ -503,6 +504,7 @@ where
         })?;
     // requires a resident key
     if let Some(selection) = ccr.public_key.authenticator_selection.as_mut() {
+        selection.resident_key = Some(ResidentKeyRequirement::Required);
         selection.require_resident_key = true;
     }
     Ok(StartRegistrationSession {
