@@ -475,7 +475,7 @@ async fn main() -> Result<(), Error> {
 mod tests {
     use super::*;
 
-    use aws_smithy_mocks_experimental::{MockResponseInterceptor, RuleMode};
+    use aws_smithy_mocks::{MockResponseInterceptor, RuleMode};
 
     #[tokio::test]
     async fn function_handler_start() {
@@ -1218,7 +1218,7 @@ mod tests {
                 Client,
                 Config,
             };
-            use aws_smithy_mocks_experimental::{mock, Rule};
+            use aws_smithy_mocks::{mock, Rule};
             use aws_smithy_runtime_api::{
                 client::orchestrator::HttpResponse,
                 http::StatusCode,
@@ -1251,10 +1251,12 @@ mod tests {
             }"#;
 
             pub(crate) fn new_client(mocks: MockResponseInterceptor) -> Client {
+                let mock_http_client = aws_smithy_mocks::create_mock_http_client();
                 Client::from_conf(
                     Config::builder()
                         .with_test_defaults()
                         .region(Region::new("ap-northeast-1"))
+                        .http_client(mock_http_client)
                         .interceptor(mocks)
                         .build(),
                 )

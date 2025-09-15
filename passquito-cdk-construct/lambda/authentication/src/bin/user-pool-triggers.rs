@@ -646,7 +646,7 @@ mod tests {
     use super::*;
 
     use aws_lambda_events::event::cognito::CognitoEventUserPoolsChallengeResult;
-    use aws_smithy_mocks_experimental::{mock, MockResponseInterceptor, Rule, RuleMode};
+    use aws_smithy_mocks::{mock, MockResponseInterceptor, Rule, RuleMode};
     use std::collections::HashMap;
 
     use self::mocks::webauthn::{
