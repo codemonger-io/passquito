@@ -765,7 +765,7 @@ impl WebauthnFinishRegistration for Webauthn {
 mod tests {
     use super::*;
 
-    use aws_smithy_mocks::{mock, MockResponseInterceptor, Rule, RuleMode};
+    use aws_smithy_mocks::{mock, mock_client, Rule, RuleMode};
 
     use self::mocks::webauthn::{
         ConstantWebauthn,
@@ -775,10 +775,14 @@ mod tests {
 
     #[tokio::test]
     async fn function_handler_start_registration() {
-        let cognito = MockResponseInterceptor::new();
-        let dynamodb = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::dynamodb::put_item_ok());
+        let cognito = mock_client!(aws_sdk_cognitoidentityprovider, []);
+        let dynamodb = mock_client!(
+            aws_sdk_dynamodb,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::dynamodb::put_item_ok(),
+            ]
+        );
 
         let shared_state: SharedState<ConstantWebauthn> = SharedStateBuilder::default()
             .webauthn(ConstantWebauthn::new(
@@ -786,8 +790,8 @@ mod tests {
                 self::mocks::webauthn::OK_PASSKEY_REGISTRATION,
                 self::mocks::webauthn::OK_PASSKEY,
             ))
-            .cognito(self::mocks::cognito::new_client(cognito))
-            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .cognito(cognito)
+            .dynamodb(dynamodb)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -806,13 +810,21 @@ mod tests {
 
     #[tokio::test]
     async fn function_handler_start_registration_for_verified_user() {
-        let cognito = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::cognito::list_users_one());
-        let dynamodb = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::dynamodb::query_one_credential())
-            .with_rule(&self::mocks::dynamodb::put_item_ok());
+        let cognito = mock_client!(
+            aws_sdk_cognitoidentityprovider,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::cognito::list_users_one(),
+            ]
+        );
+        let dynamodb = mock_client!(
+            aws_sdk_dynamodb,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::dynamodb::query_one_credential(),
+                &self::mocks::dynamodb::put_item_ok(),
+            ]
+        );
 
         let shared_state: SharedState<ConstantWebauthn> = SharedStateBuilder::default()
             .webauthn(ConstantWebauthn::new(
@@ -820,8 +832,8 @@ mod tests {
                 self::mocks::webauthn::OK_PASSKEY_REGISTRATION_WITH_EXCLUDE_CREDENTIALS,
                 self::mocks::webauthn::OK_PASSKEY,
             ))
-            .cognito(self::mocks::cognito::new_client(cognito))
-            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .cognito(cognito)
+            .dynamodb(dynamodb)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -842,15 +854,23 @@ mod tests {
 
     #[tokio::test]
     async fn function_handler_finish_registration() {
-        let cognito = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::cognito::list_users_empty())
-            .with_rule(&self::mocks::cognito::admin_create_user_ok())
-            .with_rule(&self::mocks::cognito::admin_set_user_password_ok());
-        let dynamodb = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::dynamodb::delete_item_session())
-            .with_rule(&self::mocks::dynamodb::put_item_ok());
+        let cognito = mock_client!(
+            aws_sdk_cognitoidentityprovider,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::cognito::list_users_empty(),
+                &self::mocks::cognito::admin_create_user_ok(),
+                &self::mocks::cognito::admin_set_user_password_ok(),
+            ]
+        );
+        let dynamodb = mock_client!(
+            aws_sdk_dynamodb,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::dynamodb::delete_item_session(),
+                &self::mocks::dynamodb::put_item_ok(),
+            ]
+        );
 
         let shared_state: SharedState<ConstantWebauthn> = SharedStateBuilder::default()
             .webauthn(ConstantWebauthn::new(
@@ -858,8 +878,8 @@ mod tests {
                 self::mocks::webauthn::OK_PASSKEY_REGISTRATION,
                 self::mocks::webauthn::OK_PASSKEY,
             ))
-            .cognito(self::mocks::cognito::new_client(cognito))
-            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .cognito(cognito)
+            .dynamodb(dynamodb)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -888,8 +908,8 @@ mod tests {
 
     #[tokio::test]
     async fn function_handler_with_invalid_payload() {
-        let cognito = MockResponseInterceptor::new();
-        let dynamodb = MockResponseInterceptor::new();
+        let cognito = mock_client!(aws_sdk_cognitoidentityprovider, []);
+        let dynamodb = mock_client!(aws_sdk_dynamodb, []);
 
         let shared_state: SharedState<ConstantWebauthn> = SharedStateBuilder::default()
             .webauthn(ConstantWebauthn::new(
@@ -897,8 +917,8 @@ mod tests {
                 self::mocks::webauthn::OK_PASSKEY_REGISTRATION,
                 self::mocks::webauthn::OK_PASSKEY,
             ))
-            .cognito(self::mocks::cognito::new_client(cognito))
-            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .cognito(cognito)
+            .dynamodb(dynamodb)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -936,12 +956,16 @@ mod tests {
 
     #[tokio::test]
     async fn function_handler_with_unhandled_error() {
-        let cognito = MockResponseInterceptor::new();
-        let dynamodb = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::dynamodb::put_item_resource_not_found_exception())
-            .with_rule(&self::mocks::dynamodb::query_resource_not_found_exception())
-            .with_rule(&self::mocks::dynamodb::delete_item_resource_not_found_exception());
+        let cognito = mock_client!(aws_sdk_cognitoidentityprovider, []);
+        let dynamodb = mock_client!(
+            aws_sdk_dynamodb,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::dynamodb::put_item_resource_not_found_exception(),
+                &self::mocks::dynamodb::query_resource_not_found_exception(),
+                &self::mocks::dynamodb::delete_item_resource_not_found_exception(),
+            ]
+        );
 
         let shared_state: SharedState<ConstantWebauthn> = SharedStateBuilder::default()
             .webauthn(ConstantWebauthn::new(
@@ -949,8 +973,8 @@ mod tests {
                 self::mocks::webauthn::OK_PASSKEY_REGISTRATION,
                 self::mocks::webauthn::OK_PASSKEY,
             ))
-            .cognito(self::mocks::cognito::new_client(cognito))
-            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .cognito(cognito)
+            .dynamodb(dynamodb)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -1003,18 +1027,22 @@ mod tests {
 
     #[tokio::test]
     async fn start_registration_of_new_user() {
-        let cognito = MockResponseInterceptor::new();
-        let dynamodb = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::dynamodb::put_item_ok());
+        let cognito = mock_client!(aws_sdk_cognitoidentityprovider, []);
+        let dynamodb = mock_client!(
+            aws_sdk_dynamodb,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::dynamodb::put_item_ok(),
+            ]
+        );
 
         let shared_state: SharedState<ConstantWebauthnStartRegistration> = SharedStateBuilder::default()
             .webauthn(ConstantWebauthnStartRegistration::new(
                 self::mocks::webauthn::OK_CREATION_CHALLENGE_RESPONSE,
                 self::mocks::webauthn::OK_PASSKEY_REGISTRATION,
             ))
-            .cognito(self::mocks::cognito::new_client(cognito))
-            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .cognito(cognito)
+            .dynamodb(dynamodb)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -1032,18 +1060,22 @@ mod tests {
 
     #[tokio::test]
     async fn start_registration_with_dynamodb_put_item_provisitioned_throughput_exceeded() {
-        let cognito = MockResponseInterceptor::new();
-        let dynamodb = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::dynamodb::put_item_provisioned_throughput_exceeded());
+        let cognito = mock_client!(aws_sdk_cognitoidentityprovider, []);
+        let dynamodb = mock_client!(
+            aws_sdk_dynamodb,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::dynamodb::put_item_provisioned_throughput_exceeded(),
+            ]
+        );
 
         let shared_state: SharedState<ConstantWebauthnStartRegistration> = SharedStateBuilder::default()
             .webauthn(ConstantWebauthnStartRegistration::new(
                 self::mocks::webauthn::OK_CREATION_CHALLENGE_RESPONSE,
                 self::mocks::webauthn::OK_PASSKEY_REGISTRATION,
             ))
-            .cognito(self::mocks::cognito::new_client(cognito))
-            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .cognito(cognito)
+            .dynamodb(dynamodb)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -1060,18 +1092,22 @@ mod tests {
 
     #[tokio::test]
     async fn start_registration_with_dynamodb_put_item_request_limit_exceeded() {
-        let cognito = MockResponseInterceptor::new();
-        let dynamodb = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::dynamodb::put_item_request_limit_exceeded());
+        let cognito = mock_client!(aws_sdk_cognitoidentityprovider, []);
+        let dynamodb = mock_client!(
+            aws_sdk_dynamodb,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::dynamodb::put_item_request_limit_exceeded(),
+            ]
+        );
 
         let shared_state: SharedState<ConstantWebauthnStartRegistration> = SharedStateBuilder::default()
             .webauthn(ConstantWebauthnStartRegistration::new(
                 self::mocks::webauthn::OK_CREATION_CHALLENGE_RESPONSE,
                 self::mocks::webauthn::OK_PASSKEY_REGISTRATION,
             ))
-            .cognito(self::mocks::cognito::new_client(cognito))
-            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .cognito(cognito)
+            .dynamodb(dynamodb)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -1088,18 +1124,22 @@ mod tests {
 
     #[tokio::test]
     async fn start_registration_with_dynamodb_put_item_service_unavailable() {
-        let cognito = MockResponseInterceptor::new();
-        let dynamodb = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::dynamodb::put_item_service_unavailable());
+        let cognito = mock_client!(aws_sdk_cognitoidentityprovider, []);
+        let dynamodb = mock_client!(
+            aws_sdk_dynamodb,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::dynamodb::put_item_service_unavailable(),
+            ]
+        );
 
         let shared_state: SharedState<ConstantWebauthnStartRegistration> = SharedStateBuilder::default()
             .webauthn(ConstantWebauthnStartRegistration::new(
                 self::mocks::webauthn::OK_CREATION_CHALLENGE_RESPONSE,
                 self::mocks::webauthn::OK_PASSKEY_REGISTRATION,
             ))
-            .cognito(self::mocks::cognito::new_client(cognito))
-            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .cognito(cognito)
+            .dynamodb(dynamodb)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -1116,18 +1156,22 @@ mod tests {
 
     #[tokio::test]
     async fn start_registration_with_dynamodb_put_item_throttling_exception() {
-        let cognito = MockResponseInterceptor::new();
-        let dynamodb = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::dynamodb::put_item_throttling_exception());
+        let cognito = mock_client!(aws_sdk_cognitoidentityprovider, []);
+        let dynamodb = mock_client!(
+            aws_sdk_dynamodb,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::dynamodb::put_item_throttling_exception(),
+            ]
+        );
 
         let shared_state: SharedState<ConstantWebauthnStartRegistration> = SharedStateBuilder::default()
             .webauthn(ConstantWebauthnStartRegistration::new(
                 self::mocks::webauthn::OK_CREATION_CHALLENGE_RESPONSE,
                 self::mocks::webauthn::OK_PASSKEY_REGISTRATION,
             ))
-            .cognito(self::mocks::cognito::new_client(cognito))
-            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .cognito(cognito)
+            .dynamodb(dynamodb)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -1144,21 +1188,29 @@ mod tests {
 
     #[tokio::test]
     async fn start_registration_for_verified_user_with_existing_credential() {
-        let cognito = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::cognito::list_users_one());
-        let dynamodb = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::dynamodb::query_one_credential())
-            .with_rule(&self::mocks::dynamodb::put_item_ok());
+        let cognito = mock_client!(
+            aws_sdk_cognitoidentityprovider,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::cognito::list_users_one(),
+            ]
+        );
+        let dynamodb = mock_client!(
+            aws_sdk_dynamodb,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::dynamodb::query_one_credential(),
+                &self::mocks::dynamodb::put_item_ok(),
+            ]
+        );
 
         let shared_state: SharedState<ConstantWebauthnStartRegistration> = SharedStateBuilder::default()
             .webauthn(ConstantWebauthnStartRegistration::new(
                 self::mocks::webauthn::OK_CREATION_CHALLENGE_RESPONSE_WITH_EXCLUDE_CREDENTIALS,
                 self::mocks::webauthn::OK_PASSKEY_REGISTRATION_WITH_EXCLUDE_CREDENTIALS,
             ))
-            .cognito(self::mocks::cognito::new_client(cognito))
-            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .cognito(cognito)
+            .dynamodb(dynamodb)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -1180,18 +1232,22 @@ mod tests {
 
     #[tokio::test]
     async fn start_registration_for_verified_user_with_non_existing_credential() {
-        let cognito = MockResponseInterceptor::new();
-        let dynamodb = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::dynamodb::query_empty_credentials());
+        let cognito = mock_client!(aws_sdk_cognitoidentityprovider, []);
+        let dynamodb = mock_client!(
+            aws_sdk_dynamodb,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::dynamodb::query_empty_credentials(),
+            ]
+        );
 
         let shared_state: SharedState<ConstantWebauthnStartRegistration> = SharedStateBuilder::default()
             .webauthn(ConstantWebauthnStartRegistration::new(
                 self::mocks::webauthn::OK_CREATION_CHALLENGE_RESPONSE_WITH_EXCLUDE_CREDENTIALS,
                 self::mocks::webauthn::OK_PASSKEY_REGISTRATION_WITH_EXCLUDE_CREDENTIALS,
             ))
-            .cognito(self::mocks::cognito::new_client(cognito))
-            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .cognito(cognito)
+            .dynamodb(dynamodb)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -1212,20 +1268,28 @@ mod tests {
 
     #[tokio::test]
     async fn start_registration_for_verified_user_with_cognito_username_user_id_mismatch() {
-        let cognito = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::cognito::list_users_one());
-        let dynamodb = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::dynamodb::query_one_credential());
+        let cognito = mock_client!(
+            aws_sdk_cognitoidentityprovider,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::cognito::list_users_one(),
+            ]
+        );
+        let dynamodb = mock_client!(
+            aws_sdk_dynamodb,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::dynamodb::query_one_credential(),
+            ]
+        );
 
         let shared_state: SharedState<ConstantWebauthnStartRegistration> = SharedStateBuilder::default()
             .webauthn(ConstantWebauthnStartRegistration::new(
                 self::mocks::webauthn::OK_CREATION_CHALLENGE_RESPONSE_WITH_EXCLUDE_CREDENTIALS,
                 self::mocks::webauthn::OK_PASSKEY_REGISTRATION_WITH_EXCLUDE_CREDENTIALS,
             ))
-            .cognito(self::mocks::cognito::new_client(cognito))
-            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .cognito(cognito)
+            .dynamodb(dynamodb)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -1246,20 +1310,28 @@ mod tests {
 
     #[tokio::test]
     async fn start_registration_for_verified_user_with_disabled_cognito_user() {
-        let cognito = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::cognito::list_users_disabled_one());
-        let dynamodb = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::dynamodb::query_one_credential());
+        let cognito = mock_client!(
+            aws_sdk_cognitoidentityprovider,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::cognito::list_users_disabled_one(),
+            ]
+        );
+        let dynamodb = mock_client!(
+            aws_sdk_dynamodb,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::dynamodb::query_one_credential(),
+            ]
+        );
 
         let shared_state: SharedState<ConstantWebauthnStartRegistration> = SharedStateBuilder::default()
             .webauthn(ConstantWebauthnStartRegistration::new(
                 self::mocks::webauthn::OK_CREATION_CHALLENGE_RESPONSE_WITH_EXCLUDE_CREDENTIALS,
                 self::mocks::webauthn::OK_PASSKEY_REGISTRATION_WITH_EXCLUDE_CREDENTIALS,
             ))
-            .cognito(self::mocks::cognito::new_client(cognito))
-            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .cognito(cognito)
+            .dynamodb(dynamodb)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -1280,20 +1352,28 @@ mod tests {
 
     #[tokio::test]
     async fn start_registration_for_verified_user_with_unconfirmed_cognito_user() {
-        let cognito = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::cognito::list_users_unconfirmed_one());
-        let dynamodb = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::dynamodb::query_one_credential());
+        let cognito = mock_client!(
+            aws_sdk_cognitoidentityprovider,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::cognito::list_users_unconfirmed_one(),
+            ]
+        );
+        let dynamodb = mock_client!(
+            aws_sdk_dynamodb,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::dynamodb::query_one_credential(),
+            ]
+        );
 
         let shared_state: SharedState<ConstantWebauthnStartRegistration> = SharedStateBuilder::default()
             .webauthn(ConstantWebauthnStartRegistration::new(
                 self::mocks::webauthn::OK_CREATION_CHALLENGE_RESPONSE_WITH_EXCLUDE_CREDENTIALS,
                 self::mocks::webauthn::OK_PASSKEY_REGISTRATION_WITH_EXCLUDE_CREDENTIALS,
             ))
-            .cognito(self::mocks::cognito::new_client(cognito))
-            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .cognito(cognito)
+            .dynamodb(dynamodb)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -1314,18 +1394,22 @@ mod tests {
 
     #[tokio::test]
     async fn start_registration_for_verified_user_with_dynamodb_query_throughput_exceeded() {
-        let cognito = MockResponseInterceptor::new();
-        let dynamodb = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::dynamodb::query_throughput_exceeded());
+        let cognito = mock_client!(aws_sdk_cognitoidentityprovider, []);
+        let dynamodb = mock_client!(
+            aws_sdk_dynamodb,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::dynamodb::query_throughput_exceeded(),
+            ]
+        );
 
         let shared_state: SharedState<ConstantWebauthnStartRegistration> = SharedStateBuilder::default()
             .webauthn(ConstantWebauthnStartRegistration::new(
                 self::mocks::webauthn::OK_CREATION_CHALLENGE_RESPONSE_WITH_EXCLUDE_CREDENTIALS,
                 self::mocks::webauthn::OK_PASSKEY_REGISTRATION_WITH_EXCLUDE_CREDENTIALS,
             ))
-            .cognito(self::mocks::cognito::new_client(cognito))
-            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .cognito(cognito)
+            .dynamodb(dynamodb)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -1346,18 +1430,22 @@ mod tests {
 
     #[tokio::test]
     async fn start_registration_for_verified_user_with_dynamodb_query_request_limit_exceeded() {
-        let cognito = MockResponseInterceptor::new();
-        let dynamodb = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::dynamodb::query_request_limit_exceeded());
+        let cognito = mock_client!(aws_sdk_cognitoidentityprovider, []);
+        let dynamodb = mock_client!(
+            aws_sdk_dynamodb,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::dynamodb::query_request_limit_exceeded(),
+            ]
+        );
 
         let shared_state: SharedState<ConstantWebauthnStartRegistration> = SharedStateBuilder::default()
             .webauthn(ConstantWebauthnStartRegistration::new(
                 self::mocks::webauthn::OK_CREATION_CHALLENGE_RESPONSE_WITH_EXCLUDE_CREDENTIALS,
                 self::mocks::webauthn::OK_PASSKEY_REGISTRATION_WITH_EXCLUDE_CREDENTIALS,
             ))
-            .cognito(self::mocks::cognito::new_client(cognito))
-            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .cognito(cognito)
+            .dynamodb(dynamodb)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -1378,18 +1466,22 @@ mod tests {
 
     #[tokio::test]
     async fn start_registration_for_verified_user_with_dynamodb_query_service_unavailable() {
-        let cognito = MockResponseInterceptor::new();
-        let dynamodb = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::dynamodb::query_service_unavailable());
+        let cognito = mock_client!(aws_sdk_cognitoidentityprovider, []);
+        let dynamodb = mock_client!(
+            aws_sdk_dynamodb,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::dynamodb::query_service_unavailable(),
+            ]
+        );
 
         let shared_state: SharedState<ConstantWebauthnStartRegistration> = SharedStateBuilder::default()
             .webauthn(ConstantWebauthnStartRegistration::new(
                 self::mocks::webauthn::OK_CREATION_CHALLENGE_RESPONSE_WITH_EXCLUDE_CREDENTIALS,
                 self::mocks::webauthn::OK_PASSKEY_REGISTRATION_WITH_EXCLUDE_CREDENTIALS,
             ))
-            .cognito(self::mocks::cognito::new_client(cognito))
-            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .cognito(cognito)
+            .dynamodb(dynamodb)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -1410,18 +1502,22 @@ mod tests {
 
     #[tokio::test]
     async fn start_registration_for_verified_user_with_dynamodb_query_throttling() {
-        let cognito = MockResponseInterceptor::new();
-        let dynamodb = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::dynamodb::query_throttling_exception());
+        let cognito = mock_client!(aws_sdk_cognitoidentityprovider, []);
+        let dynamodb = mock_client!(
+            aws_sdk_dynamodb,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::dynamodb::query_throttling_exception(),
+            ]
+        );
 
         let shared_state: SharedState<ConstantWebauthnStartRegistration> = SharedStateBuilder::default()
             .webauthn(ConstantWebauthnStartRegistration::new(
                 self::mocks::webauthn::OK_CREATION_CHALLENGE_RESPONSE_WITH_EXCLUDE_CREDENTIALS,
                 self::mocks::webauthn::OK_PASSKEY_REGISTRATION_WITH_EXCLUDE_CREDENTIALS,
             ))
-            .cognito(self::mocks::cognito::new_client(cognito))
-            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .cognito(cognito)
+            .dynamodb(dynamodb)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -1442,20 +1538,28 @@ mod tests {
 
     #[tokio::test]
     async fn start_registration_for_verified_user_with_cognito_list_users_too_many_requests() {
-        let cognito = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::cognito::list_users_too_many_requests());
-        let dynamodb = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::dynamodb::query_one_credential());
+        let cognito = mock_client!(
+            aws_sdk_cognitoidentityprovider,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::cognito::list_users_too_many_requests(),
+            ]
+        );
+        let dynamodb = mock_client!(
+            aws_sdk_dynamodb,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::dynamodb::query_one_credential(),
+            ]
+        );
 
         let shared_state: SharedState<ConstantWebauthnStartRegistration> = SharedStateBuilder::default()
             .webauthn(ConstantWebauthnStartRegistration::new(
                 self::mocks::webauthn::OK_CREATION_CHALLENGE_RESPONSE_WITH_EXCLUDE_CREDENTIALS,
                 self::mocks::webauthn::OK_PASSKEY_REGISTRATION_WITH_EXCLUDE_CREDENTIALS,
             ))
-            .cognito(self::mocks::cognito::new_client(cognito))
-            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .cognito(cognito)
+            .dynamodb(dynamodb)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -1476,20 +1580,28 @@ mod tests {
 
     #[tokio::test]
     async fn start_registration_for_verified_user_with_cognito_list_users_service_unavailable() {
-        let cognito = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::cognito::list_users_service_unavailable());
-        let dynamodb = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::dynamodb::query_one_credential());
+        let cognito = mock_client!(
+            aws_sdk_cognitoidentityprovider,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::cognito::list_users_service_unavailable(),
+            ]
+        );
+        let dynamodb = mock_client!(
+            aws_sdk_dynamodb,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::dynamodb::query_one_credential(),
+            ]
+        );
 
         let shared_state: SharedState<ConstantWebauthnStartRegistration> = SharedStateBuilder::default()
             .webauthn(ConstantWebauthnStartRegistration::new(
                 self::mocks::webauthn::OK_CREATION_CHALLENGE_RESPONSE_WITH_EXCLUDE_CREDENTIALS,
                 self::mocks::webauthn::OK_PASSKEY_REGISTRATION_WITH_EXCLUDE_CREDENTIALS,
             ))
-            .cognito(self::mocks::cognito::new_client(cognito))
-            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .cognito(cognito)
+            .dynamodb(dynamodb)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -1510,20 +1622,28 @@ mod tests {
 
     #[tokio::test]
     async fn start_registration_for_verified_user_with_cognito_list_users_throttling() {
-        let cognito = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::cognito::list_users_throttling_exception());
-        let dynamodb = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::dynamodb::query_one_credential());
+        let cognito = mock_client!(
+            aws_sdk_cognitoidentityprovider,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::cognito::list_users_throttling_exception(),
+            ]
+        );
+        let dynamodb = mock_client!(
+            aws_sdk_dynamodb,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::dynamodb::query_one_credential(),
+            ]
+        );
 
         let shared_state: SharedState<ConstantWebauthnStartRegistration> = SharedStateBuilder::default()
             .webauthn(ConstantWebauthnStartRegistration::new(
                 self::mocks::webauthn::OK_CREATION_CHALLENGE_RESPONSE_WITH_EXCLUDE_CREDENTIALS,
                 self::mocks::webauthn::OK_PASSKEY_REGISTRATION_WITH_EXCLUDE_CREDENTIALS,
             ))
-            .cognito(self::mocks::cognito::new_client(cognito))
-            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .cognito(cognito)
+            .dynamodb(dynamodb)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -1544,21 +1664,29 @@ mod tests {
 
     #[tokio::test]
     async fn start_registration_for_verified_user_with_dynamodb_put_item_provisioned_throughput_exceeded() {
-        let cognito = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::cognito::list_users_one());
-        let dynamodb = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::dynamodb::query_one_credential())
-            .with_rule(&self::mocks::dynamodb::put_item_provisioned_throughput_exceeded());
+        let cognito = mock_client!(
+            aws_sdk_cognitoidentityprovider,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::cognito::list_users_one(),
+            ]
+        );
+        let dynamodb = mock_client!(
+            aws_sdk_dynamodb,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::dynamodb::query_one_credential(),
+                &self::mocks::dynamodb::put_item_provisioned_throughput_exceeded(),
+            ]
+        );
 
         let shared_state: SharedState<ConstantWebauthnStartRegistration> = SharedStateBuilder::default()
             .webauthn(ConstantWebauthnStartRegistration::new(
                 self::mocks::webauthn::OK_CREATION_CHALLENGE_RESPONSE_WITH_EXCLUDE_CREDENTIALS,
                 self::mocks::webauthn::OK_PASSKEY_REGISTRATION_WITH_EXCLUDE_CREDENTIALS,
             ))
-            .cognito(self::mocks::cognito::new_client(cognito))
-            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .cognito(cognito)
+            .dynamodb(dynamodb)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -1579,21 +1707,29 @@ mod tests {
 
     #[tokio::test]
     async fn start_registration_for_verified_user_with_dynamodb_put_item_request_limit_exceeded() {
-        let cognito = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::cognito::list_users_one());
-        let dynamodb = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::dynamodb::query_one_credential())
-            .with_rule(&self::mocks::dynamodb::put_item_request_limit_exceeded());
+        let cognito = mock_client!(
+            aws_sdk_cognitoidentityprovider,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::cognito::list_users_one(),
+            ]
+        );
+        let dynamodb = mock_client!(
+            aws_sdk_dynamodb,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::dynamodb::query_one_credential(),
+                &self::mocks::dynamodb::put_item_request_limit_exceeded(),
+            ]
+        );
 
         let shared_state: SharedState<ConstantWebauthnStartRegistration> = SharedStateBuilder::default()
             .webauthn(ConstantWebauthnStartRegistration::new(
                 self::mocks::webauthn::OK_CREATION_CHALLENGE_RESPONSE_WITH_EXCLUDE_CREDENTIALS,
                 self::mocks::webauthn::OK_PASSKEY_REGISTRATION_WITH_EXCLUDE_CREDENTIALS,
             ))
-            .cognito(self::mocks::cognito::new_client(cognito))
-            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .cognito(cognito)
+            .dynamodb(dynamodb)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -1614,21 +1750,29 @@ mod tests {
 
     #[tokio::test]
     async fn start_registration_for_verified_user_with_dynamodb_put_item_service_unavailable() {
-        let cognito = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::cognito::list_users_one());
-        let dynamodb = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::dynamodb::query_one_credential())
-            .with_rule(&self::mocks::dynamodb::put_item_service_unavailable());
+        let cognito = mock_client!(
+            aws_sdk_cognitoidentityprovider,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::cognito::list_users_one(),
+            ]
+        );
+        let dynamodb = mock_client!(
+            aws_sdk_dynamodb,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::dynamodb::query_one_credential(),
+                &self::mocks::dynamodb::put_item_service_unavailable(),
+            ]
+        );
 
         let shared_state: SharedState<ConstantWebauthnStartRegistration> = SharedStateBuilder::default()
             .webauthn(ConstantWebauthnStartRegistration::new(
                 self::mocks::webauthn::OK_CREATION_CHALLENGE_RESPONSE_WITH_EXCLUDE_CREDENTIALS,
                 self::mocks::webauthn::OK_PASSKEY_REGISTRATION_WITH_EXCLUDE_CREDENTIALS,
             ))
-            .cognito(self::mocks::cognito::new_client(cognito))
-            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .cognito(cognito)
+            .dynamodb(dynamodb)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -1649,21 +1793,29 @@ mod tests {
 
     #[tokio::test]
     async fn start_registration_for_verified_user_with_dynamodb_put_item_throttling() {
-        let cognito = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::cognito::list_users_one());
-        let dynamodb = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::dynamodb::query_one_credential())
-            .with_rule(&self::mocks::dynamodb::put_item_throttling_exception());
+        let cognito = mock_client!(
+            aws_sdk_cognitoidentityprovider,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::cognito::list_users_one(),
+            ]
+        );
+        let dynamodb = mock_client!(
+            aws_sdk_dynamodb,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::dynamodb::query_one_credential(),
+                &self::mocks::dynamodb::put_item_throttling_exception(),
+            ]
+        );
 
         let shared_state: SharedState<ConstantWebauthnStartRegistration> = SharedStateBuilder::default()
             .webauthn(ConstantWebauthnStartRegistration::new(
                 self::mocks::webauthn::OK_CREATION_CHALLENGE_RESPONSE_WITH_EXCLUDE_CREDENTIALS,
                 self::mocks::webauthn::OK_PASSKEY_REGISTRATION_WITH_EXCLUDE_CREDENTIALS,
             ))
-            .cognito(self::mocks::cognito::new_client(cognito))
-            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .cognito(cognito)
+            .dynamodb(dynamodb)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -1684,22 +1836,30 @@ mod tests {
 
     #[tokio::test]
     async fn finish_registration_of_legitimate_new_user() {
-        let cognito = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::cognito::list_users_empty())
-            .with_rule(&self::mocks::cognito::admin_create_user_ok())
-            .with_rule(&self::mocks::cognito::admin_set_user_password_ok());
-        let dynamodb = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::dynamodb::delete_item_session())
-            .with_rule(&self::mocks::dynamodb::put_item_ok());
+        let cognito = mock_client!(
+            aws_sdk_cognitoidentityprovider,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::cognito::list_users_empty(),
+                &self::mocks::cognito::admin_create_user_ok(),
+                &self::mocks::cognito::admin_set_user_password_ok(),
+            ]
+        );
+        let dynamodb = mock_client!(
+            aws_sdk_dynamodb,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::dynamodb::delete_item_session(),
+                &self::mocks::dynamodb::put_item_ok(),
+            ]
+        );
 
         let shared_state: SharedState<ConstantWebauthnFinishRegistration> = SharedStateBuilder::default()
             .webauthn(ConstantWebauthnFinishRegistration::new(
                 self::mocks::webauthn::OK_PASSKEY,
             ))
-            .cognito(self::mocks::cognito::new_client(cognito))
-            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .cognito(cognito)
+            .dynamodb(dynamodb)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -1718,20 +1878,28 @@ mod tests {
 
     #[tokio::test]
     async fn finish_registration_of_existing_user() {
-        let cognito = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::cognito::list_users_one());
-        let dynamodb = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::dynamodb::delete_item_session())
-            .with_rule(&self::mocks::dynamodb::put_item_ok());
+        let cognito = mock_client!(
+            aws_sdk_cognitoidentityprovider,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::cognito::list_users_one(),
+            ]
+        );
+        let dynamodb = mock_client!(
+            aws_sdk_dynamodb,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::dynamodb::delete_item_session(),
+                &self::mocks::dynamodb::put_item_ok(),
+            ]
+        );
 
         let shared_state: SharedState<ConstantWebauthnFinishRegistration> = SharedStateBuilder::default()
             .webauthn(ConstantWebauthnFinishRegistration::new(
                 self::mocks::webauthn::OK_PASSKEY,
             ))
-            .cognito(self::mocks::cognito::new_client(cognito))
-            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .cognito(cognito)
+            .dynamodb(dynamodb)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -1750,18 +1918,21 @@ mod tests {
 
     #[tokio::test]
     async fn finish_registration_with_missing_session() {
-        let cognito = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny);
-        let dynamodb = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::dynamodb::delete_item_missing_session());
+        let cognito = mock_client!(aws_sdk_cognitoidentityprovider, []);
+        let dynamodb = mock_client!(
+            aws_sdk_dynamodb,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::dynamodb::delete_item_missing_session(),
+            ]
+        );
 
         let shared_state: SharedState<ConstantWebauthnFinishRegistration> = SharedStateBuilder::default()
             .webauthn(ConstantWebauthnFinishRegistration::new(
                 self::mocks::webauthn::OK_PASSKEY,
             ))
-            .cognito(self::mocks::cognito::new_client(cognito))
-            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .cognito(cognito)
+            .dynamodb(dynamodb)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -1780,18 +1951,21 @@ mod tests {
 
     #[tokio::test]
     async fn finish_registration_with_expired_session() {
-        let cognito = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny);
-        let dynamodb = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::dynamodb::delete_item_expired_session());
+        let cognito = mock_client!(aws_sdk_cognitoidentityprovider, []);
+        let dynamodb = mock_client!(
+            aws_sdk_dynamodb,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::dynamodb::delete_item_expired_session(),
+            ]
+        );
 
         let shared_state: SharedState<ConstantWebauthnFinishRegistration> = SharedStateBuilder::default()
             .webauthn(ConstantWebauthnFinishRegistration::new(
                 self::mocks::webauthn::OK_PASSKEY,
             ))
-            .cognito(self::mocks::cognito::new_client(cognito))
-            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .cognito(cognito)
+            .dynamodb(dynamodb)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -1811,23 +1985,31 @@ mod tests {
     #[tokio::test]
     async fn finish_registration_with_credential_table_put_item_throughput_exceeded() {
         let admin_delete_user = self::mocks::cognito::admin_delete_user_ok();
-        let cognito = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::cognito::list_users_empty())
-            .with_rule(&self::mocks::cognito::admin_create_user_ok())
-            .with_rule(&self::mocks::cognito::admin_set_user_password_ok())
-            .with_rule(&admin_delete_user);
-        let dynamodb = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::dynamodb::delete_item_session())
-            .with_rule(&self::mocks::dynamodb::put_item_provisioned_throughput_exceeded());
+        let cognito = mock_client!(
+            aws_sdk_cognitoidentityprovider,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::cognito::list_users_empty(),
+                &self::mocks::cognito::admin_create_user_ok(),
+                &self::mocks::cognito::admin_set_user_password_ok(),
+                &admin_delete_user,
+            ]
+        );
+        let dynamodb = mock_client!(
+            aws_sdk_dynamodb,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::dynamodb::delete_item_session(),
+                &self::mocks::dynamodb::put_item_provisioned_throughput_exceeded(),
+            ]
+        );
 
         let shared_state: SharedState<ConstantWebauthnFinishRegistration> = SharedStateBuilder::default()
             .webauthn(ConstantWebauthnFinishRegistration::new(
                 self::mocks::webauthn::OK_PASSKEY,
             ))
-            .cognito(self::mocks::cognito::new_client(cognito))
-            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .cognito(cognito)
+            .dynamodb(dynamodb)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -1848,23 +2030,31 @@ mod tests {
     #[tokio::test]
     async fn finish_registration_with_credential_table_put_item_request_limit_exceeded() {
         let admin_delete_user = self::mocks::cognito::admin_delete_user_ok();
-        let cognito = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::cognito::list_users_empty())
-            .with_rule(&self::mocks::cognito::admin_create_user_ok())
-            .with_rule(&self::mocks::cognito::admin_set_user_password_ok())
-            .with_rule(&admin_delete_user);
-        let dynamodb = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::dynamodb::delete_item_session())
-            .with_rule(&self::mocks::dynamodb::put_item_request_limit_exceeded());
+        let cognito = mock_client!(
+            aws_sdk_cognitoidentityprovider,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::cognito::list_users_empty(),
+                &self::mocks::cognito::admin_create_user_ok(),
+                &self::mocks::cognito::admin_set_user_password_ok(),
+                &admin_delete_user,
+            ]
+        );
+        let dynamodb = mock_client!(
+            aws_sdk_dynamodb,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::dynamodb::delete_item_session(),
+                &self::mocks::dynamodb::put_item_request_limit_exceeded(),
+            ]
+        );
 
         let shared_state: SharedState<ConstantWebauthnFinishRegistration> = SharedStateBuilder::default()
             .webauthn(ConstantWebauthnFinishRegistration::new(
                 self::mocks::webauthn::OK_PASSKEY,
             ))
-            .cognito(self::mocks::cognito::new_client(cognito))
-            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .cognito(cognito)
+            .dynamodb(dynamodb)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -1885,23 +2075,31 @@ mod tests {
     #[tokio::test]
     async fn finish_registration_with_credential_table_put_item_service_unavailable() {
         let admin_delete_user = self::mocks::cognito::admin_delete_user_ok();
-        let cognito = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::cognito::list_users_empty())
-            .with_rule(&self::mocks::cognito::admin_create_user_ok())
-            .with_rule(&self::mocks::cognito::admin_set_user_password_ok())
-            .with_rule(&admin_delete_user);
-        let dynamodb = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::dynamodb::delete_item_session())
-            .with_rule(&self::mocks::dynamodb::put_item_service_unavailable());
+        let cognito = mock_client!(
+            aws_sdk_cognitoidentityprovider,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::cognito::list_users_empty(),
+                &self::mocks::cognito::admin_create_user_ok(),
+                &self::mocks::cognito::admin_set_user_password_ok(),
+                &admin_delete_user,
+            ]
+        );
+        let dynamodb = mock_client!(
+            aws_sdk_dynamodb,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::dynamodb::delete_item_session(),
+                &self::mocks::dynamodb::put_item_service_unavailable(),
+            ]
+        );
 
         let shared_state: SharedState<ConstantWebauthnFinishRegistration> = SharedStateBuilder::default()
             .webauthn(ConstantWebauthnFinishRegistration::new(
                 self::mocks::webauthn::OK_PASSKEY,
             ))
-            .cognito(self::mocks::cognito::new_client(cognito))
-            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .cognito(cognito)
+            .dynamodb(dynamodb)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -1922,23 +2120,31 @@ mod tests {
     #[tokio::test]
     async fn finish_registration_with_credential_table_put_item_throttling_exception() {
         let admin_delete_user = self::mocks::cognito::admin_delete_user_ok();
-        let cognito = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::cognito::list_users_empty())
-            .with_rule(&self::mocks::cognito::admin_create_user_ok())
-            .with_rule(&self::mocks::cognito::admin_set_user_password_ok())
-            .with_rule(&admin_delete_user);
-        let dynamodb = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::dynamodb::delete_item_session())
-            .with_rule(&self::mocks::dynamodb::put_item_throttling_exception());
+        let cognito = mock_client!(
+            aws_sdk_cognitoidentityprovider,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::cognito::list_users_empty(),
+                &self::mocks::cognito::admin_create_user_ok(),
+                &self::mocks::cognito::admin_set_user_password_ok(),
+                &admin_delete_user,
+            ]
+        );
+        let dynamodb = mock_client!(
+            aws_sdk_dynamodb,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::dynamodb::delete_item_session(),
+                &self::mocks::dynamodb::put_item_throttling_exception(),
+            ]
+        );
 
         let shared_state: SharedState<ConstantWebauthnFinishRegistration> = SharedStateBuilder::default()
             .webauthn(ConstantWebauthnFinishRegistration::new(
                 self::mocks::webauthn::OK_PASSKEY,
             ))
-            .cognito(self::mocks::cognito::new_client(cognito))
-            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .cognito(cognito)
+            .dynamodb(dynamodb)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -1958,6 +2164,17 @@ mod tests {
 
     mod mocks {
         use super::*;
+
+        use aws_smithy_runtime_api::{
+            client::orchestrator::HttpResponse,
+            http::StatusCode,
+        };
+        use aws_smithy_types::{
+            body::SdkBody,
+            error::metadata::ErrorMetadata,
+        };
+
+        const SERVICE_UNAVAILABLE: &str = r#"{"code": "ServiceUnavailable", "message": "Service unavailable."}"#;
 
         pub(crate) mod webauthn {
             use super::*;
@@ -2190,38 +2407,22 @@ mod tests {
             use super::*;
 
             use aws_sdk_cognitoidentityprovider::{
-                config::Region,
                 operation::{
                     admin_create_user::AdminCreateUserOutput,
                     admin_delete_user::AdminDeleteUserOutput,
                     admin_set_user_password::AdminSetUserPasswordOutput,
-                    list_users::ListUsersOutput,
+                    list_users::{ListUsersError, ListUsersOutput},
                 },
-                types::{AttributeType, UserStatusType, UserType},
+                types::{
+                    AttributeType,
+                    UserStatusType,
+                    UserType,
+                    error::TooManyRequestsException,
+                },
                 Client,
-                Config,
             };
-            use aws_smithy_runtime_api::client::orchestrator::HttpResponse;
-            use aws_smithy_runtime_api::http::StatusCode as SmithyStatusCode;
-            use aws_smithy_types::body::SdkBody;
 
-            const TOO_MANY_REQUESTS_EXCEPTION: &str = r#"{"__type": "TooManyRequestsException", "message": "Too many requests."}"#;
-
-            const SERVICE_UNAVAILABLE: &str = r#"{"__type": "ServiceUnavailable", "message": "Service unavailable."}"#;
-
-            const THROTTLING_EXCEPTION: &str = r#"{"__type": "ThrottlingException", "message": "Throttled."}"#;
-
-            pub(crate) fn new_client(mocks: MockResponseInterceptor) -> Client {
-                let mock_http_client = aws_smithy_mocks::create_mock_http_client();
-                Client::from_conf(
-                    Config::builder()
-                        .with_test_defaults()
-                        .region(Region::new("ap-northeast-1"))
-                        .http_client(mock_http_client)
-                        .interceptor(mocks)
-                        .build(),
-                )
-            }
+            const THROTTLING_EXCEPTION: &str = r#"{"code": "ThrottlingException", "message": "Throttled."}"#;
 
             pub(crate) fn list_users_empty() -> Rule {
                 mock!(Client::list_users)
@@ -2291,19 +2492,20 @@ mod tests {
 
             pub(crate) fn list_users_too_many_requests() -> Rule {
                 mock!(Client::list_users)
-                    .then_http_response(|| {
-                        HttpResponse::new(
-                            SmithyStatusCode::try_from(400).unwrap(),
-                            SdkBody::from(TOO_MANY_REQUESTS_EXCEPTION),
-                        )
-                    })
+                    .then_error(|| ListUsersError::TooManyRequestsException(
+                        TooManyRequestsException::builder()
+                            .meta(ErrorMetadata::builder()
+                                .code("TooManyRequestsException")
+                                .build())
+                            .build(),
+                    ))
             }
 
             pub(crate) fn list_users_service_unavailable() -> Rule {
                 mock!(Client::list_users)
                     .then_http_response(|| {
                         HttpResponse::new(
-                            SmithyStatusCode::try_from(503).unwrap(),
+                            StatusCode::try_from(503).unwrap(),
                             SdkBody::from(SERVICE_UNAVAILABLE),
                         )
                     })
@@ -2313,7 +2515,7 @@ mod tests {
                 mock!(Client::list_users)
                     .then_http_response(|| {
                         HttpResponse::new(
-                            SmithyStatusCode::try_from(400).unwrap(),
+                            StatusCode::try_from(400).unwrap(),
                             SdkBody::from(THROTTLING_EXCEPTION),
                         )
                     })
@@ -2347,40 +2549,19 @@ mod tests {
             use super::*;
 
             use aws_sdk_dynamodb::{
-                config::Region,
                 operation::{
-                    delete_item::DeleteItemOutput,
-                    put_item::PutItemOutput,
-                    query::QueryOutput,
+                    delete_item::{DeleteItemError, DeleteItemOutput},
+                    put_item::{PutItemError, PutItemOutput},
+                    query::{QueryError, QueryOutput},
+                },
+                types::error::{
+                    ProvisionedThroughputExceededException,
+                    RequestLimitExceeded,
+                    ResourceNotFoundException,
+                    ThrottlingException,
                 },
                 Client,
-                Config,
             };
-            use aws_smithy_runtime_api::client::orchestrator::HttpResponse;
-            use aws_smithy_runtime_api::http::StatusCode as SmithyStatusCode;
-            use aws_smithy_types::body::SdkBody;
-
-            const PROVISIONED_THROUGHPUT_EXCEEDED_EXCEPTION: &str = r#"{"__type": "com.amazonaws.dynamodb.v20120810#ProvisionedThroughputExceededException", "message": "Exceeded provisioned throughput."}"#;
-
-            const REQUEST_LIMIT_EXCEEDED: &str = r#"{"__type": "com.amazonaws.dynamodb.v20120810#RequestLimitExceeded", "message": "Exceeded request limit."}"#;
-
-            const SERVICE_UNAVAILABLE: &str = r#"{"__type": "com.amazonaws.dynamodb.v20120810#ServiceUnavailable", "message": "Service unavailable."}"#;
-
-            const THROTTLING_EXCEPTION: &str = r#"{"__type": "com.amazonaws.dynamodb.v20120810#ThrottlingException", "message": "Throttled."}"#;
-
-            const RESOURCE_NOT_FOUND_EXCEPTION: &str = r#"{"__type": "com.amazonaws.dynamodb.v20120810#ResourceNotFoundException", "message": "No such table."}"#;
-
-            pub(crate) fn new_client(mocks: MockResponseInterceptor) -> Client {
-                let mock_http_client = aws_smithy_mocks::create_mock_http_client();
-                Client::from_conf(
-                    Config::builder()
-                        .with_test_defaults()
-                        .region(Region::new("ap-northeast-1"))
-                        .http_client(mock_http_client)
-                        .interceptor(mocks)
-                        .build(),
-                )
-            }
 
             pub(crate) fn put_item_ok() -> Rule {
                 mock!(Client::put_item)
@@ -2389,29 +2570,31 @@ mod tests {
 
             pub(crate) fn put_item_provisioned_throughput_exceeded() -> Rule {
                 mock!(Client::put_item)
-                    .then_http_response(|| {
-                        HttpResponse::new(
-                            SmithyStatusCode::try_from(400).unwrap(),
-                            SdkBody::from(PROVISIONED_THROUGHPUT_EXCEEDED_EXCEPTION),
-                        )
-                    })
+                    .then_error(|| PutItemError::ProvisionedThroughputExceededException(
+                        ProvisionedThroughputExceededException::builder()
+                            .meta(ErrorMetadata::builder()
+                                .code("ProvisionedThroughputExceededException")
+                                .build())
+                            .build(),
+                    ))
             }
 
             pub(crate) fn put_item_request_limit_exceeded() -> Rule {
                 mock!(Client::put_item)
-                    .then_http_response(|| {
-                        HttpResponse::new(
-                            SmithyStatusCode::try_from(400).unwrap(),
-                            SdkBody::from(REQUEST_LIMIT_EXCEEDED),
-                        )
-                    })
+                    .then_error(|| PutItemError::RequestLimitExceeded(
+                        RequestLimitExceeded::builder()
+                            .meta(ErrorMetadata::builder()
+                                .code("RequestLimitExceeded")
+                                .build())
+                            .build(),
+                    ))
             }
 
             pub(crate) fn put_item_service_unavailable() -> Rule {
                 mock!(Client::put_item)
                     .then_http_response(|| {
                         HttpResponse::new(
-                            SmithyStatusCode::try_from(503).unwrap(),
+                            StatusCode::try_from(503).unwrap(),
                             SdkBody::from(SERVICE_UNAVAILABLE),
                         )
                     })
@@ -2419,22 +2602,24 @@ mod tests {
 
             pub(crate) fn put_item_throttling_exception() -> Rule {
                 mock!(Client::put_item)
-                    .then_http_response(|| {
-                        HttpResponse::new(
-                            SmithyStatusCode::try_from(400).unwrap(),
-                            SdkBody::from(THROTTLING_EXCEPTION),
-                        )
-                    })
+                    .then_error(|| PutItemError::ThrottlingException(
+                        ThrottlingException::builder()
+                            .meta(ErrorMetadata::builder()
+                                .code("ThrottlingException")
+                                .build())
+                            .build(),
+                    ))
             }
 
             pub(crate) fn put_item_resource_not_found_exception() -> Rule {
                 mock!(Client::put_item)
-                    .then_http_response(|| {
-                        HttpResponse::new(
-                            SmithyStatusCode::try_from(400).unwrap(),
-                            SdkBody::from(RESOURCE_NOT_FOUND_EXCEPTION),
-                        )
-                    })
+                    .then_error(|| PutItemError::ResourceNotFoundException(
+                        ResourceNotFoundException::builder()
+                            .meta(ErrorMetadata::builder()
+                                .code("ResourceNotFoundException")
+                                .build())
+                            .build(),
+                    ))
             }
 
             pub(crate) fn delete_item_session() -> Rule {
@@ -2470,12 +2655,13 @@ mod tests {
 
             pub(crate) fn delete_item_resource_not_found_exception() -> Rule {
                 mock!(Client::delete_item)
-                    .then_http_response(|| {
-                        HttpResponse::new(
-                            SmithyStatusCode::try_from(400).unwrap(),
-                            SdkBody::from(RESOURCE_NOT_FOUND_EXCEPTION),
-                        )
-                    })
+                    .then_error(|| DeleteItemError::ResourceNotFoundException(
+                        ResourceNotFoundException::builder()
+                            .meta(ErrorMetadata::builder()
+                                .code("ResourceNotFoundException")
+                                .build())
+                            .build(),
+                    ))
             }
 
             pub(crate) fn query_one_credential() -> Rule {
@@ -2502,29 +2688,31 @@ mod tests {
 
             pub(crate) fn query_throughput_exceeded() -> Rule {
                 mock!(Client::query)
-                    .then_http_response(|| {
-                        HttpResponse::new(
-                            SmithyStatusCode::try_from(400).unwrap(),
-                            SdkBody::from(PROVISIONED_THROUGHPUT_EXCEEDED_EXCEPTION),
-                        )
-                    })
+                    .then_error(|| QueryError::ProvisionedThroughputExceededException(
+                        ProvisionedThroughputExceededException::builder()
+                            .meta(ErrorMetadata::builder()
+                                .code("ProvisionedThroughputExceededException")
+                                .build())
+                            .build(),
+                    ))
             }
 
             pub(crate) fn query_request_limit_exceeded() -> Rule {
                 mock!(Client::query)
-                    .then_http_response(|| {
-                        HttpResponse::new(
-                            SmithyStatusCode::try_from(400).unwrap(),
-                            SdkBody::from(REQUEST_LIMIT_EXCEEDED),
-                        )
-                    })
+                    .then_error(|| QueryError::RequestLimitExceeded(
+                        RequestLimitExceeded::builder()
+                            .meta(ErrorMetadata::builder()
+                                .code("RequestLimitExceeded")
+                                .build())
+                            .build(),
+                    ))
             }
 
             pub(crate) fn query_service_unavailable() -> Rule {
                 mock!(Client::query)
                     .then_http_response(|| {
                         HttpResponse::new(
-                            SmithyStatusCode::try_from(503).unwrap(),
+                            StatusCode::try_from(503).unwrap(),
                             SdkBody::from(SERVICE_UNAVAILABLE),
                         )
                     })
@@ -2532,22 +2720,24 @@ mod tests {
 
             pub(crate) fn query_throttling_exception() -> Rule {
                 mock!(Client::query)
-                    .then_http_response(|| {
-                        HttpResponse::new(
-                            SmithyStatusCode::try_from(400).unwrap(),
-                            SdkBody::from(THROTTLING_EXCEPTION),
-                        )
-                    })
+                    .then_error(|| QueryError::ThrottlingException(
+                        ThrottlingException::builder()
+                            .meta(ErrorMetadata::builder()
+                                .code("ThrottlingException")
+                                .build())
+                            .build(),
+                    ))
             }
 
             pub(crate) fn query_resource_not_found_exception() -> Rule {
                 mock!(Client::query)
-                    .then_http_response(|| {
-                        HttpResponse::new(
-                            SmithyStatusCode::try_from(400).unwrap(),
-                            SdkBody::from(RESOURCE_NOT_FOUND_EXCEPTION),
-                        )
-                    })
+                    .then_error(|| QueryError::ResourceNotFoundException(
+                        ResourceNotFoundException::builder()
+                            .meta(ErrorMetadata::builder()
+                                .code("ResourceNotFoundException")
+                                .build())
+                            .build(),
+                    ))
             }
         }
     }
