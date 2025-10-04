@@ -147,16 +147,20 @@ async fn main() -> Result<(), Error> {
 mod tests {
     use super::*;
 
-    use aws_smithy_mocks::{MockResponseInterceptor, RuleMode};
+    use aws_smithy_mocks::{mock_client, RuleMode};
 
     #[tokio::test]
     async fn function_handler_ok() {
-        let dynamodb = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&mocks::dynamodb::put_item_ok());
+        let dynamodb = mock_client!(
+            aws_sdk_dynamodb,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::dynamodb::put_item_ok(),
+            ]
+        );
 
         let shared_state = SharedStateBuilder::default()
-            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .dynamodb(dynamodb)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -170,12 +174,16 @@ mod tests {
 
     #[tokio::test]
     async fn function_handler_unhandled_error() {
-        let dynamodb = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&mocks::dynamodb::put_item_resource_not_found());
+        let dynamodb = mock_client!(
+            aws_sdk_dynamodb,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::dynamodb::put_item_resource_not_found(),
+            ]
+        );
 
         let shared_state = SharedStateBuilder::default()
-            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .dynamodb(dynamodb)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -190,12 +198,16 @@ mod tests {
 
     #[tokio::test]
     async fn start_authentication_with_put_item_ok() {
-        let dynamodb = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&mocks::dynamodb::put_item_ok());
+        let dynamodb = mock_client!(
+            aws_sdk_dynamodb,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::dynamodb::put_item_ok(),
+            ]
+        );
 
         let shared_state = SharedStateBuilder::default()
-            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .dynamodb(dynamodb)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -205,12 +217,16 @@ mod tests {
 
     #[tokio::test]
     async fn start_authentication_with_put_item_resource_not_found() {
-        let dynamodb = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&mocks::dynamodb::put_item_resource_not_found());
+        let dynamodb = mock_client!(
+            aws_sdk_dynamodb,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::dynamodb::put_item_resource_not_found(),
+            ]
+        );
 
         let shared_state = SharedStateBuilder::default()
-            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .dynamodb(dynamodb)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -221,12 +237,16 @@ mod tests {
 
     #[tokio::test]
     async fn start_authentication_with_put_item_provisioned_throughput_exceeded() {
-        let dynamodb = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::dynamodb::put_item_provisioned_throughput_exceeded());
+        let dynamodb = mock_client!(
+            aws_sdk_dynamodb,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::dynamodb::put_item_provisioned_throughput_exceeded(),
+            ]
+        );
 
         let shared_state = SharedStateBuilder::default()
-            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .dynamodb(dynamodb)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -237,12 +257,16 @@ mod tests {
 
     #[tokio::test]
     async fn start_authentication_with_put_item_request_request_limit_exceeded() {
-        let dynamodb = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::dynamodb::put_item_request_limit_exceeded());
+        let dynamodb = mock_client!(
+            aws_sdk_dynamodb,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::dynamodb::put_item_request_limit_exceeded(),
+            ]
+        );
 
         let shared_state = SharedStateBuilder::default()
-            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .dynamodb(dynamodb)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -253,12 +277,16 @@ mod tests {
 
     #[tokio::test]
     async fn start_authentication_with_put_item_throttling_exception() {
-        let dynamodb = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::dynamodb::put_item_throttling_exception());
+        let dynamodb = mock_client!(
+            aws_sdk_dynamodb,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::dynamodb::put_item_throttling_exception(),
+            ]
+        );
 
         let shared_state = SharedStateBuilder::default()
-            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .dynamodb(dynamodb)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -269,12 +297,16 @@ mod tests {
 
     #[tokio::test]
     async fn start_authentication_with_put_item_service_unavailable() {
-        let dynamodb = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::dynamodb::put_item_service_unavailable());
+        let dynamodb = mock_client!(
+            aws_sdk_dynamodb,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::dynamodb::put_item_service_unavailable(),
+            ]
+        );
 
         let shared_state = SharedStateBuilder::default()
-            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .dynamodb(dynamodb)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -303,13 +335,16 @@ mod tests {
         }
 
         pub(crate) mod dynamodb {
-            use super::*;
-
             use aws_sdk_dynamodb::{
-                config::Region,
-                operation::put_item::PutItemOutput,
+                error::ErrorMetadata,
+                operation::put_item::{PutItemError, PutItemOutput},
+                types::error::{
+                    ProvisionedThroughputExceededException,
+                    RequestLimitExceeded,
+                    ResourceNotFoundException,
+                    ThrottlingException,
+                },
                 Client,
-                Config,
             };
             use aws_smithy_mocks::{mock, Rule};
             use aws_smithy_runtime_api::{
@@ -318,27 +353,7 @@ mod tests {
             };
             use aws_smithy_types::body::SdkBody;
 
-            const RESOURCE_NOT_FOUND_EXCEPTION_RESPONSE: &str = r#"{"__type": "com.amazonaws.dynamodb.v20120810#ResourceNotFoundException", "message": "Requested resource not found: Table: sessions not found"}"#;
-
-            const PROVISIONED_THROUGHPUT_EXCEEDED_EXCEPTION_RESPONSE: &str = r#"{"__type": "com.amazonaws.dynamodb.v20120810#ProvisionedThroughputExceededException", "message": "Exceeded provisioned throughput."}"#;
-
-            const REQUEST_LIMIT_EXCEEDED_RESPONSE: &str = r#"{"__type": "com.amazonaws.dynamodb.v20120810#RequestLimitExceeded", "message": "Exceeded request limit."}"#;
-
-            const THROTTLING_EXCEPTION_RESPONSE: &str = r#"{"__type": "com.amazonaws.dynamodb.v20120810#ThrottlingException", "message": "Request throttled"}"#;
-
-            const SERVICE_UNAVAILABLE_RESPONSE: &str = r#"{"__type": "com.amazonaws.dynamodb.v20120810#ServiceUnavailable", "message": "Service temporarily unavailable"}"#;
-
-            pub(crate) fn new_client(mocks: MockResponseInterceptor) -> Client {
-                let mock_http_client = aws_smithy_mocks::create_mock_http_client();
-                Client::from_conf(
-                    Config::builder()
-                        .with_test_defaults()
-                        .region(Region::new("ap-northeast-1"))
-                        .http_client(mock_http_client)
-                        .interceptor(mocks)
-                        .build()
-                )
-            }
+            const SERVICE_UNAVAILABLE_RESPONSE: &str = r#"{"code": "ServiceUnavailable", "message": "Service temporarily unavailable"}"#;
 
             pub(crate) fn put_item_ok() -> Rule {
                 mock!(Client::put_item)
@@ -347,42 +362,46 @@ mod tests {
 
             pub(crate) fn put_item_resource_not_found() -> Rule {
                 mock!(Client::put_item)
-                    .then_http_response(|| {
-                        HttpResponse::new(
-                            SmithyStatusCode::try_from(400).unwrap(),
-                            SdkBody::from(RESOURCE_NOT_FOUND_EXCEPTION_RESPONSE),
-                        )
-                    })
+                    .then_error(|| PutItemError::ResourceNotFoundException(
+                        ResourceNotFoundException::builder()
+                            .meta(ErrorMetadata::builder()
+                                .code("ResourceNotFoundException")
+                                .build())
+                            .build(),
+                    ))
             }
 
             pub(crate) fn put_item_provisioned_throughput_exceeded() -> Rule {
                 mock!(Client::put_item)
-                    .then_http_response(|| {
-                        HttpResponse::new(
-                            SmithyStatusCode::try_from(400).unwrap(),
-                            SdkBody::from(PROVISIONED_THROUGHPUT_EXCEEDED_EXCEPTION_RESPONSE),
-                        )
-                    })
+                    .then_error(|| PutItemError::ProvisionedThroughputExceededException(
+                        ProvisionedThroughputExceededException::builder()
+                            .meta(ErrorMetadata::builder()
+                                .code("ProvisionedThroughputExceededException")
+                                .build())
+                            .build(),
+                    ))
             }
 
             pub(crate) fn put_item_request_limit_exceeded() -> Rule {
                 mock!(Client::put_item)
-                    .then_http_response(|| {
-                        HttpResponse::new(
-                            SmithyStatusCode::try_from(400).unwrap(),
-                            SdkBody::from(REQUEST_LIMIT_EXCEEDED_RESPONSE),
-                        )
-                    })
+                    .then_error(|| PutItemError::RequestLimitExceeded(
+                        RequestLimitExceeded::builder()
+                            .meta(ErrorMetadata::builder()
+                                .code("RequestLimitExceeded")
+                                .build())
+                            .build(),
+                    ))
             }
 
             pub(crate) fn put_item_throttling_exception() -> Rule {
                 mock!(Client::put_item)
-                    .then_http_response(|| {
-                        HttpResponse::new(
-                            SmithyStatusCode::try_from(400).unwrap(),
-                            SdkBody::from(THROTTLING_EXCEPTION_RESPONSE),
-                        )
-                    })
+                    .then_error(|| PutItemError::ThrottlingException(
+                        ThrottlingException::builder()
+                            .meta(ErrorMetadata::builder()
+                                .code("ThrottlingException")
+                                .build())
+                            .build(),
+                    ))
             }
 
             pub(crate) fn put_item_service_unavailable() -> Rule {
