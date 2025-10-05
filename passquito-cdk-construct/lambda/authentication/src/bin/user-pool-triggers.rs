@@ -646,7 +646,7 @@ mod tests {
     use super::*;
 
     use aws_lambda_events::event::cognito::CognitoEventUserPoolsChallengeResult;
-    use aws_smithy_mocks::{mock, MockResponseInterceptor, Rule, RuleMode};
+    use aws_smithy_mocks::{mock_client, RuleMode};
     use std::collections::HashMap;
 
     use self::mocks::webauthn::{
@@ -659,14 +659,18 @@ mod tests {
 
     #[tokio::test]
     async fn function_handler_hiding_error_details() {
-        let dynamodb = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::dynamodb::query_table_not_found())
-            .with_rule(&self::mocks::dynamodb::delete_item_table_not_found());
+        let dynamodb = mock_client!(
+            aws_sdk_dynamodb,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::dynamodb::query_table_not_found(),
+                &self::mocks::dynamodb::delete_item_table_not_found(),
+            ]
+        );
 
         let shared_state: SharedState<RejectingWebauthn> = SharedStateBuilder::default()
             .webauthn(RejectingWebauthn)
-            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .dynamodb(dynamodb)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -696,12 +700,11 @@ mod tests {
 
     #[tokio::test]
     async fn define_auth_challenge_start_custom_challenge() {
-        let dynamodb = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny);
+        let dynamodb = mock_client!(aws_sdk_dynamodb, []);
 
         let shared_state: SharedState<()> = SharedStateBuilder::default()
             .webauthn(())
-            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .dynamodb(dynamodb)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -717,12 +720,11 @@ mod tests {
 
     #[tokio::test]
     async fn define_auth_challenge_allow_custom_challenge() {
-        let dynamodb = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny);
+        let dynamodb = mock_client!(aws_sdk_dynamodb, []);
 
         let shared_state: SharedState<()> = SharedStateBuilder::default()
             .webauthn(())
-            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .dynamodb(dynamodb)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -743,12 +745,11 @@ mod tests {
 
     #[tokio::test]
     async fn define_auth_challenge_deny_custom_challenge() {
-        let dynamodb = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny);
+        let dynamodb = mock_client!(aws_sdk_dynamodb, []);
 
         let shared_state: SharedState<()> = SharedStateBuilder::default()
             .webauthn(())
-            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .dynamodb(dynamodb)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -769,16 +770,20 @@ mod tests {
 
     #[tokio::test]
     async fn create_auth_challenge_for_existing_user() {
-        let dynamodb = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::dynamodb::query_a_credential());
+        let dynamodb = mock_client!(
+            aws_sdk_dynamodb,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::dynamodb::query_a_credential(),
+            ]
+        );
 
         let shared_state: SharedState<ConstantWebauthnCreateAuthChallenge> = SharedStateBuilder::default()
             .webauthn(ConstantWebauthnCreateAuthChallenge::new(
                 self::mocks::webauthn::OK_REQUEST_CHALLENGE_RESPONSE,
                 self::mocks::webauthn::OK_PASSKEY_AUTHENTICATION,
             ))
-            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .dynamodb(dynamodb)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -811,12 +816,11 @@ mod tests {
 
     #[tokio::test]
     async fn create_auth_challenge_for_non_existing_user() {
-        let dynamodb = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny);
+        let dynamodb = mock_client!(aws_sdk_dynamodb, []);
 
         let shared_state: SharedState<NoCredentialWebauthnCreateAuthChallenge> = SharedStateBuilder::default()
             .webauthn(NoCredentialWebauthnCreateAuthChallenge) // never used
-            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .dynamodb(dynamodb)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -842,13 +846,17 @@ mod tests {
 
     #[tokio::test]
     async fn create_auth_challenge_for_user_wo_credential() {
-        let dynamodb = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::dynamodb::query_no_credential());
+        let dynamodb = mock_client!(
+            aws_sdk_dynamodb,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::dynamodb::query_no_credential(),
+            ]
+        );
 
         let shared_state: SharedState<NoCredentialWebauthnCreateAuthChallenge> = SharedStateBuilder::default()
             .webauthn(NoCredentialWebauthnCreateAuthChallenge)
-            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .dynamodb(dynamodb)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -860,16 +868,20 @@ mod tests {
 
     #[tokio::test]
     async fn verify_auth_challenge_of_discoverable_credential() {
-        let dynamodb = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::dynamodb::delete_item_discovery_session())
-            .with_rule(&self::mocks::dynamodb::query_a_credential());
+        let dynamodb = mock_client!(
+            aws_sdk_dynamodb,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::dynamodb::delete_item_discovery_session(),
+                &self::mocks::dynamodb::query_a_credential(),
+            ]
+        );
 
         let shared_state: SharedState<ConstantWebauthnVerifyAuthChallenge> = SharedStateBuilder::default()
             .webauthn(ConstantWebauthnVerifyAuthChallenge::new(
                 self::mocks::webauthn::OK_AUTHENTICATION_RESULT,
             ))
-            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .dynamodb(dynamodb)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -886,17 +898,21 @@ mod tests {
     #[tokio::test]
     async fn verify_auth_challenge_of_discoverable_credential_with_update() {
         let update_item_ok = self::mocks::dynamodb::update_item_ok();
-        let dynamodb = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::dynamodb::delete_item_discovery_session())
-            .with_rule(&self::mocks::dynamodb::query_a_credential())
-            .with_rule(&update_item_ok);
+        let dynamodb = mock_client!(
+            aws_sdk_dynamodb,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::dynamodb::delete_item_discovery_session(),
+                &self::mocks::dynamodb::query_a_credential(),
+                &update_item_ok,
+            ]
+        );
 
         let shared_state: SharedState<ConstantWebauthnVerifyAuthChallenge> = SharedStateBuilder::default()
             .webauthn(ConstantWebauthnVerifyAuthChallenge::new(
                 self::mocks::webauthn::OK_AUTHENTICATION_RESULT_UPDATED,
             ))
-            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .dynamodb(dynamodb)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -913,16 +929,20 @@ mod tests {
 
     #[tokio::test]
     async fn verify_auth_challenge_of_cognito_initiated_credential() {
-        let dynamodb = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::dynamodb::delete_item_no_credential())
-            .with_rule(&self::mocks::dynamodb::get_item_a_credential());
+        let dynamodb = mock_client!(
+            aws_sdk_dynamodb,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::dynamodb::delete_item_no_credential(),
+                &self::mocks::dynamodb::get_item_a_credential(),
+            ]
+        );
 
         let shared_state: SharedState<ConstantWebauthnVerifyAuthChallenge> = SharedStateBuilder::default()
             .webauthn(ConstantWebauthnVerifyAuthChallenge::new(
                 self::mocks::webauthn::OK_AUTHENTICATION_RESULT,
             ))
-            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .dynamodb(dynamodb)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -945,17 +965,21 @@ mod tests {
     #[tokio::test]
     async fn verify_auth_challenge_of_cognito_initiated_credential_with_update() {
         let update_item_ok = self::mocks::dynamodb::update_item_ok();
-        let dynamodb = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::dynamodb::delete_item_no_credential())
-            .with_rule(&self::mocks::dynamodb::get_item_a_credential())
-            .with_rule(&update_item_ok);
+        let dynamodb = mock_client!(
+            aws_sdk_dynamodb,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::dynamodb::delete_item_no_credential(),
+                &self::mocks::dynamodb::get_item_a_credential(),
+                &update_item_ok,
+            ]
+        );
 
         let shared_state: SharedState<ConstantWebauthnVerifyAuthChallenge> = SharedStateBuilder::default()
             .webauthn(ConstantWebauthnVerifyAuthChallenge::new(
                 self::mocks::webauthn::OK_AUTHENTICATION_RESULT_UPDATED,
             ))
-            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .dynamodb(dynamodb)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -978,14 +1002,18 @@ mod tests {
 
     #[tokio::test]
     async fn verify_auth_challenge_of_discoverable_credential_with_verification_error() {
-        let dynamodb = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::dynamodb::delete_item_discovery_session())
-            .with_rule(&self::mocks::dynamodb::query_a_credential());
+        let dynamodb = mock_client!(
+            aws_sdk_dynamodb,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::dynamodb::delete_item_discovery_session(),
+                &self::mocks::dynamodb::query_a_credential(),
+            ]
+        );
 
         let shared_state: SharedState<RejectingWebauthnVerifyAuthChallenge> = SharedStateBuilder::default()
             .webauthn(RejectingWebauthnVerifyAuthChallenge)
-            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .dynamodb(dynamodb)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -1001,14 +1029,18 @@ mod tests {
 
     #[tokio::test]
     async fn verify_auth_challenge_of_cognito_initiated_credential_with_verification_error() {
-        let dynamodb = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::dynamodb::delete_item_no_credential())
-            .with_rule(&self::mocks::dynamodb::get_item_a_credential());
+        let dynamodb = mock_client!(
+            aws_sdk_dynamodb,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::dynamodb::delete_item_no_credential(),
+                &self::mocks::dynamodb::get_item_a_credential(),
+            ]
+        );
 
         let shared_state: SharedState<RejectingWebauthnVerifyAuthChallenge> = SharedStateBuilder::default()
             .webauthn(RejectingWebauthnVerifyAuthChallenge)
-            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .dynamodb(dynamodb)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -1030,16 +1062,20 @@ mod tests {
 
     #[tokio::test]
     async fn verify_auth_challenge_of_discoverable_credential_user_not_verified() {
-        let dynamodb = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::dynamodb::delete_item_discovery_session())
-            .with_rule(&self::mocks::dynamodb::query_a_credential());
+        let dynamodb = mock_client!(
+            aws_sdk_dynamodb,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::dynamodb::delete_item_discovery_session(),
+                &self::mocks::dynamodb::query_a_credential(),
+            ]
+        );
 
         let shared_state: SharedState<ConstantWebauthnVerifyAuthChallenge> = SharedStateBuilder::default()
             .webauthn(ConstantWebauthnVerifyAuthChallenge::new(
                 self::mocks::webauthn::AUTHENTICATION_RESULT_USER_NOT_VERIFIED,
             ))
-            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .dynamodb(dynamodb)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -1055,16 +1091,20 @@ mod tests {
 
     #[tokio::test]
     async fn verify_auth_challenge_of_cognito_initiated_credential_user_not_verified() {
-        let dynamodb = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::dynamodb::delete_item_no_credential())
-            .with_rule(&self::mocks::dynamodb::get_item_a_credential());
+        let dynamodb = mock_client!(
+            aws_sdk_dynamodb,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::dynamodb::delete_item_no_credential(),
+                &self::mocks::dynamodb::get_item_a_credential(),
+            ]
+        );
 
         let shared_state: SharedState<ConstantWebauthnVerifyAuthChallenge> = SharedStateBuilder::default()
             .webauthn(ConstantWebauthnVerifyAuthChallenge::new(
                 self::mocks::webauthn::AUTHENTICATION_RESULT_USER_NOT_VERIFIED,
             ))
-            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .dynamodb(dynamodb)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -1086,14 +1126,13 @@ mod tests {
 
     #[tokio::test]
     async fn verify_auth_challenge_with_malformed_challenge_answer() {
-        let dynamodb = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny);
+        let dynamodb = mock_client!(aws_sdk_dynamodb, []);
 
         let shared_state: SharedState<ConstantWebauthnVerifyAuthChallenge> = SharedStateBuilder::default()
             .webauthn(ConstantWebauthnVerifyAuthChallenge::new(
                 self::mocks::webauthn::OK_AUTHENTICATION_RESULT,
             ))
-            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .dynamodb(dynamodb)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -1107,14 +1146,13 @@ mod tests {
 
     #[tokio::test]
     async fn verify_auth_challenge_with_user_handle_mismatch() {
-        let dynamodb = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny);
+        let dynamodb = mock_client!(aws_sdk_dynamodb, []);
 
         let shared_state: SharedState<ConstantWebauthnVerifyAuthChallenge> = SharedStateBuilder::default()
             .webauthn(ConstantWebauthnVerifyAuthChallenge::new(
                 self::mocks::webauthn::OK_AUTHENTICATION_RESULT,
             ))
-            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .dynamodb(dynamodb)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -1130,14 +1168,13 @@ mod tests {
 
     #[tokio::test]
     async fn verify_auth_challenge_with_malformed_client_data() {
-        let dynamodb = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny);
+        let dynamodb = mock_client!(aws_sdk_dynamodb, []);
 
         let shared_state: SharedState<ConstantWebauthnVerifyAuthChallenge> = SharedStateBuilder::default()
             .webauthn(ConstantWebauthnVerifyAuthChallenge::new(
                 self::mocks::webauthn::OK_AUTHENTICATION_RESULT,
             ))
-            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .dynamodb(dynamodb)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -1153,14 +1190,13 @@ mod tests {
 
     #[tokio::test]
     async fn verify_auth_challenge_with_bad_client_data_type() {
-        let dynamodb = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny);
+        let dynamodb = mock_client!(aws_sdk_dynamodb, []);
 
         let shared_state: SharedState<ConstantWebauthnVerifyAuthChallenge> = SharedStateBuilder::default()
             .webauthn(ConstantWebauthnVerifyAuthChallenge::new(
                 self::mocks::webauthn::OK_AUTHENTICATION_RESULT,
             ))
-            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .dynamodb(dynamodb)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -1176,15 +1212,19 @@ mod tests {
 
     #[tokio::test]
     async fn verify_auth_challenge_with_expired_session() {
-        let dynamodb = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::dynamodb::delete_item_expired_discovery_session());
+        let dynamodb = mock_client!(
+            aws_sdk_dynamodb,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::dynamodb::delete_item_expired_discovery_session(),
+            ]
+        );
 
         let shared_state: SharedState<ConstantWebauthnVerifyAuthChallenge> = SharedStateBuilder::default()
             .webauthn(ConstantWebauthnVerifyAuthChallenge::new(
                 self::mocks::webauthn::OK_AUTHENTICATION_RESULT,
             ))
-            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .dynamodb(dynamodb)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -1201,17 +1241,21 @@ mod tests {
     #[tokio::test]
     async fn verify_auth_challenge_of_discoverable_credential_with_update_error() {
         let update_item = self::mocks::dynamodb::update_item_write_throughput_exceeded();
-        let dynamodb = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::dynamodb::delete_item_discovery_session())
-            .with_rule(&self::mocks::dynamodb::query_a_credential())
-            .with_rule(&update_item);
+        let dynamodb = mock_client!(
+            aws_sdk_dynamodb,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::dynamodb::delete_item_discovery_session(),
+                &self::mocks::dynamodb::query_a_credential(),
+                &update_item,
+            ]
+        );
 
         let shared_state: SharedState<ConstantWebauthnVerifyAuthChallenge> = SharedStateBuilder::default()
             .webauthn(ConstantWebauthnVerifyAuthChallenge::new(
                 self::mocks::webauthn::OK_AUTHENTICATION_RESULT_UPDATED,
             ))
-            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .dynamodb(dynamodb)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -1230,17 +1274,21 @@ mod tests {
     #[tokio::test]
     async fn verify_auth_challenge_of_cognito_initiated_credential_with_update_error() {
         let update_item = self::mocks::dynamodb::update_item_write_throughput_exceeded();
-        let dynamodb = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::dynamodb::delete_item_no_credential())
-            .with_rule(&self::mocks::dynamodb::get_item_a_credential())
-            .with_rule(&update_item);
+        let dynamodb = mock_client!(
+            aws_sdk_dynamodb,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::dynamodb::delete_item_no_credential(),
+                &self::mocks::dynamodb::get_item_a_credential(),
+                &update_item,
+            ]
+        );
 
         let shared_state: SharedState<ConstantWebauthnVerifyAuthChallenge> = SharedStateBuilder::default()
             .webauthn(ConstantWebauthnVerifyAuthChallenge::new(
                 self::mocks::webauthn::OK_AUTHENTICATION_RESULT_UPDATED,
             ))
-            .dynamodb(self::mocks::dynamodb::new_client(dynamodb))
+            .dynamodb(dynamodb)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -1560,33 +1608,20 @@ mod tests {
             use super::*;
 
             use aws_sdk_dynamodb::{
-                config::Region,
+                error::ErrorMetadata,
                 operation::{
-                    delete_item::DeleteItemOutput,
+                    delete_item::{DeleteItemError, DeleteItemOutput},
                     get_item::GetItemOutput,
-                    query::QueryOutput,
-                    update_item::UpdateItemOutput,
+                    query::{QueryError, QueryOutput},
+                    update_item::{UpdateItemError, UpdateItemOutput},
+                },
+                types::error::{
+                    ProvisionedThroughputExceededException,
+                    ResourceNotFoundException,
                 },
                 Client,
-                Config,
             };
-            use aws_smithy_runtime_api::client::orchestrator::HttpResponse;
-            use aws_smithy_runtime_api::http::StatusCode as SmithyStatusCode;
-            use aws_smithy_types::body::SdkBody;
-
-            const RESOURCE_NOT_FOUND_EXCEPTION: &str = r#"{"__type": "com.amazonaws.dynamodb.v20120810#ResourceNotFoundException", "message": "No such table."}"#;
-
-            const PROVISIONED_THROUGHPUT_EXCEEDED_EXCEPTION: &str = r#"{"__type": "com.amazonaws.dynamodb.v20120810#ProvisionedThroughputExceededException", "message": "Exceeded provisioned throughput."}"#;
-
-            pub(crate) fn new_client(mocks: MockResponseInterceptor) -> Client {
-                Client::from_conf(
-                    Config::builder()
-                        .with_test_defaults()
-                        .region(Region::new("ap-northeast-1"))
-                        .interceptor(mocks)
-                        .build(),
-                )
-            }
+            use aws_smithy_mocks::{mock, Rule};
 
             pub(crate) fn query_a_credential() -> Rule {
                 mock!(Client::query)
@@ -1609,12 +1644,13 @@ mod tests {
 
             pub(crate) fn query_table_not_found() -> Rule {
                 mock!(Client::query)
-                    .then_http_response(|| {
-                        HttpResponse::new(
-                            SmithyStatusCode::try_from(400).unwrap(),
-                            SdkBody::from(RESOURCE_NOT_FOUND_EXCEPTION),
-                        )
-                    })
+                    .then_error(|| QueryError::ResourceNotFoundException(
+                        ResourceNotFoundException::builder()
+                            .meta(ErrorMetadata::builder()
+                                .code("ResourceNotFoundException")
+                                .build())
+                            .build(),
+                    ))
             }
 
             pub(crate) fn delete_item_discovery_session() -> Rule {
@@ -1646,12 +1682,13 @@ mod tests {
 
             pub(crate) fn delete_item_table_not_found() -> Rule {
                 mock!(Client::delete_item)
-                    .then_http_response(|| {
-                        HttpResponse::new(
-                            SmithyStatusCode::try_from(400).unwrap(),
-                            SdkBody::from(RESOURCE_NOT_FOUND_EXCEPTION),
-                        )
-                    })
+                    .then_error(|| DeleteItemError::ResourceNotFoundException(
+                        ResourceNotFoundException::builder()
+                            .meta(ErrorMetadata::builder()
+                                .code("ResourceNotFoundException")
+                                .build())
+                            .build(),
+                    ))
             }
 
             pub(crate) fn get_item_a_credential() -> Rule {
@@ -1673,12 +1710,13 @@ mod tests {
 
             pub(crate) fn update_item_write_throughput_exceeded() -> Rule {
                 mock!(Client::update_item)
-                    .then_http_response(|| {
-                        HttpResponse::new(
-                            SmithyStatusCode::try_from(400).unwrap(),
-                            SdkBody::from(PROVISIONED_THROUGHPUT_EXCEEDED_EXCEPTION),
-                        )
-                    })
+                    .then_error(|| UpdateItemError::ProvisionedThroughputExceededException(
+                        ProvisionedThroughputExceededException::builder()
+                            .meta(ErrorMetadata::builder()
+                                .code("ProvisionedThroughputExceededException")
+                                .build())
+                            .build(),
+                    ))
             }
         }
     }
