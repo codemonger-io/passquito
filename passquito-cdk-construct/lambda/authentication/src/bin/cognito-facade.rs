@@ -475,16 +475,20 @@ async fn main() -> Result<(), Error> {
 mod tests {
     use super::*;
 
-    use aws_smithy_mocks::{MockResponseInterceptor, RuleMode};
+    use aws_smithy_mocks::{mock_client, RuleMode};
 
     #[tokio::test]
     async fn function_handler_start() {
-        let cognito = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::cognito::initiate_auth_ok());
+        let cognito = mock_client!(
+            aws_sdk_cognitoidentityprovider,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::cognito::initiate_auth_ok(),
+            ]
+        );
 
         let shared_state = SharedStateBuilder::default()
-            .cognito(self::mocks::cognito::new_client(cognito))
+            .cognito(cognito)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -509,12 +513,16 @@ mod tests {
 
     #[tokio::test]
     async fn function_handler_finish() {
-        let cognito = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::cognito::respond_to_auth_challenge_ok());
+        let cognito = mock_client!(
+            aws_sdk_cognitoidentityprovider,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::cognito::respond_to_auth_challenge_ok(),
+            ]
+        );
 
         let shared_state = SharedStateBuilder::default()
-            .cognito(self::mocks::cognito::new_client(cognito))
+            .cognito(cognito)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -540,12 +548,16 @@ mod tests {
 
     #[tokio::test]
     async fn function_handler_refresh() {
-        let cognito = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::cognito::initiate_auth_refresh_tokens_ok());
+        let cognito = mock_client!(
+            aws_sdk_cognitoidentityprovider,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::cognito::initiate_auth_refresh_tokens_ok(),
+            ]
+        );
 
         let shared_state = SharedStateBuilder::default()
-            .cognito(self::mocks::cognito::new_client(cognito))
+            .cognito(cognito)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -569,9 +581,10 @@ mod tests {
 
     #[tokio::test]
     async fn function_handler_bad_request() {
-        let cognito = MockResponseInterceptor::new();
+        let cognito = mock_client!(aws_sdk_cognitoidentityprovider, []);
+
         let shared_state = SharedStateBuilder::default()
-            .cognito(self::mocks::cognito::new_client(cognito))
+            .cognito(cognito)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -621,12 +634,16 @@ mod tests {
     async fn function_handler_unhandled_error() {
         // the details of unhandled errors must not be exposed to the caller
         // - start
-        let cognito = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::cognito::initiate_auth_no_session());
+        let cognito = mock_client!(
+            aws_sdk_cognitoidentityprovider,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::cognito::initiate_auth_no_session(),
+            ]
+        );
 
         let shared_state = SharedStateBuilder::default()
-            .cognito(self::mocks::cognito::new_client(cognito))
+            .cognito(cognito)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -644,12 +661,16 @@ mod tests {
         assert!(matches!(err, ErrorResponse::Unhandled(msg) if msg.to_string() == "internal server error"));
 
         // - finish
-        let cognito = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::cognito::respond_to_auth_challenge_missing_authentication_result());
+        let cognito = mock_client!(
+            aws_sdk_cognitoidentityprovider,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::cognito::respond_to_auth_challenge_missing_authentication_result(),
+            ]
+        );
 
         let shared_state = SharedStateBuilder::default()
-            .cognito(self::mocks::cognito::new_client(cognito))
+            .cognito(cognito)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -669,12 +690,16 @@ mod tests {
         assert!(matches!(err, ErrorResponse::Unhandled(msg) if msg.to_string() == "internal server error"));
 
         // - refresh
-        let cognito = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::cognito::initiate_auth_refresh_tokens_no_authentication_result());
+        let cognito = mock_client!(
+            aws_sdk_cognitoidentityprovider,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::cognito::initiate_auth_refresh_tokens_no_authentication_result(),
+            ]
+        );
 
         let shared_state = SharedStateBuilder::default()
-            .cognito(self::mocks::cognito::new_client(cognito))
+            .cognito(cognito)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -694,12 +719,16 @@ mod tests {
 
     #[tokio::test]
     async fn start_authentication_ok() {
-        let cognito = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::cognito::initiate_auth_ok());
+        let cognito = mock_client!(
+            aws_sdk_cognitoidentityprovider,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::cognito::initiate_auth_ok(),
+            ]
+        );
 
         let shared_state = SharedStateBuilder::default()
-            .cognito(self::mocks::cognito::new_client(cognito))
+            .cognito(cognito)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -717,12 +746,16 @@ mod tests {
 
     #[tokio::test]
     async fn start_authentication_empty_user_id() {
-        let cognito = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::cognito::initiate_auth_ok());
+        let cognito = mock_client!(
+            aws_sdk_cognitoidentityprovider,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::cognito::initiate_auth_ok(),
+            ]
+        );
 
         let shared_state = SharedStateBuilder::default()
-            .cognito(self::mocks::cognito::new_client(cognito))
+            .cognito(cognito)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -736,12 +769,16 @@ mod tests {
 
     #[tokio::test]
     async fn start_authentication_cognito_initiate_auth_not_authorized() {
-        let cognito = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::cognito::initiate_auth_not_authorized());
+        let cognito = mock_client!(
+            aws_sdk_cognitoidentityprovider,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::cognito::initiate_auth_not_authorized(),
+            ]
+        );
 
         let shared_state = SharedStateBuilder::default()
-            .cognito(self::mocks::cognito::new_client(cognito))
+            .cognito(cognito)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -755,12 +792,16 @@ mod tests {
 
     #[tokio::test]
     async fn start_authentication_no_challenge_parameters() {
-        let cognito = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::cognito::initiate_auth_no_challenge_parameters());
+        let cognito = mock_client!(
+            aws_sdk_cognitoidentityprovider,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::cognito::initiate_auth_no_challenge_parameters(),
+            ]
+        );
 
         let shared_state = SharedStateBuilder::default()
-            .cognito(self::mocks::cognito::new_client(cognito))
+            .cognito(cognito)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -774,12 +815,16 @@ mod tests {
 
     #[tokio::test]
     async fn start_authentication_missing_passquito_challenge_parameter() {
-        let cognito = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::cognito::initiate_auth_missing_passquito_challenge_parameter());
+        let cognito = mock_client!(
+            aws_sdk_cognitoidentityprovider,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::cognito::initiate_auth_missing_passquito_challenge_parameter(),
+            ]
+        );
 
         let shared_state = SharedStateBuilder::default()
-            .cognito(self::mocks::cognito::new_client(cognito))
+            .cognito(cognito)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -793,12 +838,16 @@ mod tests {
 
     #[tokio::test]
     async fn start_authentication_invalid_credential_request_options() {
-        let cognito = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::cognito::initiate_auth_invalid_credential_request_options());
+        let cognito = mock_client!(
+            aws_sdk_cognitoidentityprovider,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::cognito::initiate_auth_invalid_credential_request_options(),
+            ]
+        );
 
         let shared_state = SharedStateBuilder::default()
-            .cognito(self::mocks::cognito::new_client(cognito))
+            .cognito(cognito)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -812,12 +861,16 @@ mod tests {
 
     #[tokio::test]
     async fn start_authentication_cognito_initiate_auth_user_not_found() {
-        let cognito = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::cognito::initiate_auth_user_not_found());
+        let cognito = mock_client!(
+            aws_sdk_cognitoidentityprovider,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::cognito::initiate_auth_user_not_found(),
+            ]
+        );
 
         let shared_state = SharedStateBuilder::default()
-            .cognito(self::mocks::cognito::new_client(cognito))
+            .cognito(cognito)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -831,12 +884,16 @@ mod tests {
 
     #[tokio::test]
     async fn start_authentication_wrong_challenge_name() {
-        let cognito = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::cognito::initiate_auth_wrong_challenge_name());
+        let cognito = mock_client!(
+            aws_sdk_cognitoidentityprovider,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::cognito::initiate_auth_wrong_challenge_name(),
+            ]
+        );
 
         let shared_state = SharedStateBuilder::default()
-            .cognito(self::mocks::cognito::new_client(cognito))
+            .cognito(cognito)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -850,12 +907,16 @@ mod tests {
 
     #[tokio::test]
     async fn start_authentication_cognito_initiate_auth_too_many_requests_exception() {
-        let cognito = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::cognito::initiate_auth_too_many_requests_exception());
+        let cognito = mock_client!(
+            aws_sdk_cognitoidentityprovider,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::cognito::initiate_auth_too_many_requests_exception(),
+            ]
+        );
 
         let shared_state = SharedStateBuilder::default()
-            .cognito(self::mocks::cognito::new_client(cognito))
+            .cognito(cognito)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -869,12 +930,16 @@ mod tests {
 
     #[tokio::test]
     async fn start_authentication_cognito_initiate_auth_service_unavailable() {
-        let cognito = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::cognito::initiate_auth_service_unavailable());
+        let cognito = mock_client!(
+            aws_sdk_cognitoidentityprovider,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::cognito::initiate_auth_service_unavailable(),
+            ]
+        );
 
         let shared_state = SharedStateBuilder::default()
-            .cognito(self::mocks::cognito::new_client(cognito))
+            .cognito(cognito)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -888,12 +953,16 @@ mod tests {
 
     #[tokio::test]
     async fn start_authentication_cognito_initiate_auth_throttling_exception() {
-        let cognito = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::cognito::initiate_auth_throttling_exception());
+        let cognito = mock_client!(
+            aws_sdk_cognitoidentityprovider,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::cognito::initiate_auth_throttling_exception(),
+            ]
+        );
 
         let shared_state = SharedStateBuilder::default()
-            .cognito(self::mocks::cognito::new_client(cognito))
+            .cognito(cognito)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -907,12 +976,16 @@ mod tests {
 
     #[tokio::test]
     async fn finish_authentication_ok() {
-        let cognito = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::cognito::respond_to_auth_challenge_ok());
+        let cognito = mock_client!(
+            aws_sdk_cognitoidentityprovider,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::cognito::respond_to_auth_challenge_ok(),
+            ]
+        );
 
         let shared_state = SharedStateBuilder::default()
-            .cognito(self::mocks::cognito::new_client(cognito))
+            .cognito(cognito)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -933,12 +1006,16 @@ mod tests {
 
     #[tokio::test]
     async fn finish_authentication_empty_user_id() {
-        let cognito = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::cognito::respond_to_auth_challenge_ok());
+        let cognito = mock_client!(
+            aws_sdk_cognitoidentityprovider,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::cognito::respond_to_auth_challenge_ok(),
+            ]
+        );
 
         let shared_state = SharedStateBuilder::default()
-            .cognito(self::mocks::cognito::new_client(cognito))
+            .cognito(cognito)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -956,12 +1033,16 @@ mod tests {
 
     #[tokio::test]
     async fn finish_authentication_cognito_respond_to_auth_challenge_not_authorized() {
-        let cognito = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::cognito::respond_to_auth_challenge_not_authorized());
+        let cognito = mock_client!(
+            aws_sdk_cognitoidentityprovider,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::cognito::respond_to_auth_challenge_not_authorized(),
+            ]
+        );
 
         let shared_state = SharedStateBuilder::default()
-            .cognito(self::mocks::cognito::new_client(cognito))
+            .cognito(cognito)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -979,12 +1060,16 @@ mod tests {
 
     #[tokio::test]
     async fn finish_authentication_cognito_respond_to_auth_challenge_user_not_found() {
-        let cognito = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::cognito::respond_to_auth_challenge_user_not_found());
+        let cognito = mock_client!(
+            aws_sdk_cognitoidentityprovider,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::cognito::respond_to_auth_challenge_user_not_found(),
+            ]
+        );
 
         let shared_state = SharedStateBuilder::default()
-            .cognito(self::mocks::cognito::new_client(cognito))
+            .cognito(cognito)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -1002,12 +1087,16 @@ mod tests {
 
     #[tokio::test]
     async fn finish_authentication_cognito_respond_to_auth_challenge_too_many_requests_exception() {
-        let cognito = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::cognito::respond_to_auth_challenge_too_many_requests_exception());
+        let cognito = mock_client!(
+            aws_sdk_cognitoidentityprovider,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::cognito::respond_to_auth_challenge_too_many_requests_exception(),
+            ]
+        );
 
         let shared_state = SharedStateBuilder::default()
-            .cognito(self::mocks::cognito::new_client(cognito))
+            .cognito(cognito)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -1025,12 +1114,16 @@ mod tests {
 
     #[tokio::test]
     async fn finish_authentication_cognito_respond_to_auth_challenge_service_unavailable() {
-        let cognito = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::cognito::respond_to_auth_challenge_service_unavailable());
+        let cognito = mock_client!(
+            aws_sdk_cognitoidentityprovider,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::cognito::respond_to_auth_challenge_service_unavailable(),
+            ]
+        );
 
         let shared_state = SharedStateBuilder::default()
-            .cognito(self::mocks::cognito::new_client(cognito))
+            .cognito(cognito)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -1048,12 +1141,16 @@ mod tests {
 
     #[tokio::test]
     async fn finish_authentication_cognito_respond_to_auth_challenge_throttling_exception() {
-        let cognito = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::cognito::respond_to_auth_challenge_throttling_exception());
+        let cognito = mock_client!(
+            aws_sdk_cognitoidentityprovider,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::cognito::respond_to_auth_challenge_throttling_exception(),
+            ]
+        );
 
         let shared_state = SharedStateBuilder::default()
-            .cognito(self::mocks::cognito::new_client(cognito))
+            .cognito(cognito)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -1071,12 +1168,16 @@ mod tests {
 
     #[tokio::test]
     async fn refresh_tokens_ok() {
-        let cognito = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::cognito::initiate_auth_refresh_tokens_ok());
+        let cognito = mock_client!(
+            aws_sdk_cognitoidentityprovider,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::cognito::initiate_auth_refresh_tokens_ok(),
+            ]
+        );
 
         let shared_state = SharedStateBuilder::default()
-            .cognito(self::mocks::cognito::new_client(cognito))
+            .cognito(cognito)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -1093,12 +1194,16 @@ mod tests {
 
     #[tokio::test]
     async fn refresh_tokens_cognito_initiate_auth_not_authorized() {
-        let cognito = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::cognito::initiate_auth_not_authorized());
+        let cognito = mock_client!(
+            aws_sdk_cognitoidentityprovider,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::cognito::initiate_auth_not_authorized(),
+            ]
+        );
 
         let shared_state = SharedStateBuilder::default()
-            .cognito(self::mocks::cognito::new_client(cognito))
+            .cognito(cognito)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -1112,12 +1217,16 @@ mod tests {
 
     #[tokio::test]
     async fn refresh_tokens_cognito_initiate_auth_too_many_requests_exception() {
-        let cognito = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::cognito::initiate_auth_too_many_requests_exception());
+        let cognito = mock_client!(
+            aws_sdk_cognitoidentityprovider,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::cognito::initiate_auth_too_many_requests_exception(),
+            ]
+        );
 
         let shared_state = SharedStateBuilder::default()
-            .cognito(self::mocks::cognito::new_client(cognito))
+            .cognito(cognito)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -1131,12 +1240,16 @@ mod tests {
 
     #[tokio::test]
     async fn refresh_tokens_cognito_initiate_auth_service_unavailable() {
-        let cognito = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::cognito::initiate_auth_service_unavailable());
+        let cognito = mock_client!(
+            aws_sdk_cognitoidentityprovider,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::cognito::initiate_auth_service_unavailable(),
+            ]
+        );
 
         let shared_state = SharedStateBuilder::default()
-            .cognito(self::mocks::cognito::new_client(cognito))
+            .cognito(cognito)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -1150,12 +1263,16 @@ mod tests {
 
     #[tokio::test]
     async fn refresh_tokens_cognito_initiate_auth_throttling_exception() {
-        let cognito = MockResponseInterceptor::new()
-            .rule_mode(RuleMode::MatchAny)
-            .with_rule(&self::mocks::cognito::initiate_auth_throttling_exception());
+        let cognito = mock_client!(
+            aws_sdk_cognitoidentityprovider,
+            RuleMode::MatchAny,
+            [
+                &self::mocks::cognito::initiate_auth_throttling_exception(),
+            ]
+        );
 
         let shared_state = SharedStateBuilder::default()
-            .cognito(self::mocks::cognito::new_client(cognito))
+            .cognito(cognito)
             .build()
             .unwrap();
         let shared_state = Arc::new(shared_state);
@@ -1210,13 +1327,17 @@ mod tests {
             use super::*;
 
             use aws_sdk_cognitoidentityprovider::{
-                config::Region,
+                error::ErrorMetadata,
                 operation::{
-                    initiate_auth::InitiateAuthOutput,
+                    initiate_auth::{InitiateAuthError, InitiateAuthOutput},
                     respond_to_auth_challenge::RespondToAuthChallengeOutput,
                 },
+                types::error::{
+                    NotAuthorizedException,
+                    TooManyRequestsException,
+                    UserNotFoundException,
+                },
                 Client,
-                Config,
             };
             use aws_smithy_mocks::{mock, Rule};
             use aws_smithy_runtime_api::{
@@ -1225,42 +1346,15 @@ mod tests {
             };
             use aws_smithy_types::body::SdkBody;
 
-            const NOT_AUTHORIZED_EXCEPTION_RESPONSE: &str = r#"{
-                "__type": "NotAuthorizedException",
-                "message": "Incorrect username or password."
-            }"#;
-
-            const USER_NOT_FOUND_EXCEPTION_RESPONSE: &str = r#"{
-                "__type": "UserNotFoundException",
-                "message": "No such user."
-            }"#;
-
-            const TOO_MANY_REQUESTS_EXCEPTION_RESPONSE: &str = r#"{
-                "__type": "TooManyRequestsException",
-                "message": "Too many requests."
-            }"#;
-
             const SERVICE_UNAVAILABLE_RESPONSE: &str = r#"{
-                "__type": "ServiceUnavailable",
+                "code": "ServiceUnavailable",
                 "message": "Service unavailable."
             }"#;
 
             const THROTTLING_EXCEPTION_RESPONSE: &str = r#"{
-                "__type": "ThrottlingException",
+                "code": "ThrottlingException",
                 "message": "Throttled."
             }"#;
-
-            pub(crate) fn new_client(mocks: MockResponseInterceptor) -> Client {
-                let mock_http_client = aws_smithy_mocks::create_mock_http_client();
-                Client::from_conf(
-                    Config::builder()
-                        .with_test_defaults()
-                        .region(Region::new("ap-northeast-1"))
-                        .http_client(mock_http_client)
-                        .interceptor(mocks)
-                        .build(),
-                )
-            }
 
             pub(crate) fn initiate_auth_ok() -> Rule {
                 mock!(Client::initiate_auth)
@@ -1347,32 +1441,35 @@ mod tests {
 
             pub(crate) fn initiate_auth_not_authorized() -> Rule {
                 mock!(Client::initiate_auth)
-                    .then_http_response(|| {
-                        HttpResponse::new(
-                            StatusCode::try_from(400).unwrap(),
-                            SdkBody::from(NOT_AUTHORIZED_EXCEPTION_RESPONSE),
-                        )
-                    })
+                    .then_error(|| InitiateAuthError::NotAuthorizedException(
+                        NotAuthorizedException::builder()
+                            .meta(ErrorMetadata::builder()
+                                .code("NotAuthorizedException")
+                                .build())
+                            .build(),
+                    ))
             }
 
             pub(crate) fn initiate_auth_user_not_found() -> Rule {
                 mock!(Client::initiate_auth)
-                    .then_http_response(|| {
-                        HttpResponse::new(
-                            StatusCode::try_from(400).unwrap(),
-                            SdkBody::from(USER_NOT_FOUND_EXCEPTION_RESPONSE),
-                        )
-                    })
+                    .then_error(|| InitiateAuthError::UserNotFoundException(
+                        UserNotFoundException::builder()
+                            .meta(ErrorMetadata::builder()
+                                .code("UserNotFoundException")
+                                .build())
+                            .build(),
+                    ))
             }
 
             pub(crate) fn initiate_auth_too_many_requests_exception() -> Rule {
                 mock!(Client::initiate_auth)
-                    .then_http_response(|| {
-                        HttpResponse::new(
-                            StatusCode::try_from(400).unwrap(),
-                            SdkBody::from(TOO_MANY_REQUESTS_EXCEPTION_RESPONSE),
-                        )
-                    })
+                    .then_error(|| InitiateAuthError::TooManyRequestsException(
+                        TooManyRequestsException::builder()
+                            .meta(ErrorMetadata::builder()
+                                .code("TooManyRequestsException")
+                                .build())
+                            .build(),
+                    ))
             }
 
             pub(crate) fn initiate_auth_service_unavailable() -> Rule {
@@ -1414,32 +1511,35 @@ mod tests {
 
             pub(crate) fn respond_to_auth_challenge_not_authorized() -> Rule {
                 mock!(Client::respond_to_auth_challenge)
-                    .then_http_response(|| {
-                        HttpResponse::new(
-                            StatusCode::try_from(400).unwrap(),
-                            SdkBody::from(NOT_AUTHORIZED_EXCEPTION_RESPONSE),
-                        )
-                    })
+                    .then_error(|| RespondToAuthChallengeError::NotAuthorizedException(
+                        NotAuthorizedException::builder()
+                            .meta(ErrorMetadata::builder()
+                                .code("NotAuthorizedException")
+                                .build())
+                            .build(),
+                    ))
             }
 
             pub(crate) fn respond_to_auth_challenge_user_not_found() -> Rule {
                 mock!(Client::respond_to_auth_challenge)
-                    .then_http_response(|| {
-                        HttpResponse::new(
-                            StatusCode::try_from(400).unwrap(),
-                            SdkBody::from(USER_NOT_FOUND_EXCEPTION_RESPONSE),
-                        )
-                    })
+                    .then_error(|| RespondToAuthChallengeError::UserNotFoundException(
+                        UserNotFoundException::builder()
+                            .meta(ErrorMetadata::builder()
+                                .code("UserNotFoundException")
+                                .build())
+                            .build(),
+                    ))
             }
 
             pub(crate) fn respond_to_auth_challenge_too_many_requests_exception() -> Rule {
                 mock!(Client::respond_to_auth_challenge)
-                    .then_http_response(|| {
-                        HttpResponse::new(
-                            StatusCode::try_from(400).unwrap(),
-                            SdkBody::from(TOO_MANY_REQUESTS_EXCEPTION_RESPONSE),
-                        )
-                    })
+                    .then_error(|| RespondToAuthChallengeError::TooManyRequestsException(
+                        TooManyRequestsException::builder()
+                            .meta(ErrorMetadata::builder()
+                                .code("TooManyRequestsException")
+                                .build())
+                            .build(),
+                    ))
             }
 
             pub(crate) fn respond_to_auth_challenge_service_unavailable() -> Rule {
