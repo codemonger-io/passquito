@@ -2,6 +2,16 @@ import { RemovalPolicy, aws_dynamodb as dynamodb } from 'aws-cdk-lib';
 import { Construct } from 'constructs';
 
 /**
+ * Properties for {@link SessionStore}.
+ *
+ * @beta
+ */
+export interface SessionStoreProps {
+  /** Billing option for the DynamoDB table for sessions. */
+  readonly billing: dynamodb.Billing;
+}
+
+/**
  * CDK construct that provisions the DynamoDB table for sessions.
  *
  * @beta
@@ -35,8 +45,10 @@ export class SessionStore extends Construct {
    */
   readonly sessionTable: dynamodb.TableV2;
 
-  constructor(scope: Construct, id: string) {
+  constructor(scope: Construct, id: string, props: SessionStoreProps) {
     super(scope, id);
+
+    const { billing } = props;
 
     this.sessionTable = new dynamodb.TableV2(this, 'SessionTable', {
       partitionKey: {
@@ -44,12 +56,7 @@ export class SessionStore extends Construct {
         type: dynamodb.AttributeType.STRING,
       },
       timeToLiveAttribute: 'ttl',
-      billing: dynamodb.Billing.provisioned({
-        readCapacity: dynamodb.Capacity.fixed(1),
-        writeCapacity: dynamodb.Capacity.autoscaled({
-          maxCapacity: 1,
-        }),
-      }),
+      billing,
       removalPolicy: RemovalPolicy.DESTROY,
     });
   }

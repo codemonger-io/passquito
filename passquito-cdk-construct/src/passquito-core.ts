@@ -1,3 +1,4 @@
+import { aws_dynamodb as dynamodb } from 'aws-cdk-lib';
 import { Construct } from 'constructs';
 
 import { CredentialsApi } from './credentials-api';
@@ -41,6 +42,15 @@ export interface PassquitoCoreProps {
    * this option.
    */
   readonly ssmParametersProps?: SsmParametersProps;
+
+  /**
+   * Billing option for the DynamoDB table that stores sessions.
+   *
+   * @remarks
+   *
+   * On-demand (PAY_PER_REQUEST) without caps by default.
+   */
+  readonly billingForSessionTable?: dynamodb.Billing;
 }
 
 // default base path for the Credentials API.
@@ -67,11 +77,13 @@ export class PassquitoCore extends Construct {
   constructor(scope: Construct, id: string, props?: PassquitoCoreProps) {
     super(scope, id);
 
-    const { allowOrigins, basePath } = props ?? {};
+    const { allowOrigins, basePath, billingForSessionTable } = props ?? {};
 
     this.ssmParameters =
       new SsmParameters(this, 'SsmParameters', props?.ssmParametersProps);
-    this.sessionStore = new SessionStore(this, 'SessionStore');
+    this.sessionStore = new SessionStore(this, 'SessionStore', {
+      billing: billingForSessionTable ?? dynamodb.Billing.onDemand(),
+    });
     this.userPool = new UserPool(this, 'UserPool', {
       ssmParameters: this.ssmParameters,
       sessionStore: this.sessionStore,
