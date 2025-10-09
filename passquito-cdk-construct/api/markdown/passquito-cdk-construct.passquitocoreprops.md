@@ -82,6 +82,27 @@ string
 </td></tr>
 <tr><td>
 
+[billingForSessionTable?](./passquito-cdk-construct.passquitocoreprops.billingforsessiontable.md)
+
+
+</td><td>
+
+`readonly`
+
+
+</td><td>
+
+dynamodb.Billing
+
+
+</td><td>
+
+**_(BETA)_** _(Optional)_ Billing option for the DynamoDB table that stores sessions.
+
+
+</td></tr>
+<tr><td>
+
 [ssmParametersProps?](./passquito-cdk-construct.passquitocoreprops.ssmparametersprops.md)
 
 
@@ -102,3 +123,4 @@ string
 
 </td></tr>
 </tbody></table>
+
