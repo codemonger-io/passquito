@@ -23,6 +23,9 @@ export interface UserPoolProps {
 
   /** Session store. */
   readonly sessionStore: SessionStore;
+
+  /** Billing option for the DynamoDB table that stores credentials. */
+  readonly billing: dynamodb.Billing;
 }
 
 /**
@@ -67,7 +70,7 @@ export class UserPool extends Construct {
   constructor(scope: Construct, id: string, props: UserPoolProps) {
     super(scope, id);
 
-    const { ssmParameters, sessionStore } = props;
+    const { ssmParameters, sessionStore, billing } = props;
 
     this.credentialTable = new dynamodb.TableV2(this, 'CredentialTable', {
       partitionKey: {
@@ -88,12 +91,7 @@ export class UserPool extends Construct {
           projectionType: dynamodb.ProjectionType.KEYS_ONLY,
         },
       ],
-      billing: dynamodb.Billing.provisioned({
-        readCapacity: dynamodb.Capacity.fixed(1),
-        writeCapacity: dynamodb.Capacity.autoscaled({
-          maxCapacity: 1,
-        }),
-      }),
+      billing,
       removalPolicy: RemovalPolicy.RETAIN,
     });
 
