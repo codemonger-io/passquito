@@ -51,6 +51,15 @@ export interface PassquitoCoreProps {
    * On-demand (PAY_PER_REQUEST) without caps by default.
    */
   readonly billingForSessionTable?: dynamodb.Billing;
+
+  /**
+   * Billing option for the DynamoDB table that stores credentials.
+   *
+   * @remarks
+   *
+   * On-demand (PAY_PER_REQUEST) without caps by default.
+   */
+  readonly billingForCredentialTable?: dynamodb.Billing;
 }
 
 // default base path for the Credentials API.
@@ -77,7 +86,12 @@ export class PassquitoCore extends Construct {
   constructor(scope: Construct, id: string, props?: PassquitoCoreProps) {
     super(scope, id);
 
-    const { allowOrigins, basePath, billingForSessionTable } = props ?? {};
+    const {
+      allowOrigins,
+      basePath,
+      billingForCredentialsTable,
+      billingForSessionTable,
+    } = props ?? {};
 
     this.ssmParameters =
       new SsmParameters(this, 'SsmParameters', props?.ssmParametersProps);
@@ -87,6 +101,7 @@ export class PassquitoCore extends Construct {
     this.userPool = new UserPool(this, 'UserPool', {
       ssmParameters: this.ssmParameters,
       sessionStore: this.sessionStore,
+      billing: billingForCredentialTable ?? dynamodb.Billing.onDemand(),
     });
     this.credentialsApi = new CredentialsApi(this, 'CredentialsApi', {
       basePath: basePath ?? DEFAULT_BASE_PATH,
