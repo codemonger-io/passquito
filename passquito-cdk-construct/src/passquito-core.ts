@@ -89,7 +89,7 @@ export class PassquitoCore extends Construct {
     const {
       allowOrigins,
       basePath,
-      billingForCredentialsTable,
+      billingForCredentialTable,
       billingForSessionTable,
     } = props ?? {};
 
