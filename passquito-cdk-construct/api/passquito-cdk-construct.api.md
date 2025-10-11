@@ -53,6 +53,7 @@ export class PassquitoCore extends Construct {
 export interface PassquitoCoreProps {
     readonly allowOrigins?: string[];
     readonly basePath?: string;
+    readonly billingForCredentialsTable?: aws_dynamodb.Billing;
     readonly billingForSessionTable?: aws_dynamodb.Billing;
     readonly ssmParametersProps?: SsmParametersProps;
 }

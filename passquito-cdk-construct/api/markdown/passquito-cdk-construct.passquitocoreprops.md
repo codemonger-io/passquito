@@ -82,6 +82,27 @@ string
 </td></tr>
 <tr><td>
 
+[billingForCredentialsTable?](./passquito-cdk-construct.passquitocoreprops.billingforcredentialstable.md)
+
+
+</td><td>
+
+`readonly`
+
+
+</td><td>
+
+dynamodb.Billing
+
+
+</td><td>
+
+**_(BETA)_** _(Optional)_ Billing option for the DynamoDB table that stores credentials.
+
+
+</td></tr>
+<tr><td>
+
 [billingForSessionTable?](./passquito-cdk-construct.passquitocoreprops.billingforsessiontable.md)
 
 
