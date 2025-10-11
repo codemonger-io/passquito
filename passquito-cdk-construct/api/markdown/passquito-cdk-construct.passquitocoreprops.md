@@ -82,7 +82,7 @@ string
 </td></tr>
 <tr><td>
 
-[billingForCredentialsTable?](./passquito-cdk-construct.passquitocoreprops.billingforcredentialstable.md)
+[billingForCredentialTable?](./passquito-cdk-construct.passquitocoreprops.billingforcredentialtable.md)
 
 
 </td><td>
