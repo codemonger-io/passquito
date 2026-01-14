@@ -1,6 +1,6 @@
 {
   "name": "@codemonger-io/passquito-cdk-construct",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "description": "CDK construct of Passquito core resources",
   "license": "MIT",
   "author": "Kikuo Emoto <kemoto@codemonger.io>",
@@ -20,7 +20,7 @@
     "dist/*.d.ts",
     "dist/lambda/**/*"
   ],
-  "packageManager": "pnpm@10.7.1",
+  "packageManager": "pnpm@10.28.0",
   "scripts": {
     "build": "rimraf dist && run-p build:noclean bundle:lambda:authentication",
     "build:noclean": "run-s build:js build:dts",
@@ -35,13 +35,13 @@
   "devDependencies": {
     "@microsoft/api-documenter": "catalog:",
     "@microsoft/api-extractor": "catalog:",
-    "@rollup/plugin-commonjs": "^28.0.6",
-    "@rollup/plugin-node-resolve": "^16.0.1",
-    "@types/jest": "^29.5.14",
+    "@rollup/plugin-commonjs": "^29.0.0",
+    "@rollup/plugin-node-resolve": "^16.0.3",
+    "@types/jest": "catalog:",
     "@types/node": "catalog:",
     "aws-cdk": "catalog:",
-    "cpy-cli": "^5.0.0",
-    "jest": "^29.7.0",
+    "cpy-cli": "^6.0.0",
+    "jest": "catalog:",
     "npm-run-all2": "catalog:",
     "rimraf": "catalog:",
     "rollup": "catalog:",
@@ -51,14 +51,14 @@
     "typescript": "catalog:"
   },
   "dependencies": {
-    "@codemonger-io/cdk-cors-utils": "0.4.0-8678c3d",
-    "@codemonger-io/cdk-ghost-string-parameter": "0.2.0-9e4f21e",
-    "@codemonger-io/cdk-rest-api-with-spec": "0.4.0-7c11d76",
-    "@codemonger-io/mapping-template-compose": "0.2.0-aecf920",
+    "@codemonger-io/cdk-cors-utils": "0.4.1-82ced53",
+    "@codemonger-io/cdk-ghost-string-parameter": "0.2.1-7bda76a",
+    "@codemonger-io/cdk-rest-api-with-spec": "0.4.1-61ffa61",
+    "@codemonger-io/mapping-template-compose": "0.2.1-b53e4bf",
     "cargo-lambda-cdk": "catalog:"
   },
   "peerDependencies": {
-    "aws-cdk-lib": ">=2.0.0",
+    "aws-cdk-lib": ">=2.231.0",
     "constructs": ">=10.0.0"
   }
 }

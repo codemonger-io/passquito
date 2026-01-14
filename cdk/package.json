@@ -1,8 +1,8 @@
 {
   "name": "cdk",
   "private": true,
-  "version": "0.1.0",
-  "packageManager": "pnpm@10.7.1",
+  "version": "0.1.2",
+  "packageManager": "pnpm@10.28.0",
   "bin": {
     "cdk": "bin/cdk.js"
   },
@@ -14,24 +14,24 @@
     "type-check": "tsc --noEmit"
   },
   "devDependencies": {
-    "@types/jest": "^29.5.5",
+    "@types/jest": "catalog:",
     "@types/node": "catalog:",
     "aws-cdk": "catalog:",
     "cargo-lambda-cdk": "catalog:",
-    "jest": "^29.7.0",
+    "jest": "catalog:",
     "ts-jest": "catalog:",
     "ts-node": "catalog:",
     "typescript": "catalog:"
   },
   "dependencies": {
     "@codemonger-io/passquito-cdk-construct": "workspace:*",
-    "@aws-sdk/client-cloudformation": "3.782.0",
-    "@aws-sdk/client-ssm": "3.782.0",
-    "@types/yargs": "^17.0.32",
-    "aws-cdk-lib": "2.202.0",
-    "constructs": "10.4.2",
+    "@aws-sdk/client-cloudformation": "3.966.0",
+    "@aws-sdk/client-ssm": "3.966.0",
+    "@types/yargs": "^17.0.35",
+    "aws-cdk-lib": "catalog:",
+    "constructs": "catalog:",
     "source-map-support": "^0.5.21",
-    "tsx": "^4.19.2",
-    "yargs": "^17.7.2"
+    "tsx": "^4.21.0",
+    "yargs": "^18.0.0"
   }
 }
