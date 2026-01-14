@@ -1,6 +1,6 @@
 {
   "name": "@codemonger-io/passquito-client-js",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "Passquito client for JavaScript on browsers",
   "license": "MIT",
   "author": "Kikuo Emoto <kemoto@codemonger.io>",
@@ -11,7 +11,7 @@
     "type": "git",
     "url": "https://github.com/codemonger-io/passquito.git"
   },
-  "packageManager": "pnpm@10.7.1",
+  "packageManager": "pnpm@10.28.0",
   "main": "dist/passquito-client-js.mjs",
   "types": "dist/passquito-client-js.d.ts",
   "files": [
