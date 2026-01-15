@@ -128,7 +128,7 @@ fn try_convert_cognito_event_user_pools_header_trigger_source<T, U>(
 ) -> Result<CognitoEventUserPoolsHeader<U>, Error>
 where
     T: TryInto<U, Error=Error>,
-    U: Default,
+    CognitoEventUserPoolsHeader<U>: Default,
 {
     let mut output = CognitoEventUserPoolsHeader::default();
     output.version = value.version;
@@ -145,7 +145,7 @@ fn convert_cognito_event_user_pools_header_trigger_source<T, U>(
 ) -> CognitoEventUserPoolsHeader<U>
 where
     T: Into<U>,
-    U: Default,
+    CognitoEventUserPoolsHeader<U>: Default,
 {
     let mut output = CognitoEventUserPoolsHeader::default();
     output.version = value.version;
