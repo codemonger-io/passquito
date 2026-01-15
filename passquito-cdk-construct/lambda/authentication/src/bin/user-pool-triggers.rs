@@ -730,13 +730,11 @@ mod tests {
         let shared_state = Arc::new(shared_state);
 
         let mut event = CognitoEventUserPoolsDefineAuthChallenge::default();
-        event.request.session.push(
-            Some(CognitoEventUserPoolsChallengeResult {
-                challenge_name: Some("CUSTOM_CHALLENGE".to_string()),
-                challenge_result: true,
-                challenge_metadata: None,
-            }),
-        );
+        let mut result = CognitoEventUserPoolsChallengeResult::default();
+        result.challenge_name = Some("CUSTOM_CHALLENGE".to_string());
+        result.challenge_result = true;
+        result.challenge_metadata = None;
+        event.request.session.push(Some(result));
         let res = define_auth_challenge(shared_state, event).await.unwrap();
         assert!(res.response.issue_tokens);
         assert!(!res.response.fail_authentication);
@@ -755,13 +753,11 @@ mod tests {
         let shared_state = Arc::new(shared_state);
 
         let mut event = CognitoEventUserPoolsDefineAuthChallenge::default();
-        event.request.session.push(
-            Some(CognitoEventUserPoolsChallengeResult {
-                challenge_name: Some("CUSTOM_CHALLENGE".to_string()),
-                challenge_result: false,
-                challenge_metadata: None,
-            }),
-        );
+        let mut result = CognitoEventUserPoolsChallengeResult::default();
+        result.challenge_name = Some("CUSTOM_CHALLENGE".to_string());
+        result.challenge_result = false;
+        result.challenge_metadata = None;
+        event.request.session.push(Some(result));
         let res = define_auth_challenge(shared_state, event).await.unwrap();
         assert!(!res.response.issue_tokens);
         assert!(res.response.fail_authentication);
