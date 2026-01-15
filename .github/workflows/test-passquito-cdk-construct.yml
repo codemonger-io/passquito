@@ -9,7 +9,7 @@ on:
       - main
 
 env:
-  node-version: 22.x
+  node-version: 24
   pnpm-version: 10
 
 jobs:
@@ -18,7 +18,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       # pnpm has to be installed prior to running actions/setup-node
       - name: Install pnpm
@@ -28,7 +28,7 @@ jobs:
           run_install: false
 
       - name: Setup Node.js ${{ env.node-version }}
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: ${{ env.node-version }}
           cache: pnpm

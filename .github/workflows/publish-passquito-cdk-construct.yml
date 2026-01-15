@@ -8,7 +8,7 @@ on:
         required: true
 
 env:
-  node-version: 22.x
+  node-version: 24
   pnpm-version: 10
 
 permissions:
@@ -21,7 +21,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Get short commit hash
         run: echo "SHORT_COMMIT_HASH=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
@@ -34,7 +34,7 @@ jobs:
           run_install: false
 
       - name: Setup Node.js ${{ env.node-version }}
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: ${{ env.node-version }}
           cache: pnpm
@@ -73,4 +73,5 @@ jobs:
         run: |
           pnpm publish -r \
             --filter "${{ steps.package_info.outputs.name }}" \
-            --no-git-checks
+            --no-git-checks \
+            --tag latest
