@@ -81,6 +81,7 @@ export class CredentialsApi extends Construct {
 
     // Lambda functions
     this.registrationLambda = new RustFunction(this, 'RegistrationLambda', {
+      description: 'Implements the endpoints to start and finish a registration session',
       manifestPath,
       binaryName: 'registration',
       architecture: lambda.Architecture.ARM_64,
@@ -105,6 +106,7 @@ export class CredentialsApi extends Construct {
     );
 
     this.discoverableLambda = new RustFunction(this, 'DiscoverableLambda', {
+      description: 'Implements the endpoint to start an authentication session with discoverable credentials',
       manifestPath,
       binaryName: 'discoverable',
       architecture: lambda.Architecture.ARM_64,
@@ -119,6 +121,7 @@ export class CredentialsApi extends Construct {
     sessionStore.sessionTable.grantReadWriteData(this.discoverableLambda);
 
     this.cognitoFacadeLambda = new RustFunction(this, 'CognitoFacadeLambda', {
+      description: 'Wraps Cognito APIs to perform authentication and token refreshing',
       manifestPath,
       binaryName: 'cognito-facade',
       architecture: lambda.Architecture.ARM_64,

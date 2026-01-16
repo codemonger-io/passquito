@@ -99,6 +99,7 @@ export class UserPool extends Construct {
       this,
       'CognitoTriggerLambda',
       {
+        description: 'Cognito user pool trigger for passkey authentication',
         manifestPath: path.join(__dirname, 'lambda', 'authentication', 'Cargo.toml'),
         binaryName: 'user-pool-triggers',
         architecture: lambda.Architecture.ARM_64,
