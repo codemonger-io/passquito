@@ -5,17 +5,17 @@ use lambda_runtime::{Error, diagnostic::Diagnostic};
 /// Common error response.
 ///
 /// When a Lambda handler returns an Err result,
-/// [`lambda_runtime`][https://docs.rs/lambda_runtime/latest/lambda_runtime/index.html]
+/// [`lambda_runtime`](https://docs.rs/lambda_runtime/latest/lambda_runtime/index.html)
 /// generates an error message that depends on the Rust compiler version by
 /// default.
 ///
 /// By using this enum as an Err result, we can generate deterministic error
 /// messages as it implements
-/// [`lambda_runtime::Diagnostic`][https://docs.rs/lambda_runtime/latest/lambda_runtime/diagnostic/struct.Diagnostic.html].
+/// [`lambda_runtime::Diagnostic`](https://docs.rs/lambda_runtime/latest/lambda_runtime/diagnostic/struct.Diagnostic.html).
 ///
 /// #### Letting an error go
 ///
-/// [`lambda_runtime::Error`][https://docs.rs/lambda_runtime/latest/lambda_runtime/type.Error.html]
+/// [`lambda_runtime::Error`](https://docs.rs/lambda_runtime/latest/lambda_runtime/type.Error.html)
 /// can be converted into [`ErrorResponse::Unhandled`] with the `into` method.
 ///
 /// ```
