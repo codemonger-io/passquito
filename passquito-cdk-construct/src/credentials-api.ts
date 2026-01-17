@@ -96,7 +96,6 @@ export class CredentialsApi extends Construct {
       .trim()
       .replace(/^\/*/, '/')
       .replace(/\/+$/, '');
-    const securedBasePath = `${this.normalizedBasePath}/secured`;
 
     // Lambda functions
     this.registrationLambda = new RustFunction(this, 'RegistrationLambda', {
