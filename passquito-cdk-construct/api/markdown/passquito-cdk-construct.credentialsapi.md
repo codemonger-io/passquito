@@ -220,26 +220,5 @@ lambda.IFunction
 
 
 </td></tr>
-<tr><td>
-
-[securedLambda](./passquito-cdk-construct.credentialsapi.securedlambda.md)
-
-
-</td><td>
-
-`readonly`
-
-
-</td><td>
-
-lambda.IFunction
-
-
-</td><td>
-
-**_(BETA)_** Lambda function that serves secured contents.
-
-
-</td></tr>
 </tbody></table>
 
