@@ -22,7 +22,6 @@ export class CredentialsApi extends Construct {
     // (undocumented)
     readonly props: CredentialsApiProps;
     readonly registrationLambda: aws_lambda.IFunction;
-    readonly securedLambda: aws_lambda.IFunction;
 }
 
 // @beta
