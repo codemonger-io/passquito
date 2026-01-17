@@ -60,9 +60,6 @@ export class CredentialsApi extends Construct {
   /** Lambda function for the facade that masks Cognito APIs. */
   readonly cognitoFacadeLambda: lambda.IFunction;
 
-  /** Lambda function that serves secured contents. */
-  readonly securedLambda: lambda.IFunction;
-
   /** Credentials API. */
   readonly credentialsApi: RestApiWithSpec;
 
@@ -127,17 +124,6 @@ export class CredentialsApi extends Construct {
       architecture: lambda.Architecture.ARM_64,
       environment: {
         USER_POOL_CLIENT_ID: userPool.userPoolClientId,
-      },
-      memorySize: 128,
-      timeout: Duration.seconds(5),
-    });
-
-    this.securedLambda = new RustFunction(this, 'SecuredLambda', {
-      manifestPath,
-      binaryName: 'secured',
-      architecture: lambda.Architecture.ARM_64,
-      environment: {
-        BASE_PATH: securedBasePath
       },
       memorySize: 128,
       timeout: Duration.seconds(5),
@@ -852,25 +838,6 @@ export class CredentialsApi extends Construct {
             description: 'Failed to refresh the tokens. Refresh token is likely invalid.',
           },
           ...common5xxResponses.methodResponses,
-        ]),
-      },
-    );
-
-    // secured endpoints
-    const secured = root.addResource('secured');
-    secured.addMethod(
-      'GET',
-      new apigw.LambdaIntegration(this.securedLambda, {
-        proxy: true,
-        integrationResponses: makeIntegrationResponsesAllowCors([]),
-      }),
-      {
-        authorizer,
-        authorizationType: apigw.AuthorizationType.COGNITO,
-        methodResponses: makeMethodResponsesAllowCors([
-          {
-            statusCode: '200',
-          },
         ]),
       },
     );

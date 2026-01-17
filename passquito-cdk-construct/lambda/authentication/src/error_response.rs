@@ -1,39 +1,26 @@
-//! Error response.
+//! Common error response.
 
-use lambda_http::{Body, Error, Response, http::StatusCode};
-use lambda_runtime::diagnostic::Diagnostic;
+use lambda_runtime::{Error, diagnostic::Diagnostic};
 
-/// Error response.
+/// Common error response.
 ///
-/// A Rust runtime buit with [`lambda_runtime`](https://docs.rs/lambda_runtime/latest/lambda_runtime/)
-/// responds with a 500 error and exits if the service function returns an
-/// error result.
-/// If we want to return a different status code and keep the runtime running,
-/// we have to let the service function return an OK result with a response
-/// that has the disired status code.
+/// When a Lambda handler returns an Err result,
+/// [`lambda_runtime`][https://docs.rs/lambda_runtime/latest/lambda_runtime/index.html]
+/// generates an error message that depends on the Rust compiler version by
+/// default.
 ///
-/// This enum helps us to differentiate errors that we may want to respond with
-/// a specific status code from those we let go and crash the runtime with a 500
-/// status code.
-///
-/// #### Generating a response
-///
-/// `TryInto<Response<Body>>` is implemented for `ErrorResponse`.
-///
-/// ```
-/// # use authentication::error_response::ErrorResponse;
-/// use lambda_http::{Body, Response};
-/// let res: Response<Body> = ErrorResponse::bad_request("Bad request").try_into().unwrap();
-/// ```
+/// By using this enum as an Err result, we can generate deterministic error
+/// messages as it implements
+/// [`lambda_runtime::Diagnostic`][https://docs.rs/lambda_runtime/latest/lambda_runtime/diagnostic/struct.Diagnostic.html].
 ///
 /// #### Letting an error go
 ///
-/// Errors can be converted into [`ErrorResponse::Unhandled`] with the `into`
-/// method.
+/// [`lambda_runtime::Error`][https://docs.rs/lambda_runtime/latest/lambda_runtime/type.Error.html]
+/// can be converted into [`ErrorResponse::Unhandled`] with the `into` method.
 ///
 /// ```
 /// # use authentication::error_response::ErrorResponse;
-/// let err: lambda_http::Error = "error".into();
+/// let err: lambda_runtime::Error = "error".into();
 /// let res: ErrorResponse = err.into();
 /// ```
 #[derive(Debug)]
@@ -103,32 +90,6 @@ where
 {
     fn from(e: E) -> Self {
         ErrorResponse::Unhandled(e.into())
-    }
-}
-
-impl TryInto<Response<Body>> for ErrorResponse {
-    type Error = Error;
-
-    fn try_into(self) -> Result<Response<Body>, Self::Error> {
-        match self {
-            ErrorResponse::BadRequest(msg) => Ok(Response::builder()
-                .status(StatusCode::BAD_REQUEST)
-                .header("Content-Type", "text/plain")
-                .body(msg.into())?),
-            ErrorResponse::Unauthorized(msg) => Ok(Response::builder()
-                .status(StatusCode::UNAUTHORIZED)
-                .header("Content-Type", "text/plain")
-                .body(msg.into())?),
-            ErrorResponse::Unavailable(msg) => Ok(Response::builder()
-                .status(StatusCode::SERVICE_UNAVAILABLE)
-                .header("Content-Type", "text/plain")
-                .body(msg.into())?),
-            ErrorResponse::BadConfiguration(msg) => Ok(Response::builder()
-                .status(StatusCode::INTERNAL_SERVER_ERROR)
-                .header("Content-Type", "text/plain")
-                .body(msg.into())?),
-            ErrorResponse::Unhandled(e) => Err(e),
-        }
     }
 }
 
