@@ -30,17 +30,35 @@ export class SecuredApi extends Construct {
   /** Secured REST API. */
   readonly securedApi: apigw.RestApi;
 
+  /**
+   * Normalized base path.
+   *
+   * @remarks
+   *
+   * Surrounding whitespace is trimmed.
+   * Leading slashes are reduced to a single slash, and trailing slashes are
+   * removed. If there is no leading slash, one is added. It will be an empty
+   * string if the base path is root (i.e., "/").
+   */
+  readonly normalizedBasePath: string;
+
   /** Lambda function that serves secured contents. */
   private readonly testEndpointLambda: lambda.IFunction;
 
-  constructor(scope: Construct, id: string, readonly props: SecuredApiProps) {
+  constructor(scope: Construct, id: string, props: SecuredApiProps) {
     super(scope, id);
 
     const { basePath, userPool } = props;
 
-    const testEndpointPath = `${basePath.replace(/\/$/, '')}/test`;
+    this.normalizedBasePath = basePath
+      .trim()
+      .replace(/^\/*/, '/')
+      .replace(/\/+$/, '');
+
+    const testEndpointPath = `${this.normalizedBasePath}/test`;
 
     this.testEndpointLambda = new RustFunction(this, 'TestEndpointLambda', {
+      description: 'Returns a secret message',
       manifestPath: path.join(__dirname, '..', 'lambda', 'secured', 'Cargo.toml'),
       binaryName: 'test_endpoint',
       architecture: lambda.Architecture.ARM_64,
@@ -76,7 +94,7 @@ export class SecuredApi extends Construct {
     });
 
     // gets to the base path
-    const root = basePath
+    const root = this.normalizedBasePath
       .split('/')
       .filter((p) => p.length > 0)
       .reduce(
@@ -89,10 +107,7 @@ export class SecuredApi extends Construct {
     // - GET
     testEndpoint.addMethod(
       'GET',
-      new apigw.LambdaIntegration(this.testEndpointLambda, {
-        proxy: true,
-        integrationResponses: [],
-      }),
+      new apigw.LambdaIntegration(this.testEndpointLambda, { proxy: true }),
       {
         authorizer,
         authorizationType: apigw.AuthorizationType.COGNITO,
@@ -100,6 +115,7 @@ export class SecuredApi extends Construct {
           {
             statusCode: '200',
             responseParameters: {
+              // Lambda function should include this header in its response
               'method.response.header.Access-Control-Allow-Origin': true,
             },
           },
@@ -109,6 +125,6 @@ export class SecuredApi extends Construct {
   }
 
   get internalUrl(): string {
-    return this.securedApi.deploymentStage.urlForPath(this.props.basePath);
+    return this.securedApi.deploymentStage.urlForPath(this.normalizedBasePath || '/');
   }
 }
