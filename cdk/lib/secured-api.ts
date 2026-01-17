@@ -56,7 +56,7 @@ export class SecuredApi extends Construct {
       defaultCorsPreflightOptions: {
         allowHeaders: ['Authorization', 'Content-Type'],
         allowMethods: apigw.Cors.ALL_METHODS,
-        allowOrigins: ["*"],
+        allowOrigins: ['*'],
         maxAge: Duration.days(1),
       },
       deploy: true,
@@ -101,8 +101,6 @@ export class SecuredApi extends Construct {
             statusCode: '200',
             responseParameters: {
               'method.response.header.Access-Control-Allow-Origin': true,
-              'method.response.header.Access-Control-Allow-Headers': true,
-              'method.response.header.Access-Control-Allow-Methods': true,
             },
           },
         ],
