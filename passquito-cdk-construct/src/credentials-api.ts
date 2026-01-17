@@ -23,7 +23,13 @@ import type { UserPool } from './user-pool';
  * @beta
  */
 export interface CredentialsApiProps {
-  /** Base path where the API is to be served. */
+  /**
+   * Base path where the API is to be served.
+   *
+   * @remarks
+   *
+   * Empty string means root, i.e., "/".
+   */
   readonly basePath: string;
 
   /** Parameters in Parameter Store on AWS Systems Manager. */
@@ -63,7 +69,19 @@ export class CredentialsApi extends Construct {
   /** Credentials API. */
   readonly credentialsApi: RestApiWithSpec;
 
-  constructor(scope: Construct, id: string, readonly props: CredentialsApiProps) {
+  /**
+   * Normalized base path.
+   *
+   * @remarks
+   *
+   * Surrounding whitespace is trimmed.
+   * Leading slashes are reduced to a single slash, and trailing slashes are
+   * removed. If there is no leading slash, one is added. It will be an empty
+   * string if the base path is root, i.e., "/".
+   */
+  readonly normalizedBasePath: string;
+
+  constructor(scope: Construct, id: string, props: CredentialsApiProps) {
     super(scope, id);
 
     const {
@@ -74,7 +92,11 @@ export class CredentialsApi extends Construct {
       userPool,
     } = props;
     const manifestPath = path.join(__dirname, 'lambda', 'authentication', 'Cargo.toml');
-    const securedBasePath = `${basePath.replace(/\/$/, '')}/secured`;
+    this.normalizedBasePath = basePath
+      .trim()
+      .replace(/^\/*/, '/')
+      .replace(/\/+$/, '');
+    const securedBasePath = `${this.normalizedBasePath}/secured`;
 
     // Lambda functions
     this.registrationLambda = new RustFunction(this, 'RegistrationLambda', {
@@ -469,7 +491,7 @@ export class CredentialsApi extends Construct {
     } as const;
 
     // gets to the base path
-    const root = basePath
+    const root = this.normalizedBasePath
       .split('/')
       .filter((p) => p.length > 0)
       .reduce(
@@ -843,14 +865,17 @@ export class CredentialsApi extends Construct {
     );
   }
 
-  /** Base path of the Credentials API not including the trailing slash. */
+  /**
+   * Base path of the Credentials API not including the trailing slash except
+   * for root.
+   */
   get basePath(): string {
-    return this.props.basePath.replace(/\/$/, '');
+    return this.normalizedBasePath || '/';
   }
 
   /** Internal URL of the Credentials API. */
   get internalUrl(): string {
-    return this.credentialsApi.deploymentStage.urlForPath(this.props.basePath);
+    return this.credentialsApi.deploymentStage.urlForPath(this.basePath);
   }
 }
 
