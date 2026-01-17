@@ -5,6 +5,7 @@ import type { Construct } from 'constructs';
 import { PassquitoCore } from '@codemonger-io/passquito-cdk-construct';
 
 import { Distribution } from './distribution';
+import { SecuredApi } from './secured-api';
 
 export interface CdkStackProps extends StackProps {
   /**
@@ -35,6 +36,10 @@ export class CdkStack extends Stack {
         config: 'development',
       },
     });
+    const securedApi = new SecuredApi(this, 'SecuredApi', {
+      basePath: '/secured',
+      userPool: passquito.userPool.userPool,
+    });
     const distribution = new Distribution(this, 'Distribution', {
       appBasePath: '/app',
       credentialsApi: passquito.credentialsApi,
@@ -55,6 +60,10 @@ export class CdkStack extends Stack {
     new CfnOutput(this, 'CredentialsApiInternalUrl', {
       description: 'URL of the Credentials API for internal tests',
       value: passquito.credentialsApiInternalUrl,
+    });
+    new CfnOutput(this, 'SecuredApiInternalUrl', {
+      description: 'URL of the secured API for internal tests',
+      value: securedApi.internalUrl,
     });
     new CfnOutput(this, 'DistributionDomainName', {
       description: 'Distribution domain name',
