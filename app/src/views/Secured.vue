@@ -3,7 +3,7 @@ import { BButton, BMessage } from 'buefy';
 import { onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 
-import { credentialsApiUrl } from '../auth-config';
+import { securedApiUrl } from '../auth-config';
 import { useCredentialStore } from '../stores/credential';
 import { useCredentialsApiStore } from '../stores/credentials-api';
 
@@ -80,7 +80,7 @@ watch(
         return;
       }
     }
-    const url = `${credentialsApiUrl}secured`;
+    const url = `${securedApiUrl}test`;
     try {
       const res = await fetch(url, {
         headers: {
