@@ -90,7 +90,7 @@ string
 
 </td><td>
 
-**_(BETA)_** Base path of the Credentials API not including the trailing slash.
+**_(BETA)_** Base path of the Credentials API not including the trailing slash except for root.
 
 
 </td></tr>
@@ -180,7 +180,7 @@ string
 </td></tr>
 <tr><td>
 
-[props](./passquito-cdk-construct.credentialsapi.props.md)
+[normalizedBasePath](./passquito-cdk-construct.credentialsapi.normalizedbasepath.md)
 
 
 </td><td>
@@ -190,12 +190,12 @@ string
 
 </td><td>
 
-[CredentialsApiProps](./passquito-cdk-construct.credentialsapiprops.md)
+string
 
 
 </td><td>
 
-**_(BETA)_**
+**_(BETA)_** Normalized base path.
 
 
 </td></tr>

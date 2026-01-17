@@ -14,3 +14,8 @@ Base path where the API is to be served.
 ```typescript
 readonly basePath: string;
 ```
+
+## Remarks
+
+Empty string means root, i.e., "/".
+

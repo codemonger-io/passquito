@@ -19,8 +19,7 @@ export class CredentialsApi extends Construct {
     readonly credentialsApi: RestApiWithSpec;
     readonly discoverableLambda: aws_lambda.IFunction;
     get internalUrl(): string;
-    // (undocumented)
-    readonly props: CredentialsApiProps;
+    readonly normalizedBasePath: string;
     readonly registrationLambda: aws_lambda.IFunction;
 }
 
