@@ -8,7 +8,7 @@ import {
   type PublicKeyCredentialWithAttestationJSON,
 } from '@github/webauthn-json/extended';
 
-import type { CredentialsApi } from './credentials-api';
+import type { ApiResponse, CredentialsApi } from './credentials-api';
 import type {
   CognitoTokens,
   RegisteredUserInfo,
@@ -43,11 +43,14 @@ export class CredentialsApiImpl implements CredentialsApi {
       },
       body: JSON.stringify(userInfo),
     });
-    const session = await res.json();
-    return {
-      sessionId: session.sessionId,
-      credentialCreationOptions: parseCreationOptionsFromJSON(session.credentialCreationOptions),
-    };
+    return wrapFetchResponse(res, async (res) => {
+      const session = await res.json();
+      return {
+        sessionId: session.sessionId,
+        credentialCreationOptions:
+          parseCreationOptionsFromJSON(session.credentialCreationOptions),
+      };
+    });
   }
 
   async startRegistrationForVerifiedUser(userInfo: VerifiedUserInfo) {
@@ -60,7 +63,14 @@ export class CredentialsApiImpl implements CredentialsApi {
       },
       body: JSON.stringify(userInfo.userInfo),
     });
-    return await res.json();
+    return wrapFetchResponse(res, async (res) => {
+      const session = await res.json();
+      return {
+        sessionId: session.sessionId,
+        credentialCreationOptions:
+          parseCreationOptionsFromJSON(session.credentialCreationOptions),
+      };
+    });
   }
 
   async finishRegistration(sessionId: string, credential: PublicKeyCredential) {
@@ -76,16 +86,13 @@ export class CredentialsApiImpl implements CredentialsApi {
         publicKeyCredential: encodedCredential,
       }),
     });
-    if (!res.ok) {
-      throw new Error(
-        `credential registration failed with ${res.status}: ${await res.text()}`,
-      );
-    }
-    const userInfo = await res.json();
-    if (!isRegisteredUserInfo(userInfo)) {
-      throw new Error('invalid user info returned from the registration API');
-    }
-    return userInfo;
+    return wrapFetchResponse(res, async (res) => {
+      const userInfo = await res.json();
+      if (!isRegisteredUserInfo(userInfo)) {
+        throw new Error('invalid user info returned from the registration API');
+      }
+      return userInfo;
+    });
   }
 
   async getDiscoverableCredentialRequestOptions() {
@@ -93,7 +100,9 @@ export class CredentialsApiImpl implements CredentialsApi {
     const res = await fetch(endpoint, {
       method: 'POST',
     });
-    return getRequestFromJSON(await res.json());
+    return wrapFetchResponse(res, async (res) => {
+      return getRequestFromJSON(await res.json());
+    });
   }
 
   async startAuthentication(userId: string) {
@@ -104,11 +113,13 @@ export class CredentialsApiImpl implements CredentialsApi {
       },
       body: JSON.stringify({ userId }),
     });
-    const session = await res.json();
-    return {
-      sessionId: session.sessionId,
-      credentialRequestOptions: getRequestFromJSON(session.credentialRequestOptions),
-    };
+    return wrapFetchResponse(res, async (res) => {
+      const session = await res.json();
+      return {
+        sessionId: session.sessionId,
+        credentialRequestOptions: getRequestFromJSON(session.credentialRequestOptions),
+      };
+    });
   }
 
   async finishAuthentication(sessionId: string, userId: string, credential: PublicKeyCredential) {
@@ -124,11 +135,13 @@ export class CredentialsApiImpl implements CredentialsApi {
         publicKey: encodedCredential,
       }),
     });
-    const tokens = await res.json();
-    if (!isRawCognitoTokens(tokens)) {
-      throw new Error('invalid Cognito tokens');
-    }
-    return activateCognitoTokens(tokens);
+    return wrapFetchResponse(res, async (res) => {
+      const tokens = await res.json();
+      if (!isRawCognitoTokens(tokens)) {
+        throw new Error('invalid Cognito tokens');
+      }
+      return activateCognitoTokens(tokens);
+    });
   }
 
   async refreshTokens(refreshToken: string) {
@@ -140,11 +153,13 @@ export class CredentialsApiImpl implements CredentialsApi {
       },
       body: JSON.stringify({ refreshToken }),
     });
-    const tokens = await res.json();
-    if (!isRawCognitoTokens(tokens)) {
-      return undefined;
-    }
-    return activateCognitoTokens(tokens);
+    return wrapFetchResponse(res, async (res) => {
+      const tokens = await res.json();
+      if (!isRawCognitoTokens(tokens)) {
+        return undefined;
+      }
+      return activateCognitoTokens(tokens);
+    });
   }
 }
 
@@ -202,5 +217,25 @@ function activateCognitoTokens(tokens: RawCognitoTokens): CognitoTokens {
   return {
     ...tokens,
     activatedAt: Date.now(),
+  };
+}
+
+// wraps a given Fetch API response into an `ApiResponse`.
+//
+// the `parsePayload` function implements the `parse` method of the
+// `ApiResponse`, which is supposed to parse the response JSON payload.
+function wrapFetchResponse<T>(
+  res: Response,
+  parsePayload: (res: Response) => Promise<T>,
+): ApiResponse<T> {
+  return {
+    get ok() {
+      return res.ok;
+    },
+    get status() {
+      return res.status;
+    },
+    text: () => res.text(),
+    parse: () => parsePayload(res),
   };
 }
