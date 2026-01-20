@@ -46,7 +46,18 @@ const refreshTokens = async () => {
   if (refreshToken == null) {
     return false;
   }
-  const newTokens = await credentialsApiStore.api.refreshTokens(refreshToken);
+  const refreshRes = await credentialsApiStore.api.refreshTokens(refreshToken);
+  if (!refreshRes.ok) {
+    console.error(`failed to refresh tokens: status=${refreshRes.status}, message=${await refreshRes.text()}`);
+    return false;
+  }
+  let newTokens;
+  try {
+    newTokens = await refreshRes.parse();
+  } catch (err) {
+    console.error('invalid refresh tokens response:', err);
+    return false;
+  }
   if (newTokens == null) {
     return false;
   }
