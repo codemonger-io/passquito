@@ -10,7 +10,7 @@
 **Signature:**
 
 ```typescript
-refreshTokens(refreshToken: string): Promise<CognitoTokens | undefined>;
+refreshTokens(refreshToken: string): Promise<ApiResponse<CognitoTokens | undefined>>;
 ```
 
 ## Parameters
@@ -46,7 +46,8 @@ string
 
 </td></tr>
 </tbody></table>
+
 **Returns:**
 
-Promise&lt;[CognitoTokens](./passquito-client-js.cognitotokens.md) \| undefined&gt;
+Promise&lt;[ApiResponse](./passquito-client-js.apiresponse.md)<!-- -->&lt;[CognitoTokens](./passquito-client-js.cognitotokens.md) \| undefined&gt;&gt;
 

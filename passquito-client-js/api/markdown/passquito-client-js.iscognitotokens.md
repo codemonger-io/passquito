@@ -48,6 +48,7 @@ unknown
 
 </td></tr>
 </tbody></table>
+
 **Returns:**
 
 value is [CognitoTokens](./passquito-client-js.cognitotokens.md)

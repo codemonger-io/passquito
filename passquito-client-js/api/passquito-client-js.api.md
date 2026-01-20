@@ -5,6 +5,14 @@
 ```ts
 
 // @beta
+export interface ApiResponse<T> {
+    ok: boolean;
+    parse(): Promise<T>;
+    status: number;
+    text(): Promise<string>;
+}
+
+// @beta
 export interface AuthenticationSession {
     credentialRequestOptions: CredentialRequestOptions;
     sessionId: string;
@@ -35,13 +43,13 @@ export interface Credentials {
 
 // @beta
 export interface CredentialsApi {
-    finishAuthentication(sessionId: string, userId: string, credential: PublicKeyCredential): Promise<CognitoTokens>;
-    finishRegistration(sessionId: string, credential: PublicKeyCredential): Promise<RegisteredUserInfo>;
-    getDiscoverableCredentialRequestOptions(): Promise<CredentialRequestOptions>;
-    refreshTokens(refreshToken: string): Promise<CognitoTokens | undefined>;
-    startAuthentication(userId: string): Promise<AuthenticationSession>;
-    startRegistration(userInfo: UserInfo): Promise<RegistrationSession>;
-    startRegistrationForVerifiedUser(userInfo: VerifiedUserInfo): Promise<RegistrationSession>;
+    finishAuthentication(sessionId: string, userId: string, credential: PublicKeyCredential): Promise<ApiResponse<CognitoTokens>>;
+    finishRegistration(sessionId: string, credential: PublicKeyCredential): Promise<ApiResponse<RegisteredUserInfo>>;
+    getDiscoverableCredentialRequestOptions(): Promise<ApiResponse<CredentialRequestOptions>>;
+    refreshTokens(refreshToken: string): Promise<ApiResponse<CognitoTokens | undefined>>;
+    startAuthentication(userId: string): Promise<ApiResponse<AuthenticationSession>>;
+    startRegistration(userInfo: UserInfo): Promise<ApiResponse<RegistrationSession>>;
+    startRegistrationForVerifiedUser(userInfo: VerifiedUserInfo): Promise<ApiResponse<RegistrationSession>>;
 }
 
 // @beta
@@ -49,25 +57,28 @@ export class CredentialsApiImpl implements CredentialsApi {
     constructor(baseUrl: string);
     readonly baseUrl: string;
     // (undocumented)
-    finishAuthentication(sessionId: string, userId: string, credential: PublicKeyCredential): Promise<CognitoTokens>;
+    finishAuthentication(sessionId: string, userId: string, credential: PublicKeyCredential): Promise<ApiResponse<CognitoTokens>>;
     // (undocumented)
-    finishRegistration(sessionId: string, credential: PublicKeyCredential): Promise<RegisteredUserInfo>;
+    finishRegistration(sessionId: string, credential: PublicKeyCredential): Promise<ApiResponse<RegisteredUserInfo>>;
     // (undocumented)
-    getDiscoverableCredentialRequestOptions(): Promise<CredentialRequestOptions>;
+    getDiscoverableCredentialRequestOptions(): Promise<ApiResponse<CredentialRequestOptions>>;
     // (undocumented)
-    refreshTokens(refreshToken: string): Promise<CognitoTokens | undefined>;
+    refreshTokens(refreshToken: string): Promise<ApiResponse<CognitoTokens | undefined>>;
     // (undocumented)
-    startAuthentication(userId: string): Promise<{
+    startAuthentication(userId: string): Promise<ApiResponse<{
         sessionId: any;
         credentialRequestOptions: CredentialRequestOptions;
-    }>;
+    }>>;
     // (undocumented)
-    startRegistration(userInfo: UserInfo): Promise<{
+    startRegistration(userInfo: UserInfo): Promise<ApiResponse<{
         sessionId: any;
         credentialCreationOptions: CredentialCreationOptions;
-    }>;
+    }>>;
     // (undocumented)
-    startRegistrationForVerifiedUser(userInfo: VerifiedUserInfo): Promise<any>;
+    startRegistrationForVerifiedUser(userInfo: VerifiedUserInfo): Promise<ApiResponse<{
+        sessionId: any;
+        credentialCreationOptions: CredentialCreationOptions;
+    }>>;
 }
 
 // @beta
@@ -89,6 +100,31 @@ export class PassquitoClient {
     };
     doRegistrationCeremony(userInfo: UserInfo): Promise<PublicKeyInfo>;
     doRegistrationCeremonyForVerifiedUser(userInfo: VerifiedUserInfo): Promise<PublicKeyInfo>;
+}
+
+// @beta
+export class PassquitoClientError extends Error {
+    constructor(message: string, cause?: PassquitoClientErrorCause);
+    readonly cause?: PassquitoClientErrorCause;
+}
+
+// @beta
+export type PassquitoClientErrorCause = PassquitoClientErrorCauseCredentialsApi | PassquitoClientErrorCauseGeneric;
+
+// @beta
+export interface PassquitoClientErrorCauseCredentialsApi {
+    // (undocumented)
+    response: ApiResponse<unknown>;
+    // (undocumented)
+    type: 'credentials-api';
+}
+
+// @beta
+export interface PassquitoClientErrorCauseGeneric {
+    // (undocumented)
+    error: unknown;
+    // (undocumented)
+    type: 'generic';
 }
 
 // @beta

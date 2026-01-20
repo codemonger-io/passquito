@@ -12,7 +12,7 @@ Starts a registration session of a new credential for an existing user.
 **Signature:**
 
 ```typescript
-startRegistrationForVerifiedUser(userInfo: VerifiedUserInfo): Promise<RegistrationSession>;
+startRegistrationForVerifiedUser(userInfo: VerifiedUserInfo): Promise<ApiResponse<RegistrationSession>>;
 ```
 
 ## Parameters
@@ -48,7 +48,8 @@ userInfo
 
 </td></tr>
 </tbody></table>
+
 **Returns:**
 
-Promise&lt;[RegistrationSession](./passquito-client-js.registrationsession.md)<!-- -->&gt;
+Promise&lt;[ApiResponse](./passquito-client-js.apiresponse.md)<!-- -->&lt;[RegistrationSession](./passquito-client-js.registrationsession.md)<!-- -->&gt;&gt;
 

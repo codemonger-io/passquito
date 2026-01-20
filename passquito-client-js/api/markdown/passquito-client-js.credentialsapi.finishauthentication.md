@@ -12,7 +12,7 @@ Finishes an authentication session.
 **Signature:**
 
 ```typescript
-finishAuthentication(sessionId: string, userId: string, credential: PublicKeyCredential): Promise<CognitoTokens>;
+finishAuthentication(sessionId: string, userId: string, credential: PublicKeyCredential): Promise<ApiResponse<CognitoTokens>>;
 ```
 
 ## Parameters
@@ -76,7 +76,8 @@ PublicKeyCredential
 
 </td></tr>
 </tbody></table>
+
 **Returns:**
 
-Promise&lt;[CognitoTokens](./passquito-client-js.cognitotokens.md)<!-- -->&gt;
+Promise&lt;[ApiResponse](./passquito-client-js.apiresponse.md)<!-- -->&lt;[CognitoTokens](./passquito-client-js.cognitotokens.md)<!-- -->&gt;&gt;
 

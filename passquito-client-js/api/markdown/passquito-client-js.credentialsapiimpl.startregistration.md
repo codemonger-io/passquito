@@ -10,10 +10,10 @@
 **Signature:**
 
 ```typescript
-startRegistration(userInfo: UserInfo): Promise<{
+startRegistration(userInfo: UserInfo): Promise<ApiResponse<{
         sessionId: any;
         credentialCreationOptions: CredentialCreationOptions;
-    }>;
+    }>>;
 ```
 
 ## Parameters
@@ -49,7 +49,8 @@ userInfo
 
 </td></tr>
 </tbody></table>
+
 **Returns:**
 
-Promise&lt;{ sessionId: any; credentialCreationOptions: CredentialCreationOptions; }&gt;
+Promise&lt;[ApiResponse](./passquito-client-js.apiresponse.md)<!-- -->&lt;{ sessionId: any; credentialCreationOptions: CredentialCreationOptions; }&gt;&gt;
 

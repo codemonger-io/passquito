@@ -10,9 +10,9 @@
 **Signature:**
 
 ```typescript
-getDiscoverableCredentialRequestOptions(): Promise<CredentialRequestOptions>;
+getDiscoverableCredentialRequestOptions(): Promise<ApiResponse<CredentialRequestOptions>>;
 ```
 **Returns:**
 
-Promise&lt;CredentialRequestOptions&gt;
+Promise&lt;[ApiResponse](./passquito-client-js.apiresponse.md)<!-- -->&lt;CredentialRequestOptions&gt;&gt;
 

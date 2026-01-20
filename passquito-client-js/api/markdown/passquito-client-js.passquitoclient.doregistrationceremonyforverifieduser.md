@@ -48,11 +48,18 @@ userInfo
 
 </td></tr>
 </tbody></table>
+
 **Returns:**
 
 Promise&lt;[PublicKeyInfo](./passquito-client-js.publickeyinfo.md)<!-- -->&gt;
 
 Public key information of the newly registered credential. The unique user ID shall be the same as `userInfo`<!-- -->.
+
+## Exceptions
+
+PassquitoClientError -
+
+When the registration ceremony fails.
 
 ## Remarks
 

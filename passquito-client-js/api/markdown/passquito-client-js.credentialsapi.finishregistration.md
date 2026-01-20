@@ -12,7 +12,7 @@ Finishes a registration session.
 **Signature:**
 
 ```typescript
-finishRegistration(sessionId: string, credential: PublicKeyCredential): Promise<RegisteredUserInfo>;
+finishRegistration(sessionId: string, credential: PublicKeyCredential): Promise<ApiResponse<RegisteredUserInfo>>;
 ```
 
 ## Parameters
@@ -64,9 +64,10 @@ PublicKeyCredential
 
 </td></tr>
 </tbody></table>
+
 **Returns:**
 
-Promise&lt;[RegisteredUserInfo](./passquito-client-js.registereduserinfo.md)<!-- -->&gt;
+Promise&lt;[ApiResponse](./passquito-client-js.apiresponse.md)<!-- -->&lt;[RegisteredUserInfo](./passquito-client-js.registereduserinfo.md)<!-- -->&gt;&gt;
 
 Registered user information including the unique user ID issued by Passquito.
 

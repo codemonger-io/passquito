@@ -12,7 +12,7 @@ Starts an authentication session.
 **Signature:**
 
 ```typescript
-startAuthentication(userId: string): Promise<AuthenticationSession>;
+startAuthentication(userId: string): Promise<ApiResponse<AuthenticationSession>>;
 ```
 
 ## Parameters
@@ -50,9 +50,10 @@ Passquito user ID.
 
 </td></tr>
 </tbody></table>
+
 **Returns:**
 
-Promise&lt;[AuthenticationSession](./passquito-client-js.authenticationsession.md)<!-- -->&gt;
+Promise&lt;[ApiResponse](./passquito-client-js.apiresponse.md)<!-- -->&lt;[AuthenticationSession](./passquito-client-js.authenticationsession.md)<!-- -->&gt;&gt;
 
 ## Remarks
 

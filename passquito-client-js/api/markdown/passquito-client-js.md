@@ -41,6 +41,17 @@ Description
 
 
 </td></tr>
+<tr><td>
+
+[PassquitoClientError](./passquito-client-js.passquitoclienterror.md)
+
+
+</td><td>
+
+**_(BETA)_** Error thrown by [PassquitoClient](./passquito-client-js.passquitoclient.md)<!-- -->.
+
+
+</td></tr>
 </tbody></table>
 
 ## Functions
@@ -117,6 +128,17 @@ Description
 </th></tr></thead>
 <tbody><tr><td>
 
+[ApiResponse](./passquito-client-js.apiresponse.md)
+
+
+</td><td>
+
+**_(BETA)_** Response from the Credentials API.
+
+
+</td></tr>
+<tr><td>
+
 [AuthenticationSession](./passquito-client-js.authenticationsession.md)
 
 
@@ -156,6 +178,28 @@ Description
 </td><td>
 
 **_(BETA)_** Service that provides access to the Credentials API.
+
+
+</td></tr>
+<tr><td>
+
+[PassquitoClientErrorCauseCredentialsApi](./passquito-client-js.passquitoclienterrorcausecredentialsapi.md)
+
+
+</td><td>
+
+**_(BETA)_** Error cause related to the Credentials API.
+
+
+</td></tr>
+<tr><td>
+
+[PassquitoClientErrorCauseGeneric](./passquito-client-js.passquitoclienterrorcausegeneric.md)
+
+
+</td><td>
+
+**_(BETA)_** Generic error cause.
 
 
 </td></tr>
@@ -215,3 +259,30 @@ Description
 
 </td></tr>
 </tbody></table>
+
+## Type Aliases
+
+<table><thead><tr><th>
+
+Type Alias
+
+
+</th><th>
+
+Description
+
+
+</th></tr></thead>
+<tbody><tr><td>
+
+[PassquitoClientErrorCause](./passquito-client-js.passquitoclienterrorcause.md)
+
+
+</td><td>
+
+**_(BETA)_** Cause of [PassquitoClientError](./passquito-client-js.passquitoclienterror.md)<!-- -->.
+
+
+</td></tr>
+</tbody></table>
+
