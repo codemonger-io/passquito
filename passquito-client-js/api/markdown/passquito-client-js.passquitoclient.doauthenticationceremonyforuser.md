@@ -51,6 +51,7 @@ string
 
 </td></tr>
 </tbody></table>
+
 **Returns:**
 
 { abort: () =&gt; void; credentials: Promise&lt;[Credentials](./passquito-client-js.credentials.md)<!-- -->&gt;; }
@@ -58,4 +59,6 @@ string
 ## Remarks
 
 While the authentication ceremony itself is conducted in an asynchronous manner, this function synchronously returns a function to abort the ceremony and a `Promise` of the credentials.
+
+The `Promise` of the credentials will throw [PassquitoClientError](./passquito-client-js.passquitoclienterror.md) when the authentication ceremony fails. It will throw `DOMException` with `name="AbortError"` when the ceremony is aborted.
 

@@ -48,6 +48,7 @@ unknown
 
 </td></tr>
 </tbody></table>
+
 **Returns:**
 
 value is [PublicKeyInfo](./passquito-client-js.publickeyinfo.md)
