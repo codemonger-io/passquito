@@ -6,6 +6,40 @@ import type {
 } from './types';
 
 /**
+ * Response from the Credentials API.
+ *
+ * @typeParam T - Type of the response body.
+ *
+ * @beta
+ */
+export interface ApiResponse<T> {
+  /**
+   * Whether the API call has succeeded.
+   * See the {@link https://developer.mozilla.org/en-US/docs/Web/API/Response/ok | `ok` property of the Fetch API Response}.
+   */
+  ok: boolean;
+
+  /**
+   * Status code of the response.
+   * See the {@link https://developer.mozilla.org/en-US/docs/Web/API/Response/status | `status` property of the Fetch API Response}.
+   */
+  status: number;
+
+  /**
+   * Parses the response body.
+   *
+   * @throws Error - If the response body does not represent `T`.
+   */
+  parse(): Promise<T>;
+
+  /**
+   * Text representation of the response body.
+   * See the {@link https://developer.mozilla.org/en-US/docs/Web/API/Response/text | `text` method of the Fetch API Response}.
+   */
+  text(): Promise<string>;
+}
+
+/**
  * Registration session.
  *
  * @beta
@@ -40,12 +74,12 @@ export interface CredentialsApi {
   /**
    * Starts a registration session of a new user.
    */
-  startRegistration(userInfo: UserInfo): Promise<RegistrationSession>;
+  startRegistration(userInfo: UserInfo): Promise<ApiResponse<RegistrationSession>>;
 
   /**
    * Starts a registration session of a new credential for an existing user.
    */
-  startRegistrationForVerifiedUser(userInfo: VerifiedUserInfo): Promise<RegistrationSession>;
+  startRegistrationForVerifiedUser(userInfo: VerifiedUserInfo): Promise<ApiResponse<RegistrationSession>>;
 
   /**
    * Finishes a registration session.
@@ -61,12 +95,12 @@ export interface CredentialsApi {
   finishRegistration(
     sessionId: string,
     credential: PublicKeyCredential,
-  ): Promise<RegisteredUserInfo>;
+  ): Promise<ApiResponse<RegisteredUserInfo>>;
 
   /**
    * Returns a credential request options for a discoverable credential.
    */
-  getDiscoverableCredentialRequestOptions(): Promise<CredentialRequestOptions>;
+  getDiscoverableCredentialRequestOptions(): Promise<ApiResponse<CredentialRequestOptions>>;
 
   /**
    * Starts an authentication session.
@@ -78,7 +112,7 @@ export interface CredentialsApi {
    *
    * @param userId - Passquito user ID.
    */
-  startAuthentication(userId: string): Promise<AuthenticationSession>;
+  startAuthentication(userId: string): Promise<ApiResponse<AuthenticationSession>>;
 
   /**
    * Finishes an authentication session.
@@ -87,7 +121,7 @@ export interface CredentialsApi {
     sessionId: string,
     userId: string,
     credential: PublicKeyCredential,
-  ): Promise<CognitoTokens>;
+  ): Promise<ApiResponse<CognitoTokens>>;
 
   /**
    * Refreshes the Cognito tokens associated with a given refresh token.
@@ -95,5 +129,5 @@ export interface CredentialsApi {
    * @returns  Refreshed Cognito tokens. `undefined` if the refresh token is
    *   invalid or expired.
    */
-  refreshTokens(refreshToken: string): Promise<CognitoTokens | undefined>;
+  refreshTokens(refreshToken: string): Promise<ApiResponse<CognitoTokens | undefined>>;
 }
