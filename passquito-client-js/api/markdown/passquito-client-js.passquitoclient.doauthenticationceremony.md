@@ -25,7 +25,7 @@ doAuthenticationCeremony(): {
 
 While the authentication ceremony itself is conducted in an asynchronous manner, this function synchronously returns a function to abort the ceremony and a `Promise` of the credentials.
 
-The `Promise` of the credentials will throw [PassquitoClientError](./passquito-client-js.passquitoclienterror.md) when the authentication ceremony fails. It will throw `DOMException` with `name="AbortError"` when the ceremony is aborted.
+The `Promise` of the credentials will throw [PassquitoClientError](./passquito-client-js.passquitoclienterror.md) when the authentication ceremony fails.
 
 Reference: - https://www.w3.org/TR/webauthn-3/\#sctn-verifying-assertion
 

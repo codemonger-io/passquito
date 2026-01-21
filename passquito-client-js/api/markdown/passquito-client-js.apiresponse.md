@@ -45,6 +45,8 @@ Description
 
 </td><td>
 
+`readonly`
+
 
 </td><td>
 
@@ -63,6 +65,8 @@ boolean
 
 
 </td><td>
+
+`readonly`
 
 
 </td><td>

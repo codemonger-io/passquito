@@ -15,6 +15,12 @@ Generic error cause.
 export interface PassquitoClientErrorCauseGeneric 
 ```
 
+## Remarks
+
+A variant of [PassquitoClientErrorCause](./passquito-client-js.passquitoclienterrorcause.md)<!-- -->.
+
+Any error thrown during processing of [PassquitoClient](./passquito-client-js.passquitoclient.md) is wrapped in this variant.
+
 ## Properties
 
 <table><thead><tr><th>

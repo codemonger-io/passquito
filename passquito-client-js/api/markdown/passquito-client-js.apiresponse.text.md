@@ -18,3 +18,13 @@ text(): Promise<string>;
 
 Promise&lt;string&gt;
 
+## Exceptions
+
+TypeError
+
+If the response body has already been read.
+
+## Remarks
+
+Calling this function two or more times, or after [parse](./passquito-client-js.apiresponse.parse.md) will fail.
+

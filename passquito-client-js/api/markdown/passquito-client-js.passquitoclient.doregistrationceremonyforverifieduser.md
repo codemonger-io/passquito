@@ -57,7 +57,7 @@ Public key information of the newly registered credential. The unique user ID sh
 
 ## Exceptions
 
-PassquitoClientError -
+PassquitoClientError
 
 When the registration ceremony fails.
 

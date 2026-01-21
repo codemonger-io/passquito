@@ -12,5 +12,5 @@ Status code of the response. See the [\`status\` property of the Fetch API Respo
 **Signature:**
 
 ```typescript
-status: number;
+readonly status: number;
 ```

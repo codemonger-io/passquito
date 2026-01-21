@@ -20,5 +20,15 @@ Promise&lt;T&gt;
 
 ## Exceptions
 
-Error - If the response body does not represent `T`<!-- -->.
+Error
+
+If the response body does not represent `T`<!-- -->.
+
+TypeError
+
+If the response body has already been read.
+
+## Remarks
+
+Calling this function two or more times, or after [text](./passquito-client-js.apiresponse.text.md) will fail.
 
