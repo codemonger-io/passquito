@@ -17,24 +17,44 @@ export interface ApiResponse<T> {
    * Whether the API call has succeeded.
    * See the {@link https://developer.mozilla.org/en-US/docs/Web/API/Response/ok | `ok` property of the Fetch API Response}.
    */
-  ok: boolean;
+  readonly ok: boolean;
 
   /**
    * Status code of the response.
    * See the {@link https://developer.mozilla.org/en-US/docs/Web/API/Response/status | `status` property of the Fetch API Response}.
    */
-  status: number;
+  readonly status: number;
 
   /**
    * Parses the response body.
    *
-   * @throws Error - If the response body does not represent `T`.
+   * @remarks
+   *
+   * Calling this function two or more times, or after
+   * {@link ApiResponse.text | text} will fail.
+   *
+   * @throws Error
+   *
+   *   If the response body does not represent `T`.
+   *
+   * @throws TypeError
+   *
+   *   If the response body has already been read.
    */
   parse(): Promise<T>;
 
   /**
    * Text representation of the response body.
    * See the {@link https://developer.mozilla.org/en-US/docs/Web/API/Response/text | `text` method of the Fetch API Response}.
+   *
+   * @remarks
+   *
+   * Calling this function two or more times, or after
+   * {@link ApiResponse.parse | parse} will fail.
+   *
+   * @throws TypeError
+   *
+   *   If the response body has already been read.
    */
   text(): Promise<string>;
 }

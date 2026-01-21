@@ -32,7 +32,11 @@ export type PassquitoClientErrorCause =
   | PassquitoClientErrorCauseGeneric;
 
 /**
- * Error cause related to the Credentials API.
+ * Error cause related to an HTTP response of the Credentials API.
+ *
+ * @remarks
+ *
+ * A variant of {@link PassquitoClientErrorCause}.
  *
  * @beta
  */
@@ -53,11 +57,18 @@ function makeCredentialsApiErrorCause(
   return {
     type: 'credentials-api',
     response,
-  }
+  };
 }
 
 /**
  * Generic error cause.
+ *
+ * @remarks
+ *
+ * A variant of {@link PassquitoClientErrorCause}.
+ *
+ * Any error thrown during processing of {@link PassquitoClient} is wrapped
+ * in this variant.
  *
  * @beta
  */
@@ -68,7 +79,7 @@ export interface PassquitoClientErrorCauseGeneric {
 }
 
 /**
- * Wraps an `Error` with {@link PassquitoClientErrorCauseGeneric}.
+ * Wraps an error with {@link PassquitoClientErrorCauseGeneric}.
  *
  * @beta
  */
@@ -76,7 +87,7 @@ function makeGenericErrorCause(error: unknown): PassquitoClientErrorCauseGeneric
   return {
     type: 'generic',
     error,
-  }
+  };
 }
 
 /**
@@ -85,13 +96,19 @@ function makeGenericErrorCause(error: unknown): PassquitoClientErrorCauseGeneric
  * @beta
  */
 export class PassquitoClientError extends Error {
-  /** Cause of the error. */
+  /**
+   * Cause of the error.
+   *
+   * @remarks
+   *
+   * Overrides the type of the built-in `cause` property so that users can
+   * access `cause` with proper typing.
+   */
   readonly cause?: PassquitoClientErrorCause;
 
   constructor(message: string, cause?: PassquitoClientErrorCause) {
-    super(message);
+    super(message, cause !== undefined ? { cause } : undefined);
     this.name = 'PassquitoClientError';
-    this.cause = cause;
   }
 }
 
@@ -121,23 +138,26 @@ export class PassquitoClient {
    *
    *   Public key information of the newly registered user.
    *
-   * @throws PassquitoClientError -
+   * @throws PassquitoClientError
    *
    *   When the registration ceremony fails.
    */
   async doRegistrationCeremony(userInfo: UserInfo): Promise<PublicKeyInfo> {
-    const startRes = await this.credentialsApi.startRegistration(userInfo);
-    if (!startRes.ok) {
-      throw new PassquitoClientError(
-        'failed to start registration session',
-        makeCredentialsApiErrorCause(startRes),
-      );
-    }
     try {
+      const startRes = await this.credentialsApi.startRegistration(userInfo);
+      if (!startRes.ok) {
+        throw new PassquitoClientError(
+          'failed to start registration session',
+          makeCredentialsApiErrorCause(startRes),
+        );
+      }
       return this.runRegistrationSession(await startRes.parse());
     } catch (err) {
+      if (err instanceof PassquitoClientError) {
+        throw err;
+      }
       throw new PassquitoClientError(
-        'invalid start registration response',
+        'failed to conduct registration ceremony',
         makeGenericErrorCause(err),
       );
     }
@@ -160,23 +180,27 @@ export class PassquitoClient {
    *   Public key information of the newly registered credential.
    *   The unique user ID shall be the same as `userInfo`.
    *
-   * @throws PassquitoClientError -
+   * @throws PassquitoClientError
    *
    *   When the registration ceremony fails.
    */
   async doRegistrationCeremonyForVerifiedUser(userInfo: VerifiedUserInfo): Promise<PublicKeyInfo> {
-    const startRes = await this.credentialsApi.startRegistrationForVerifiedUser(userInfo);
-    if (!startRes.ok) {
-      throw new PassquitoClientError(
-        'failed to start registration session for verified user',
-        makeCredentialsApiErrorCause(startRes),
-      );
-    }
     try {
+      const startRes = await this.credentialsApi.startRegistrationForVerifiedUser(userInfo);
+      if (!startRes.ok) {
+        throw new PassquitoClientError(
+          'failed to start registration session for verified user',
+          makeCredentialsApiErrorCause(startRes),
+        );
+      }
       return this.runRegistrationSession(await startRes.parse());
     } catch (err) {
+      // wraps any error with PassquitoClientError unless it's already a PassquitoClientError.
+      if (err instanceof PassquitoClientError) {
+        throw err;
+      }
       throw new PassquitoClientError(
-        'invalid start registration response for verified user',
+        'failed to conduct registration ceremony for verified user',
         makeGenericErrorCause(err),
       );
     }
@@ -184,37 +208,40 @@ export class PassquitoClient {
 
   // runs a given registration session.
   private async runRegistrationSession(session: RegistrationSession): Promise<PublicKeyInfo> {
-    const credential = await navigator.credentials.create(
-      session.credentialCreationOptions,
-    ) as (PublicKeyCredential | null);
-    if (credential == null) {
-      throw new PassquitoClientError('failed to create a new credential');
-    }
-    const finishRes = await this.credentialsApi.finishRegistration(
-      session.sessionId,
-      credential,
-    );
-    if (!finishRes.ok) {
-      throw new PassquitoClientError(
-        'failed to finish registration',
-        makeCredentialsApiErrorCause(finishRes),
-      );
-    }
-    let userId;
     try {
-      ({ userId } = await finishRes.parse());
+      const credential = await navigator.credentials.create(
+        session.credentialCreationOptions,
+      ) as (PublicKeyCredential | null);
+      if (credential == null) {
+        throw new PassquitoClientError('failed to create a new credential');
+      }
+      const finishRes = await this.credentialsApi.finishRegistration(
+        session.sessionId,
+        credential,
+      );
+      if (!finishRes.ok) {
+        throw new PassquitoClientError(
+          'failed to finish registration',
+          makeCredentialsApiErrorCause(finishRes),
+        );
+      }
+      const { userId } = await finishRes.parse();
+      const publicKeyInfo = extractPublicKeyInfo(credential);
+      // NOTE: no `userHandle` is available in an attestation (registration)
+      // response, so we substitute it with the user ID obtained from the
+      // Credentials API.
+      publicKeyInfo.userHandle = userId;
+      return publicKeyInfo;
     } catch (err) {
+      // wraps any error with PassquitoClientError unless it's already a PassquitoClientError.
+      if (err instanceof PassquitoClientError) {
+        throw err;
+      }
       throw new PassquitoClientError(
-        'invalid finish registration response',
+        'failed to run registration session',
         makeGenericErrorCause(err),
       );
     }
-    const publicKeyInfo = extractPublicKeyInfo(credential);
-    // NOTE: no `userHandle` is available in an attestation (registration)
-    // response, so we substitute it with the user ID obtained from the
-    // Credentials API.
-    publicKeyInfo.userHandle = userId;
-    return publicKeyInfo;
   }
 
   /**
@@ -228,8 +255,6 @@ export class PassquitoClient {
    *
    * The `Promise` of the credentials will throw {@link PassquitoClientError}
    * when the authentication ceremony fails.
-   * It will throw `DOMException` with `name="AbortError"` when the ceremony is
-   * aborted.
    *
    * Reference:
    * - https://www.w3.org/TR/webauthn-3/#sctn-verifying-assertion
@@ -251,8 +276,6 @@ export class PassquitoClient {
    *
    * The `Promise` of the credentials will throw {@link PassquitoClientError}
    * when the authentication ceremony fails.
-   * It will throw `DOMException` with `name="AbortError"` when the ceremony is
-   * aborted.
    */
   doAuthenticationCeremonyForUser(userId: string) {
     return runAbortableAuthentication((abortController) => {
@@ -264,76 +287,63 @@ export class PassquitoClient {
   private async doAbortableAuthenticationCeremony(
     abortController: AbortController,
   ) {
-    const getOptionsRes = await this.credentialsApi.getDiscoverableCredentialRequestOptions();
-    if (!getOptionsRes.ok) {
-      throw new PassquitoClientError(
-        'failed to get discoverable credential request options',
-        makeCredentialsApiErrorCause(getOptionsRes),
-      );
-    }
-    let options;
     try {
-      options = await getOptionsRes.parse();
+      const getOptionsRes = await this.credentialsApi.getDiscoverableCredentialRequestOptions();
+      if (!getOptionsRes.ok) {
+        throw new PassquitoClientError(
+          'failed to get discoverable credential request options',
+          makeCredentialsApiErrorCause(getOptionsRes),
+        );
+      }
+      const options = await getOptionsRes.parse();
+      const credential = await navigator.credentials.get({
+        ...options,
+        mediation: 'conditional',
+        signal: abortController.signal,
+      }) as (PublicKeyCredential | null);
+      if (credential == null) {
+        throw new PassquitoClientError('public key credential must be provided');
+      }
+      const publicKeyInfo = extractPublicKeyInfo(credential);
+      const { userHandle } = publicKeyInfo;
+      if (userHandle == null) {
+        throw new PassquitoClientError('authenticator must return userHandle');
+      }
+      const startRes = await this.credentialsApi.startAuthentication(userHandle);
+      if (!startRes.ok) {
+        throw new PassquitoClientError(
+          'failed to start authentication',
+          makeCredentialsApiErrorCause(startRes),
+        );
+      }
+      const { sessionId } = await startRes.parse();
+      // ignores other parameters for discoverable credentials
+      const finishRes = await this.credentialsApi.finishAuthentication(
+        sessionId,
+        userHandle,
+        credential,
+      );
+      if (!finishRes.ok) {
+        throw new PassquitoClientError(
+          'failed to finish authentication',
+          makeCredentialsApiErrorCause(finishRes),
+        );
+      }
+      const tokens = await finishRes.parse();
+      return {
+        publicKeyInfo,
+        tokens,
+      };
     } catch (err) {
+      // wraps any error with PassquitoClientError unless it's already a PassquitoClientError.
+      if (err instanceof PassquitoClientError) {
+        throw err;
+      }
       throw new PassquitoClientError(
-        'invalid discoverable credential request options response',
+        'failed to conduct authentication ceremony',
         makeGenericErrorCause(err),
       );
     }
-    const credential = await navigator.credentials.get({
-      ...options,
-      mediation: 'conditional',
-      signal: abortController.signal,
-    }) as (PublicKeyCredential | null);
-    if (credential == null) {
-      throw new PassquitoClientError('public key credential must be provided');
-    }
-    const publicKeyInfo = extractPublicKeyInfo(credential);
-    const { userHandle } = publicKeyInfo;
-    if (userHandle == null) {
-      throw new PassquitoClientError('authenticator must return userHandle');
-    }
-    const startRes = await this.credentialsApi.startAuthentication(userHandle);
-    if (!startRes.ok) {
-      throw new PassquitoClientError(
-        'failed to start authentication',
-        makeCredentialsApiErrorCause(startRes),
-      );
-    }
-    let sessionId;
-    try {
-      ({ sessionId } = await startRes.parse());
-    } catch (err) {
-      throw new PassquitoClientError(
-        'invalid start authentication response',
-        makeGenericErrorCause(err),
-      );
-    }
-    // ignores other parameters for discoverable credentials
-    const finishRes = await this.credentialsApi.finishAuthentication(
-      sessionId,
-      userHandle,
-      credential,
-    );
-    if (!finishRes.ok) {
-      throw new PassquitoClientError(
-        'failed to finish authentication',
-        makeCredentialsApiErrorCause(finishRes),
-      );
-    }
-    let tokens;
-    try {
-      tokens = await finishRes.parse();
-    } catch (err) {
-      throw new PassquitoClientError(
-        'invalid finish authentication response',
-        makeGenericErrorCause(err),
-      );
-    }
-    return {
-      publicKeyInfo,
-      tokens,
-    };
   }
 
   // conducts an authentication ceremony for a given user with a given
@@ -342,54 +352,49 @@ export class PassquitoClient {
     userId: string,
     abortController: AbortController,
   ) {
-    const startRes = await this.credentialsApi.startAuthentication(userId);
-    if (!startRes.ok) {
-      throw new PassquitoClientError(
-        'failed to start authentication',
-        makeCredentialsApiErrorCause(startRes),
-      );
-    }
-    let session;
     try {
-      session = await startRes.parse();
+      const startRes = await this.credentialsApi.startAuthentication(userId);
+      if (!startRes.ok) {
+        throw new PassquitoClientError(
+          'failed to start authentication',
+          makeCredentialsApiErrorCause(startRes),
+        );
+      }
+      const session = await startRes.parse();
+      const credential = await navigator.credentials.get({
+        ...session.credentialRequestOptions,
+        mediation: 'conditional',
+        signal: abortController.signal,
+      }) as (PublicKeyCredential | null);
+      if (credential == null) {
+        throw new PassquitoClientError('public key credential must be provided');
+      }
+      const finishRes = await this.credentialsApi.finishAuthentication(
+        session.sessionId,
+        userId,
+        credential,
+      );
+      if (!finishRes.ok) {
+        throw new PassquitoClientError(
+          'failed to finish authentication',
+          makeCredentialsApiErrorCause(finishRes),
+        );
+      }
+      const tokens = await finishRes.parse();
+      return {
+        publicKeyInfo: extractPublicKeyInfo(credential),
+        tokens,
+      };
     } catch (err) {
+      // wraps any error with PassquitoClientError unless it's already a PassquitoClientError.
+      if (err instanceof PassquitoClientError) {
+        throw err;
+      }
       throw new PassquitoClientError(
-        'invalid start authentication response',
+        'failed to conduct authentication ceremony for user',
         makeGenericErrorCause(err),
       );
     }
-    const credential = await navigator.credentials.get({
-      ...session.credentialRequestOptions,
-      mediation: 'conditional',
-      signal: abortController.signal,
-    }) as (PublicKeyCredential | null);
-    if (credential == null) {
-      throw new PassquitoClientError('public key credential must be provided');
-    }
-    const finishRes = await this.credentialsApi.finishAuthentication(
-      session.sessionId,
-      userId,
-      credential,
-    );
-    if (!finishRes.ok) {
-      throw new PassquitoClientError(
-        'failed to finish authentication',
-        makeCredentialsApiErrorCause(finishRes),
-      );
-    }
-    let tokens;
-    try {
-      tokens = await finishRes.parse();
-    } catch (err) {
-      throw new PassquitoClientError(
-        'invalid finish authentication response',
-        makeGenericErrorCause(err),
-      );
-    }
-    return {
-      publicKeyInfo: extractPublicKeyInfo(credential),
-      tokens,
-    };
   }
 }
 
