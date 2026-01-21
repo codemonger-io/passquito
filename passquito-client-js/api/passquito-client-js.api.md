@@ -6,9 +6,9 @@
 
 // @beta
 export interface ApiResponse<T> {
-    ok: boolean;
+    readonly ok: boolean;
     parse(): Promise<T>;
-    status: number;
+    readonly status: number;
     text(): Promise<string>;
 }
 

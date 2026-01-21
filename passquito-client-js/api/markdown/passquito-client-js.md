@@ -188,7 +188,7 @@ Description
 
 </td><td>
 
-**_(BETA)_** Error cause related to the Credentials API.
+**_(BETA)_** Error cause related to an HTTP response of the Credentials API.
 
 
 </td></tr>

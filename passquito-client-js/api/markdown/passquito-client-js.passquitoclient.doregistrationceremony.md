@@ -57,7 +57,7 @@ Public key information of the newly registered user.
 
 ## Exceptions
 
-PassquitoClientError -
+PassquitoClientError
 
 When the registration ceremony fails.
 

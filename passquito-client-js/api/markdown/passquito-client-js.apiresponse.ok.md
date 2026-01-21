@@ -12,5 +12,5 @@ Whether the API call has succeeded. See the [\`ok\` property of the Fetch API Re
 **Signature:**
 
 ```typescript
-ok: boolean;
+readonly ok: boolean;
 ```

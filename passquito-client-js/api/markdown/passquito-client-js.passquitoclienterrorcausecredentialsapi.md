@@ -7,13 +7,17 @@
 > This API is provided as a beta preview for developers and may change based on feedback that we receive. Do not use this API in a production environment.
 > 
 
-Error cause related to the Credentials API.
+Error cause related to an HTTP response of the Credentials API.
 
 **Signature:**
 
 ```typescript
 export interface PassquitoClientErrorCauseCredentialsApi 
 ```
+
+## Remarks
+
+A variant of [PassquitoClientErrorCause](./passquito-client-js.passquitoclienterrorcause.md)<!-- -->.
 
 ## Properties
 

@@ -14,3 +14,8 @@ Cause of the error.
 ```typescript
 readonly cause?: PassquitoClientErrorCause;
 ```
+
+## Remarks
+
+Overrides the type of the built-in `cause` property so that users can access `cause` with proper typing.
+
