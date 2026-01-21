@@ -104,7 +104,7 @@ export class PassquitoClientError extends Error {
    * Overrides the type of the built-in `cause` property so that users can
    * access `cause` with proper typing.
    */
-  readonly cause?: PassquitoClientErrorCause;
+  declare readonly cause?: PassquitoClientErrorCause;
 
   constructor(message: string, cause?: PassquitoClientErrorCause) {
     super(message, cause !== undefined ? { cause } : undefined);
