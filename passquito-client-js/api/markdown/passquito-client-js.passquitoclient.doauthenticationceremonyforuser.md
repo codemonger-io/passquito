@@ -60,5 +60,5 @@ string
 
 While the authentication ceremony itself is conducted in an asynchronous manner, this function synchronously returns a function to abort the ceremony and a `Promise` of the credentials.
 
-The `Promise` of the credentials will throw [PassquitoClientError](./passquito-client-js.passquitoclienterror.md) when the authentication ceremony fails.
+The `Promise` of the credentials will reject with [PassquitoClientError](./passquito-client-js.passquitoclienterror.md) when the authentication ceremony fails.
 
