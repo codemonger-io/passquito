@@ -253,8 +253,8 @@ export class PassquitoClient {
    * manner, this function synchronously returns a function to abort the
    * ceremony and a `Promise` of the credentials.
    *
-   * The `Promise` of the credentials will throw {@link PassquitoClientError}
-   * when the authentication ceremony fails.
+   * The `Promise` of the credentials will reject with
+   * {@link PassquitoClientError} when the authentication ceremony fails.
    *
    * Reference:
    * - https://www.w3.org/TR/webauthn-3/#sctn-verifying-assertion
@@ -274,8 +274,8 @@ export class PassquitoClient {
    * manner, this function synchronously returns a function to abort the
    * ceremony and a `Promise` of the credentials.
    *
-   * The `Promise` of the credentials will throw {@link PassquitoClientError}
-   * when the authentication ceremony fails.
+   * The `Promise` of the credentials will reject with
+   * {@link PassquitoClientError} when the authentication ceremony fails.
    */
   doAuthenticationCeremonyForUser(userId: string) {
     return runAbortableAuthentication((abortController) => {
