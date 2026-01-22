@@ -146,8 +146,9 @@ export interface CredentialsApi {
   /**
    * Refreshes the Cognito tokens associated with a given refresh token.
    *
-   * @returns  Refreshed Cognito tokens. `undefined` if the refresh token is
-   *   invalid or expired.
+   * @returns
+   *
+   *   Refreshed Cognito tokens.
    */
-  refreshTokens(refreshToken: string): Promise<ApiResponse<CognitoTokens | undefined>>;
+  refreshTokens(refreshToken: string): Promise<ApiResponse<CognitoTokens>>;
 }
