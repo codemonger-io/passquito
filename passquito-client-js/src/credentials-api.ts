@@ -148,7 +148,9 @@ export interface CredentialsApi {
    *
    * @returns
    *
-   *   Refreshed Cognito tokens.
+   *   {@link ApiResponse} that will be resolved as refreshed Cognito tokens.
+   *   Check the `ok` property to see if the operation has succeeded.
+   *   If not `ok`, check the `status` property for the reason of failure.
    */
   refreshTokens(refreshToken: string): Promise<ApiResponse<CognitoTokens>>;
 }
