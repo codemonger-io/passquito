@@ -53,5 +53,5 @@ string
 
 Promise&lt;[ApiResponse](./passquito-client-js.apiresponse.md)<!-- -->&lt;[CognitoTokens](./passquito-client-js.cognitotokens.md)<!-- -->&gt;&gt;
 
-Refreshed Cognito tokens.
+[ApiResponse](./passquito-client-js.apiresponse.md) that will be resolved as refreshed Cognito tokens. Check the `ok` property to see if the operation has succeeded. If not `ok`<!-- -->, check the `status` property for the reason of failure.
 
