@@ -46,7 +46,7 @@ export interface CredentialsApi {
     finishAuthentication(sessionId: string, userId: string, credential: PublicKeyCredential): Promise<ApiResponse<CognitoTokens>>;
     finishRegistration(sessionId: string, credential: PublicKeyCredential): Promise<ApiResponse<RegisteredUserInfo>>;
     getDiscoverableCredentialRequestOptions(): Promise<ApiResponse<CredentialRequestOptions>>;
-    refreshTokens(refreshToken: string): Promise<ApiResponse<CognitoTokens | undefined>>;
+    refreshTokens(refreshToken: string): Promise<ApiResponse<CognitoTokens>>;
     startAuthentication(userId: string): Promise<ApiResponse<AuthenticationSession>>;
     startRegistration(userInfo: UserInfo): Promise<ApiResponse<RegistrationSession>>;
     startRegistrationForVerifiedUser(userInfo: VerifiedUserInfo): Promise<ApiResponse<RegistrationSession>>;
@@ -63,7 +63,7 @@ export class CredentialsApiImpl implements CredentialsApi {
     // (undocumented)
     getDiscoverableCredentialRequestOptions(): Promise<ApiResponse<CredentialRequestOptions>>;
     // (undocumented)
-    refreshTokens(refreshToken: string): Promise<ApiResponse<CognitoTokens | undefined>>;
+    refreshTokens(refreshToken: string): Promise<ApiResponse<CognitoTokens>>;
     // (undocumented)
     startAuthentication(userId: string): Promise<ApiResponse<{
         sessionId: any;
