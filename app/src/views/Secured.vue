@@ -58,9 +58,6 @@ const refreshTokens = async () => {
     console.error('invalid refresh tokens response:', err);
     return false;
   }
-  if (newTokens == null) {
-    return false;
-  }
   console.log('refreshed tokens:', newTokens);
   credentialStore.saveTokens(newTokens);
   return true;
