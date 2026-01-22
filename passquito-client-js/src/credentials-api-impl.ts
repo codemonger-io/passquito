@@ -156,7 +156,7 @@ export class CredentialsApiImpl implements CredentialsApi {
     return wrapFetchResponse(res, async (res) => {
       const tokens = await res.json();
       if (!isRawCognitoTokens(tokens)) {
-        return undefined;
+        throw new Error('invalid Cognito tokens');
       }
       return activateCognitoTokens(tokens);
     });
