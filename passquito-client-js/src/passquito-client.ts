@@ -7,6 +7,7 @@ import type {
   UserInfo,
   VerifiedUserInfo,
 } from './types';
+import { EventEmitter } from './utils/event-emitter';
 
 /**
  * Cognito tokens and the key info.
@@ -110,6 +111,32 @@ export class PassquitoClientError extends Error {
     super(message, cause !== undefined ? { cause } : undefined);
     this.name = 'PassquitoClientError';
   }
+}
+
+/**
+ * Events emitted during an authentication ceremony.
+ *
+ * @beta
+ */
+export type AuthenticationCeremonyEvent =
+  | 'credential-request-options-obtained'
+  | 'credential-provided'
+  | 'authentication-ceremony-finished';
+
+/**
+ * Authentication ceremony.
+ *
+ * @beta
+ */
+export interface AuthenticationCeremony {
+  /** Promise for the credentials. */
+  credentials: Promise<Credentials>;
+
+  /** Function to abort the ceremony. */
+  abort: () => void;
+
+  /** Event emitter to monitor the progress. */
+  eventEmitter: EventEmitter<AuthenticationCeremonyEvent>;
 }
 
 /**
@@ -251,7 +278,8 @@ export class PassquitoClient {
    *
    * While the authentication ceremony itself is conducted in an asynchronous
    * manner, this function synchronously returns a function to abort the
-   * ceremony and a `Promise` of the credentials.
+   * ceremony, an event emitter to monitor the progress, and a `Promise` of the
+   * credentials.
    *
    * The `Promise` of the credentials will reject with
    * {@link PassquitoClientError} when the authentication ceremony fails.
@@ -259,9 +287,9 @@ export class PassquitoClient {
    * Reference:
    * - https://www.w3.org/TR/webauthn-3/#sctn-verifying-assertion
    */
-  doAuthenticationCeremony() {
-    return runAbortableAuthentication((abortController) => {
-      return this.doAbortableAuthenticationCeremony(abortController);
+  doAuthenticationCeremony(): AuthenticationCeremony {
+    return runAbortableAuthentication((abortController, eventEmitter) => {
+      return this.doAbortableAuthenticationCeremony(abortController, eventEmitter);
     });
   }
 
@@ -272,20 +300,22 @@ export class PassquitoClient {
    *
    * While the authentication ceremony itself is conducted in an asynchronous
    * manner, this function synchronously returns a function to abort the
-   * ceremony and a `Promise` of the credentials.
+   * ceremony, an event emitter to monitor the progress, and a `Promise` of the
+   * credentials.
    *
    * The `Promise` of the credentials will reject with
    * {@link PassquitoClientError} when the authentication ceremony fails.
    */
-  doAuthenticationCeremonyForUser(userId: string) {
-    return runAbortableAuthentication((abortController) => {
-      return this.doAbortableAuthenticationCeremonyForUser(userId, abortController);
+  doAuthenticationCeremonyForUser(userId: string): AuthenticationCeremony {
+    return runAbortableAuthentication((abortController, eventEmitter) => {
+      return this.doAbortableAuthenticationCeremonyForUser(userId, abortController, eventEmitter);
     });
   }
 
   // conducts an authentication ceremony with a given AbortController.
   private async doAbortableAuthenticationCeremony(
     abortController: AbortController,
+    eventEmitter: EventEmitter<AuthenticationCeremonyEvent>,
   ) {
     try {
       const getOptionsRes = await this.credentialsApi.getDiscoverableCredentialRequestOptions();
@@ -296,6 +326,8 @@ export class PassquitoClient {
         );
       }
       const options = await getOptionsRes.parse();
+      eventEmitter.emit('credential-request-options-obtained');
+
       const credential = await navigator.credentials.get({
         ...options,
         mediation: 'conditional',
@@ -309,6 +341,8 @@ export class PassquitoClient {
       if (userHandle == null) {
         throw new PassquitoClientError('authenticator must return userHandle');
       }
+      eventEmitter.emit('credential-provided');
+
       const startRes = await this.credentialsApi.startAuthentication(userHandle);
       if (!startRes.ok) {
         throw new PassquitoClientError(
@@ -330,6 +364,8 @@ export class PassquitoClient {
         );
       }
       const tokens = await finishRes.parse();
+      eventEmitter.emit('authentication-ceremony-finished');
+
       return {
         publicKeyInfo,
         tokens,
@@ -351,6 +387,7 @@ export class PassquitoClient {
   private async doAbortableAuthenticationCeremonyForUser(
     userId: string,
     abortController: AbortController,
+    eventEmitter: EventEmitter<AuthenticationCeremonyEvent>,
   ) {
     try {
       const startRes = await this.credentialsApi.startAuthentication(userId);
@@ -361,6 +398,8 @@ export class PassquitoClient {
         );
       }
       const session = await startRes.parse();
+      eventEmitter.emit('credential-request-options-obtained');
+
       const credential = await navigator.credentials.get({
         ...session.credentialRequestOptions,
         mediation: 'conditional',
@@ -369,6 +408,8 @@ export class PassquitoClient {
       if (credential == null) {
         throw new PassquitoClientError('public key credential must be provided');
       }
+      eventEmitter.emit('credential-provided');
+
       const finishRes = await this.credentialsApi.finishAuthentication(
         session.sessionId,
         userId,
@@ -381,6 +422,8 @@ export class PassquitoClient {
         );
       }
       const tokens = await finishRes.parse();
+      eventEmitter.emit('authentication-ceremony-finished');
+
       return {
         publicKeyInfo: extractPublicKeyInfo(credential),
         tokens,
@@ -403,10 +446,11 @@ export class PassquitoClient {
 // this function synchronously returns a function to abort the operation and
 // a `Promise` of the credentials.
 function runAbortableAuthentication(
-  authenticate: (a: AbortController) => Promise<Credentials>,
+  authenticate: (a: AbortController, e: EventEmitter<AuthenticationCeremonyEvent>) => Promise<Credentials>,
 ) {
   let abortController: AbortController | undefined = new AbortController();
-  const credentials = authenticate(abortController).finally(() => {
+  const eventEmitter = new EventEmitter<AuthenticationCeremonyEvent>();
+  const credentials = authenticate(abortController, eventEmitter).finally(() => {
     abortController = undefined;
   });
   return {
@@ -417,6 +461,7 @@ function runAbortableAuthentication(
       }
     },
     credentials,
+    eventEmitter,
   };
 }
 
