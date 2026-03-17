@@ -18,14 +18,17 @@ export class EventEmitter<T> {
   }
 
   /**
-   * Emits a given emit.
+   * Emits a given event.
    *
    * @beta
    */
   emit(event: T): void {
-    for (const listener of this.listeners) {
-      listener(event);
-    }
+    try {
+      const listeners = [...this.listeners];
+      for (const listener of listeners) {
+        listener(event);
+      }
+    } catch (_) {}
   }
 
   /**
