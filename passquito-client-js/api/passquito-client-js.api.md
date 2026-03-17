@@ -16,7 +16,6 @@ export interface ApiResponse<T> {
 export interface AuthenticationCeremony {
     abort: () => void;
     credentials: Promise<Credentials>;
-    // Warning: (ae-forgotten-export) The symbol "EventEmitter" needs to be exported by the entry point index.d.ts
     eventEmitter: EventEmitter<AuthenticationCeremonyEvent>;
 }
 
@@ -91,6 +90,17 @@ export class CredentialsApiImpl implements CredentialsApi {
         credentialCreationOptions: CredentialCreationOptions;
     }>>;
 }
+
+// @beta
+export class EventEmitter<T> {
+    constructor();
+    addListener(listener: EventListener_2<T>): void;
+    emit(event: T): void;
+}
+
+// @beta
+type EventListener_2<T> = (event: T) => void;
+export { EventListener_2 as EventListener }
 
 // @beta
 export function isCognitoTokens(value: unknown): value is CognitoTokens;

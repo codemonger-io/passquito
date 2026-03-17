@@ -32,6 +32,17 @@ Description
 </td></tr>
 <tr><td>
 
+[EventEmitter](./passquito-client-js.eventemitter.md)
+
+
+</td><td>
+
+**_(BETA)_** Simple event emitter.
+
+
+</td></tr>
+<tr><td>
+
 [PassquitoClient](./passquito-client-js.passquitoclient.md)
 
 
@@ -292,6 +303,17 @@ Description
 </td><td>
 
 **_(BETA)_** Events emitted during an authentication ceremony.
+
+
+</td></tr>
+<tr><td>
+
+[EventListener\_2](./passquito-client-js.eventlistener_2.md)
+
+
+</td><td>
+
+**_(BETA)_** Event listener.
 
 
 </td></tr>
