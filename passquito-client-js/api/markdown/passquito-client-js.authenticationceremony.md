@@ -86,7 +86,7 @@ Promise&lt;[Credentials](./passquito-client-js.credentials.md)<!-- -->&gt;
 
 </td><td>
 
-EventEmitter&lt;[AuthenticationCeremonyEvent](./passquito-client-js.authenticationceremonyevent.md)<!-- -->&gt;
+[EventEmitter](./passquito-client-js.eventemitter.md)<!-- -->&lt;[AuthenticationCeremonyEvent](./passquito-client-js.authenticationceremonyevent.md)<!-- -->&gt;
 
 
 </td><td>
