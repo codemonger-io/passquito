@@ -1,6 +1,6 @@
 {
   "name": "@codemonger-io/passquito-client-js",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "description": "Passquito client for JavaScript on browsers",
   "license": "MIT",
   "author": "Kikuo Emoto <kemoto@codemonger.io>",
