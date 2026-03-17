@@ -13,6 +13,17 @@ export interface ApiResponse<T> {
 }
 
 // @beta
+export interface AuthenticationCeremony {
+    abort: () => void;
+    credentials: Promise<Credentials>;
+    // Warning: (ae-forgotten-export) The symbol "EventEmitter" needs to be exported by the entry point index.d.ts
+    eventEmitter: EventEmitter<AuthenticationCeremonyEvent>;
+}
+
+// @beta
+export type AuthenticationCeremonyEvent = 'credential-request-options-obtained' | 'credential-provided' | 'authentication-ceremony-finished';
+
+// @beta
 export interface AuthenticationSession {
     credentialRequestOptions: CredentialRequestOptions;
     sessionId: string;
@@ -90,14 +101,8 @@ export function isPublicKeyInfo(value: unknown): value is PublicKeyInfo;
 // @beta
 export class PassquitoClient {
     constructor(credentialsApi: CredentialsApi);
-    doAuthenticationCeremony(): {
-        abort: () => void;
-        credentials: Promise<Credentials>;
-    };
-    doAuthenticationCeremonyForUser(userId: string): {
-        abort: () => void;
-        credentials: Promise<Credentials>;
-    };
+    doAuthenticationCeremony(): AuthenticationCeremony;
+    doAuthenticationCeremonyForUser(userId: string): AuthenticationCeremony;
     doRegistrationCeremony(userInfo: UserInfo): Promise<PublicKeyInfo>;
     doRegistrationCeremonyForVerifiedUser(userInfo: VerifiedUserInfo): Promise<PublicKeyInfo>;
 }
