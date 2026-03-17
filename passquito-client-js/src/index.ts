@@ -9,3 +9,4 @@ export * from './credentials-api-impl';
 export * from './passkey';
 export * from './passquito-client';
 export * from './types';
+export * from './utils/event-emitter';
