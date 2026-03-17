@@ -316,7 +316,7 @@ export class PassquitoClient {
   private async doAbortableAuthenticationCeremony(
     abortController: AbortController,
     eventEmitter: EventEmitter<AuthenticationCeremonyEvent>,
-  ) {
+  ): Promise<Credentials> {
     try {
       const getOptionsRes = await this.credentialsApi.getDiscoverableCredentialRequestOptions();
       if (!getOptionsRes.ok) {
@@ -388,7 +388,7 @@ export class PassquitoClient {
     userId: string,
     abortController: AbortController,
     eventEmitter: EventEmitter<AuthenticationCeremonyEvent>,
-  ) {
+  ): Promise<Credentials> {
     try {
       const startRes = await this.credentialsApi.startAuthentication(userId);
       if (!startRes.ok) {
@@ -447,7 +447,7 @@ export class PassquitoClient {
 // a `Promise` of the credentials.
 function runAbortableAuthentication(
   authenticate: (a: AbortController, e: EventEmitter<AuthenticationCeremonyEvent>) => Promise<Credentials>,
-) {
+): AuthenticationCeremony {
   let abortController: AbortController | undefined = new AbortController();
   const eventEmitter = new EventEmitter<AuthenticationCeremonyEvent>();
   const credentials = authenticate(abortController, eventEmitter).finally(() => {
