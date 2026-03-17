@@ -139,6 +139,17 @@ Description
 </td></tr>
 <tr><td>
 
+[AuthenticationCeremony](./passquito-client-js.authenticationceremony.md)
+
+
+</td><td>
+
+**_(BETA)_** Authentication ceremony.
+
+
+</td></tr>
+<tr><td>
+
 [AuthenticationSession](./passquito-client-js.authenticationsession.md)
 
 
@@ -274,6 +285,17 @@ Description
 
 </th></tr></thead>
 <tbody><tr><td>
+
+[AuthenticationCeremonyEvent](./passquito-client-js.authenticationceremonyevent.md)
+
+
+</td><td>
+
+**_(BETA)_** Events emitted during an authentication ceremony.
+
+
+</td></tr>
+<tr><td>
 
 [PassquitoClientErrorCause](./passquito-client-js.passquitoclienterrorcause.md)
 

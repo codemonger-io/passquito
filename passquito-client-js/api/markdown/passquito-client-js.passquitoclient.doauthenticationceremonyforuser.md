@@ -12,10 +12,7 @@ Conducts an authentication ceremony for a given user.
 **Signature:**
 
 ```typescript
-doAuthenticationCeremonyForUser(userId: string): {
-        abort: () => void;
-        credentials: Promise<Credentials>;
-    };
+doAuthenticationCeremonyForUser(userId: string): AuthenticationCeremony;
 ```
 
 ## Parameters
@@ -54,11 +51,11 @@ string
 
 **Returns:**
 
-{ abort: () =&gt; void; credentials: Promise&lt;[Credentials](./passquito-client-js.credentials.md)<!-- -->&gt;; }
+[AuthenticationCeremony](./passquito-client-js.authenticationceremony.md)
 
 ## Remarks
 
-While the authentication ceremony itself is conducted in an asynchronous manner, this function synchronously returns a function to abort the ceremony and a `Promise` of the credentials.
+While the authentication ceremony itself is conducted in an asynchronous manner, this function synchronously returns a function to abort the ceremony, an event emitter to monitor the progress, and a `Promise` of the credentials.
 
 The `Promise` of the credentials will reject with [PassquitoClientError](./passquito-client-js.passquitoclienterror.md) when the authentication ceremony fails.
 
