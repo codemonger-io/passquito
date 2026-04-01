@@ -2,15 +2,19 @@
 
 [Home](./index.md) &gt; [@codemonger-io/passquito-client-js](./passquito-client-js.md) &gt; [defaultCredentialsContainerProxy](./passquito-client-js.defaultcredentialscontainerproxy.md)
 
-## defaultCredentialsContainerProxy variable
+## defaultCredentialsContainerProxy() function
 
 > This API is provided as a beta preview for developers and may change based on feedback that we receive. Do not use this API in a production environment.
 > 
 
-Default implementation of [CredentialsContainerProxy](./passquito-client-js.credentialscontainerproxy.md)<!-- -->.
+Returns a default implementation of [CredentialsContainerProxy](./passquito-client-js.credentialscontainerproxy.md)<!-- -->.
 
 **Signature:**
 
 ```typescript
-defaultCredentialsContainerProxy: CredentialsContainerProxy
+defaultCredentialsContainerProxy: () => CredentialsContainerProxy
 ```
+**Returns:**
+
+[CredentialsContainerProxy](./passquito-client-js.credentialscontainerproxy.md)
+

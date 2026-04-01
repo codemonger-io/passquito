@@ -98,10 +98,10 @@ export interface CredentialsContainerProxy {
 }
 
 // @beta
-export const credentialsContainerProxyWithConditionalMediation: CredentialsContainerProxy;
+export const credentialsContainerProxyWithConditionalMediation: () => CredentialsContainerProxy;
 
 // @beta
-export const defaultCredentialsContainerProxy: CredentialsContainerProxy;
+export const defaultCredentialsContainerProxy: () => CredentialsContainerProxy;
 
 // @beta
 export class EventEmitter<T> {
