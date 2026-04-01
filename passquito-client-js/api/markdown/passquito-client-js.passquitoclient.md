@@ -35,7 +35,7 @@ Description
 </th></tr></thead>
 <tbody><tr><td>
 
-[(constructor)(credentialsApi)](./passquito-client-js.passquitoclient._constructor_.md)
+[(constructor)(credentialsApi, credentialsContainer)](./passquito-client-js.passquitoclient._constructor_.md)
 
 
 </td><td>

@@ -92,6 +92,18 @@ export class CredentialsApiImpl implements CredentialsApi {
 }
 
 // @beta
+export interface CredentialsContainerProxy {
+    create(options: CredentialCreationOptions): Promise<Credential | null>;
+    get(options: CredentialRequestOptions): Promise<Credential | null>;
+}
+
+// @beta
+export const credentialsContainerProxyWithConditionalMediation: CredentialsContainerProxy;
+
+// @beta
+export const defaultCredentialsContainerProxy: CredentialsContainerProxy;
+
+// @beta
 export class EventEmitter<T> {
     constructor();
     addListener(listener: EventListener_2<T>): void;
@@ -110,7 +122,7 @@ export function isPublicKeyInfo(value: unknown): value is PublicKeyInfo;
 
 // @beta
 export class PassquitoClient {
-    constructor(credentialsApi: CredentialsApi);
+    constructor(credentialsApi: CredentialsApi, credentialsContainer?: CredentialsContainerProxy);
     doAuthenticationCeremony(): AuthenticationCeremony;
     doAuthenticationCeremonyForUser(userId: string): AuthenticationCeremony;
     doRegistrationCeremony(userInfo: UserInfo): Promise<PublicKeyInfo>;

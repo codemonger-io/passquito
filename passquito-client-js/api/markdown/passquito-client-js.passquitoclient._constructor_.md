@@ -12,7 +12,7 @@ Initializes with a given [CredentialsApi](./passquito-client-js.credentialsapi.m
 **Signature:**
 
 ```typescript
-constructor(credentialsApi: CredentialsApi);
+constructor(credentialsApi: CredentialsApi, credentialsContainer?: CredentialsContainerProxy);
 ```
 
 ## Parameters
@@ -46,6 +46,22 @@ credentialsApi
 </td><td>
 
 Credentials API access.
+
+
+</td></tr>
+<tr><td>
+
+credentialsContainer
+
+
+</td><td>
+
+[CredentialsContainerProxy](./passquito-client-js.credentialscontainerproxy.md)
+
+
+</td><td>
+
+_(Optional)_
 
 
 </td></tr>
