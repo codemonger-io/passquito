@@ -11,8 +11,7 @@ import { getErrorName } from '../utils/errors';
 
 // router
 //
-// navigation:
-// goes back to the previous page in the history after the user signs in.
+// navigation: jumps to the secured page after the user signs in.
 const router = useRouter();
 
 // passkey capabilities
