@@ -1,9 +1,8 @@
 <script setup lang="ts">
-import { BButton, BField, BInput } from 'buefy';
-import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { BButton } from 'buefy';
+import { onBeforeUnmount, onMounted, ref } from 'vue';
 import { RouterLink, useRouter } from 'vue-router';
 
-import { useWebauthn } from '../composables/webauthn';
 import { useCredentialStore } from '../stores/credential';
 import { usePasskeyCapabilityStore } from '../stores/passkey-capability';
 import { usePassquitoClientStore } from '../stores/passquito-client';
@@ -86,11 +85,7 @@ onBeforeUnmount(() => {
       <div class="login-form-header">
         <router-link :to="{ name: 'home' }">Sign up</router-link>
       </div>
-      <b-button
-        type="is-primary"
-        @click="signIn"
-        :disabled="!passkeyCapabilityStore.isAuthenticationSupported"
-      >
+      <b-button type="is-primary" @click="signIn">
         Sign in with a passkey
       </b-button>
     </div>
