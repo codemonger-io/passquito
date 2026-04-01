@@ -140,6 +140,44 @@ export interface AuthenticationCeremony {
 }
 
 /**
+ * Proxy for `CredentialsContainer`.
+ *
+ * @beta
+ */
+export interface CredentialsContainerProxy {
+  /** Proxy for `navigator.credentials.create`. */
+  create(options: CredentialCreationOptions): Promise<Credential | null>;
+
+  /** Proxy for `navigator.credentials.get`. */
+  get(options: CredentialRequestOptions): Promise<Credential | null>;
+}
+
+/**
+ * Default implementation of {@link CredentialsContainerProxy}.
+ *
+ * @beta
+ */
+export const defaultCredentialsContainerProxy: CredentialsContainerProxy =
+  navigator.credentials;
+
+/**
+ * {@link CredentialsContainerProxy} for the conditional mediation.
+ *
+ * @beta
+ */
+export const credentialsContainerProxyWithConditionalMediation: CredentialsContainerProxy = {
+  get(options) {
+    return navigator.credentials.get({
+      ...options,
+      mediation: 'conditional',
+    });
+  },
+  create(options) {
+    return navigator.credentials.create(options);
+  },
+}
+
+/**
  * Passquito client.
  *
  * @beta
@@ -149,8 +187,17 @@ export class PassquitoClient {
    * Initializes with a given {@link CredentialsApi} instance.
    *
    * @param credentialsApi - Credentials API access.
+   *
+   * @param getCredential -
+   *
+   *   Optional function to get a public key credential from the user agent.
+   *   Specify this if you want to customize the call to the
+   *   `navigator.credentials.get` function.
    */
-  constructor(private readonly credentialsApi: CredentialsApi) {}
+  constructor(
+    private readonly credentialsApi: CredentialsApi,
+    private readonly credentialsContainer: CredentialsContainerProxy = defaultCredentialsContainerProxy,
+  ) {}
 
   /**
    * Conducts a registration ceremony.
@@ -236,7 +283,7 @@ export class PassquitoClient {
   // runs a given registration session.
   private async runRegistrationSession(session: RegistrationSession): Promise<PublicKeyInfo> {
     try {
-      const credential = await navigator.credentials.create(
+      const credential = await this.credentialsContainer.create(
         session.credentialCreationOptions,
       ) as (PublicKeyCredential | null);
       if (credential == null) {
@@ -328,9 +375,8 @@ export class PassquitoClient {
       const options = await getOptionsRes.parse();
       eventEmitter.emit('credential-request-options-obtained');
 
-      const credential = await navigator.credentials.get({
+      const credential = await this.credentialsContainer.get({
         ...options,
-        mediation: 'conditional',
         signal: abortController.signal,
       }) as (PublicKeyCredential | null);
       if (credential == null) {
@@ -400,9 +446,8 @@ export class PassquitoClient {
       const session = await startRes.parse();
       eventEmitter.emit('credential-request-options-obtained');
 
-      const credential = await navigator.credentials.get({
+      const credential = await this.credentialsContainer.get({
         ...session.credentialRequestOptions,
-        mediation: 'conditional',
         signal: abortController.signal,
       }) as (PublicKeyCredential | null);
       if (credential == null) {
