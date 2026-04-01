@@ -91,7 +91,7 @@ Description
 
 </td><td>
 
-**_(BETA)_** Emits a given emit.
+**_(BETA)_** Emits a given event.
 
 
 </td></tr>
