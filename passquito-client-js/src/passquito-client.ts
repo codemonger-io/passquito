@@ -158,7 +158,10 @@ export interface CredentialsContainerProxy {
  * @beta
  */
 export const defaultCredentialsContainerProxy =
-  (): CredentialsContainerProxy => navigator.credentials;
+  (): CredentialsContainerProxy => ({
+    get: (options) => navigator.credentials.get(options),
+    create: (options) => navigator.credentials.create(options),
+  });
 
 /**
  * Returns a {@link CredentialsContainerProxy} for the conditional mediation.
@@ -167,15 +170,11 @@ export const defaultCredentialsContainerProxy =
  */
 export const credentialsContainerProxyWithConditionalMediation =
   (): CredentialsContainerProxy => ({
-    get(options) {
-      return navigator.credentials.get({
-        ...options,
-        mediation: 'conditional',
-      });
-    },
-    create(options) {
-      return navigator.credentials.create(options);
-    },
+    get: (options) => navigator.credentials.get({
+      ...options,
+      mediation: 'conditional',
+    }),
+    create: (options) => navigator.credentials.create(options),
   });
 
 /**
