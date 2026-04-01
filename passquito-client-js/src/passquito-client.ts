@@ -153,29 +153,30 @@ export interface CredentialsContainerProxy {
 }
 
 /**
- * Default implementation of {@link CredentialsContainerProxy}.
+ * Returns a default implementation of {@link CredentialsContainerProxy}.
  *
  * @beta
  */
-export const defaultCredentialsContainerProxy: CredentialsContainerProxy =
-  navigator.credentials;
+export const defaultCredentialsContainerProxy =
+  (): CredentialsContainerProxy => navigator.credentials;
 
 /**
- * {@link CredentialsContainerProxy} for the conditional mediation.
+ * Returns a {@link CredentialsContainerProxy} for the conditional mediation.
  *
  * @beta
  */
-export const credentialsContainerProxyWithConditionalMediation: CredentialsContainerProxy = {
-  get(options) {
-    return navigator.credentials.get({
-      ...options,
-      mediation: 'conditional',
-    });
-  },
-  create(options) {
-    return navigator.credentials.create(options);
-  },
-}
+export const credentialsContainerProxyWithConditionalMediation =
+  (): CredentialsContainerProxy => ({
+    get(options) {
+      return navigator.credentials.get({
+        ...options,
+        mediation: 'conditional',
+      });
+    },
+    create(options) {
+      return navigator.credentials.create(options);
+    },
+  });
 
 /**
  * Passquito client.
@@ -183,21 +184,24 @@ export const credentialsContainerProxyWithConditionalMediation: CredentialsConta
  * @beta
  */
 export class PassquitoClient {
+  private readonly credentialsContainer: CredentialsContainerProxy;
+
   /**
    * Initializes with a given {@link CredentialsApi} instance.
    *
    * @param credentialsApi - Credentials API access.
    *
-   * @param getCredential -
+   * @param credentialsContainer -
    *
-   *   Optional function to get a public key credential from the user agent.
-   *   Specify this if you want to customize the call to the
-   *   `navigator.credentials.get` function.
+   *   Optional proxy for `CredentialsContainer`. Initialized with
+   *   {@link defaultCredentialsContainerProxy} by default.
    */
   constructor(
     private readonly credentialsApi: CredentialsApi,
-    private readonly credentialsContainer: CredentialsContainerProxy = defaultCredentialsContainerProxy,
-  ) {}
+    credentialsContainer?: CredentialsContainerProxy,
+  ) {
+    this.credentialsContainer = credentialsContainer ?? defaultCredentialsContainerProxy();
+  }
 
   /**
    * Conducts a registration ceremony.
