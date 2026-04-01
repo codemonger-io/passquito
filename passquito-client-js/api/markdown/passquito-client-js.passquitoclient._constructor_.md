@@ -61,7 +61,7 @@ credentialsContainer
 
 </td><td>
 
-_(Optional)_
+_(Optional)_ Optional proxy for `CredentialsContainer`<!-- -->. Initialized with [defaultCredentialsContainerProxy()](./passquito-client-js.defaultcredentialscontainerproxy.md) by default.
 
 
 </td></tr>

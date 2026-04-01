@@ -102,6 +102,28 @@ Description
 </td></tr>
 <tr><td>
 
+[credentialsContainerProxyWithConditionalMediation()](./passquito-client-js.credentialscontainerproxywithconditionalmediation.md)
+
+
+</td><td>
+
+**_(BETA)_** Returns a [CredentialsContainerProxy](./passquito-client-js.credentialscontainerproxy.md) for the conditional mediation.
+
+
+</td></tr>
+<tr><td>
+
+[defaultCredentialsContainerProxy()](./passquito-client-js.defaultcredentialscontainerproxy.md)
+
+
+</td><td>
+
+**_(BETA)_** Returns a default implementation of [CredentialsContainerProxy](./passquito-client-js.credentialscontainerproxy.md)<!-- -->.
+
+
+</td></tr>
+<tr><td>
+
 [isCognitoTokens(value)](./passquito-client-js.iscognitotokens.md)
 
 
@@ -288,43 +310,6 @@ Description
 </td><td>
 
 **_(BETA)_** Information on a verified user who bears an ID token.
-
-
-</td></tr>
-</tbody></table>
-
-## Variables
-
-<table><thead><tr><th>
-
-Variable
-
-
-</th><th>
-
-Description
-
-
-</th></tr></thead>
-<tbody><tr><td>
-
-[credentialsContainerProxyWithConditionalMediation](./passquito-client-js.credentialscontainerproxywithconditionalmediation.md)
-
-
-</td><td>
-
-**_(BETA)_** [CredentialsContainerProxy](./passquito-client-js.credentialscontainerproxy.md) for the conditional mediation.
-
-
-</td></tr>
-<tr><td>
-
-[defaultCredentialsContainerProxy](./passquito-client-js.defaultcredentialscontainerproxy.md)
-
-
-</td><td>
-
-**_(BETA)_** Default implementation of [CredentialsContainerProxy](./passquito-client-js.credentialscontainerproxy.md)<!-- -->.
 
 
 </td></tr>

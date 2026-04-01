@@ -2,15 +2,19 @@
 
 [Home](./index.md) &gt; [@codemonger-io/passquito-client-js](./passquito-client-js.md) &gt; [credentialsContainerProxyWithConditionalMediation](./passquito-client-js.credentialscontainerproxywithconditionalmediation.md)
 
-## credentialsContainerProxyWithConditionalMediation variable
+## credentialsContainerProxyWithConditionalMediation() function
 
 > This API is provided as a beta preview for developers and may change based on feedback that we receive. Do not use this API in a production environment.
 > 
 
-[CredentialsContainerProxy](./passquito-client-js.credentialscontainerproxy.md) for the conditional mediation.
+Returns a [CredentialsContainerProxy](./passquito-client-js.credentialscontainerproxy.md) for the conditional mediation.
 
 **Signature:**
 
 ```typescript
-credentialsContainerProxyWithConditionalMediation: CredentialsContainerProxy
+credentialsContainerProxyWithConditionalMediation: () => CredentialsContainerProxy
 ```
+**Returns:**
+
+[CredentialsContainerProxy](./passquito-client-js.credentialscontainerproxy.md)
+
