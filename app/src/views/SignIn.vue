@@ -24,73 +24,57 @@ const passquitoClientStore = usePassquitoClientStore();
 // credential
 const credentialStore = useCredentialStore();
 
-// passkey input field which gets focused when mounted.
-const passkeyInput = ref<InstanceType<typeof BInput>>();
-watch(passkeyInput, (input) => {
-  if (input) {
-    input.focus();
-  }
-});
-
 // checks if passkey authentication is supported.
 onMounted(() => {
   passkeyCapabilityStore.askForCapabilities();
 });
 
-// performs an authentication ceremony if passkeys are supported.
-//
-// if authenticated, saves the tokens in the local storage and navigates to
-// the secured page.
-// otherwise, navigates to the sign-up page unless it has been aborted.
 const abortAuthentication = ref<(message: string) => void>(() => {});
-watch(
-  () => passkeyCapabilityStore.isAuthenticationSupported,
-  async (isSupported) => {
-    if (!isSupported) {
-      if (!passkeyCapabilityStore.isIndeterminate) {
-        console.error("passkeys are not supported on this device");
-      }
-      return;
+
+const signIn = async () => {
+  if (!passkeyCapabilityStore.isAuthenticationSupported) {
+    if (!passkeyCapabilityStore.isIndeterminate) {
+      console.error("passkeys are not supported on this device");
     }
-    abortAuthentication.value('starting authentication');
-    const userId = credentialStore.userId;
-    const { abort, credentials: futureCredentials } = userId != null
-      ? passquitoClientStore.client.doAuthenticationCeremonyForUser(userId)
-      : passquitoClientStore.client.doAuthenticationCeremony();
-    abortAuthentication.value = abort;
-    try {
-      const { publicKeyInfo, tokens } = await futureCredentials;
-      console.log('authenticated:', publicKeyInfo, tokens);
-      credentialStore.savePublicKeyInfo(publicKeyInfo);
-      credentialStore.saveTokens(tokens);
-      router.back();
-    } catch (err) {
-      switch (getErrorName(err)) {
-        case 'AbortError':
-          console.log('authentication aborted:', err);
-          break;
-        case 'NotAllowedError':
-          console.error(err);
-          router.push({
-            name: 'home',
-            query: {
-              message: 'Failed to authenticate. The credential request was denied or sent to a wrong relying party.',
-            },
-          });
-          break;
-        default:
-          console.error(err);
-          router.push({
-            name: 'home',
-            query: {
-              message: 'Failed to authenticate. Would like to register a new passkey?',
-            },
-          });
-      }
+    return;
+  }
+  abortAuthentication.value('starting authentication');
+  const userId = credentialStore.userId;
+  const { abort, credentials: futureCredentials } = userId != null
+    ? passquitoClientStore.client.doAuthenticationCeremonyForUser(userId)
+    : passquitoClientStore.client.doAuthenticationCeremony();
+  abortAuthentication.value = abort;
+  try {
+    const { publicKeyInfo, tokens } = await futureCredentials;
+    console.log('authenticated:', publicKeyInfo, tokens);
+    credentialStore.savePublicKeyInfo(publicKeyInfo);
+    credentialStore.saveTokens(tokens);
+    router.push({ name: 'secured' });
+  } catch (err) {
+    switch (getErrorName(err)) {
+      case 'AbortError':
+        console.log('authentication aborted:', err);
+        break;
+      case 'NotAllowedError':
+        console.error(err);
+        router.push({
+          name: 'home',
+          query: {
+            message: 'Failed to authenticate. The credential request was denied or sent to a wrong relying party.',
+          },
+        });
+        break;
+      default:
+        console.error(err);
+        router.push({
+          name: 'home',
+          query: {
+            message: 'Failed to authenticate. Would like to register a new passkey?',
+          },
+        });
     }
-  },
-  { immediate: true },
-);
+  }
+};
 
 onBeforeUnmount(() => {
   abortAuthentication.value('leaving page');
@@ -103,14 +87,13 @@ onBeforeUnmount(() => {
       <div class="login-form-header">
         <router-link :to="{ name: 'home' }">Sign up</router-link>
       </div>
-      <b-field label="Sign in with a passkey">
-        <b-input
-          ref="passkeyInput"
-          autocomplete="username webauthn"
-          placeholder="Choose a passkey"
-        >
-        </b-input>
-      </b-field>
+      <b-button
+        type="is-primary"
+        @click="signIn"
+        :disabled="!passkeyCapabilityStore.isAuthenticationSupported"
+      >
+        Sign in with a passkey
+      </b-button>
     </div>
     <p v-else-if="passkeyCapabilityStore.isIndeterminate">
       Checking if passkey authentication is supported on this device...
