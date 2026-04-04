@@ -100,7 +100,10 @@ async fn start_authentication(
     shared_state: Arc<SharedState>,
 ) -> Result<RequestChallengeResponse, ErrorResponse> {
     info!("start_authentication");
-    let (rcr, auth_state) = shared_state.webauthn.start_discoverable_authentication()?;
+    let (mut rcr, auth_state) = shared_state.webauthn.start_discoverable_authentication()?;
+    // resets the mediation field, as `webauthn-rs` sets it to "conditional"
+    // that users of this library might not expect
+    rcr.mediation = None;
     let ttl = DateTime::from(SystemTime::now() + shared_state.authentication_timeout).secs();
     info!("putting authentication session: {}", base64url.encode(&rcr.public_key.challenge));
     shared_state.dynamodb
